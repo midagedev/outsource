@@ -12,8 +12,9 @@
 |---|---|---|---|
 | **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 **두 하네스** 중 하나로 — 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
 | **grok-4.6** — 예외 | `grok` CLI | GLM이 구조적으로 못 하는 것: **비전 판정**, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
+| **ox-alpha** — OpenRouter stealth | opencode CLI, `bin/outsource-run.sh --provider openrouter` | 스펙으로 쓸 수 있는 라운드와 **read 도구를 통한 비전**(실측: 빨간 PNG를 지정하자 "Red") ; stealth 동안 `step_finish.cost`는 0 | stealth 모델의 정체/한도는 예고 없이 바뀔 수 있음 |
 
-프로바이더 추가는 코드 분기가 아니라 **테이블 한 줄**(base URL, 기본 모델, 비전 가능 여부)과 `bin/credential.sh`의 키 해석 한 줄입니다. 두 자리 모두 단일 소유자입니다.
+Anthropic 호환 프로바이더(zai, xai)는 **테이블 한 줄**(base URL, 기본 모델, 비전)과 `bin/credential.sh`의 키 해석입니다. 자체 CLI와 인증 저장소를 가져오는 프로바이더(opencode의 openrouter)는 URL이 비어 있는 테이블 한 줄, 전용 하네스, cred 행 없음 — 로그인은 opencode가 이미 갖고 있습니다.
 
 위임이 벌어지는 동안 그걸 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)도 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
 
@@ -38,7 +39,7 @@ cd outsource
 ./install.sh --project  # 프로젝트 스코프: ./.claude/skills/outsource/
 ```
 
-[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — 인증된 `grok` CLI, 그리고/또는 z.ai 코딩플랜 키.
+[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — 인증된 `grok` CLI, z.ai 코딩플랜 키, 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter).
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 
@@ -91,7 +92,7 @@ orphan   docs-sweep       xai    crush     1h07m   /tmp/sp/spec-docs.md
 ⏳frozen  zai·crush 22m ⋯14m     # 22분 중 14분이 침묵 — 로그를 볼 것
 ```
 
-이 둘이 실제 판별점입니다. 경과시간 규칙이었다면 **멀쩡한 101분짜리를 경고하고 갇힌 쪽은 침묵**했을 조합입니다. `--log` 파일은 신호가 아닙니다 — claude-code 하네스는 그걸 맨 끝에 한 번만 쓰므로 정상 라운드도 평생 빈 로그로 보입니다. 흔적은 crush면 `data/crush.db-wal`·`data/logs/crush.log`, claude-code면 `claude/projects/**.jsonl`입니다.
+이 둘이 실제 판별점입니다. 경과시간 규칙이었다면 **멀쩡한 101분짜리를 경고하고 갇힌 쪽은 침묵**했을 조합입니다. `--log` 파일은 claude-code에게는 신호가 아닙니다 — 그 하네스는 맨 끝에 한 번만 쓰므로 정상 라운드도 평생 빈 로그로 보입니다. 흔적은 crush면 `data/crush.db-wal`·`data/logs/crush.log`, claude-code면 `claude/projects/**.jsonl`입니다. opencode는 예외: `--format json`이 이벤트를 `--log`에 한 줄씩 플러시하므로 그 파일이 곧 흔적입니다.
 
 멈춤은 로그를 읽을 이유이지 무언가를 죽일 이유가 아닙니다. `bin/outsource-run.sh --max-seconds N`은 N초에 하드 킬합니다(프로세스 그룹 전체에 SIGTERM 후 SIGKILL, 센티넬·레지스트리 양쪽에 exit 124, 후속 라운드가 이어받을 수 있게 세션 id는 회수). 기본값은 없고 앞으로도 두지 않습니다 — kill은 편집 도중에 떨어지니까요. 그 라운드를 잃어도 된다고 미리 판단한 경우에만 쓰십시오.
 

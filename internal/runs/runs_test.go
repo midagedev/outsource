@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/midagedev/outsource/internal/human"
 )
@@ -186,5 +187,41 @@ func TestUnknownSubcommandIsUsageError(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "unknown subcommand: nope") {
 		t.Errorf("must name the offender, got %q", out.String())
+	}
+}
+
+func TestIdleProgressDirAsFile(t *testing.T) {
+	// FAIL-first (verbatim, before newestMtime accepted a regular file):
+	//   Idle must observe a regular file ProgressDir; got ok=false
+	// The opencode harness's live trail is the --log file itself (JSONL
+	// flushed per event, measured 2026-08-23). Treating only directories as
+	// a trail made a healthy opencode round look unobservable, which is the
+	// same as ⏳-blind.
+	dir := t.TempDir()
+	log := filepath.Join(dir, "stream.jsonl")
+	if err := os.WriteFile(log, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-30 * time.Second)
+	if err := os.Chtimes(log, past, past); err != nil {
+		t.Fatal(err)
+	}
+	r := &Record{ProgressDir: log}
+	idle, ok := r.Idle(time.Now().Unix())
+	if !ok {
+		t.Fatal("Idle must observe a regular file ProgressDir; got ok=false")
+	}
+	if idle < 20 || idle > 60 {
+		t.Errorf("Idle = %d, want ~30s", idle)
+	}
+}
+
+func TestHarnessShortOpencode(t *testing.T) {
+	// FAIL-first (verbatim): HarnessShort("opencode") = "opencode", want "oc"
+	if got := HarnessShort("opencode"); got != "oc" {
+		t.Errorf("HarnessShort(\"opencode\") = %q, want %q", got, "oc")
+	}
+	if got := HarnessShort("claude-code"); got != "cc" {
+		t.Errorf("HarnessShort(\"claude-code\") = %q, want %q", got, "cc")
 	}
 }

@@ -289,9 +289,10 @@ func (r *Record) Elapsed(now int64) int64 {
 // knowable at all. Unknown is never reported as zero: "we cannot see progress"
 // and "it just wrote" must not look the same.
 //
-// The trail is the harness's own data directory, never the --log file: the
-// claude-code harness writes that once, at the end, so a perfectly healthy
-// round shows an empty log for its entire life.
+// ProgressDir is usually a harness data directory (claude-code projects/,
+// crush data/). The opencode harness's trail is the --log file itself: its
+// JSONL is flushed per event while the round is still running (measured
+// 2026-08-23). A regular file is therefore a valid trail, not an error.
 func (r *Record) Idle(now int64) (int64, bool) {
 	if r.ProgressDir == "" {
 		return 0, false
@@ -317,18 +318,22 @@ func (r *Record) Stalled(now int64) bool {
 	return ok && idle >= StallSeconds()
 }
 
-// newestMtime is the newest modification time anywhere under a directory.
-// Both harness data directories hold a handful of files, so this stays cheap.
-// os.Stat is portable, which retires the BSD-vs-GNU `stat` branch the shell
-// version carried.
-func newestMtime(dir string) (int64, bool) {
-	fi, err := os.Stat(dir)
-	if err != nil || !fi.IsDir() {
+// newestMtime is the newest modification time of a trail. A regular file is
+// used as-is (opencode's --log). A directory is walked; both harness data
+// directories hold a handful of files, so that stays cheap. os.Stat is
+// portable, which retires the BSD-vs-GNU `stat` branch the shell version
+// carried.
+func newestMtime(path string) (int64, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
 		return 0, false
+	}
+	if !fi.IsDir() {
+		return fi.ModTime().Unix(), true
 	}
 	var newest int64
 	found := false
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // an unreadable subtree is not a fatal answer
 		}
@@ -348,12 +353,16 @@ func newestMtime(dir string) (int64, bool) {
 }
 
 // HarnessShort is what fits in a status line: claude-code renders as cc,
-// everything else as itself.
+// opencode as oc, everything else as itself.
 func HarnessShort(h string) string {
-	if h == "claude-code" {
+	switch h {
+	case "claude-code":
 		return "cc"
+	case "opencode":
+		return "oc"
+	default:
+		return h
 	}
-	return h
 }
 
 func nowUnix() int64 { return time.Now().Unix() }

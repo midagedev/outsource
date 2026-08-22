@@ -30,11 +30,13 @@ const (
 )
 
 // provider is one row of the table that used to be a pipe-delimited string.
-// This is the one place a provider is defined, and both harnesses read it.
+// This is the one place a provider is defined, and the harnesses read it.
 //
-// Credentials are NOT here: internal/cred is their single owner (env var first,
-// then this skill's 0600 store, then discovery of files another tool already
-// wrote). Adding a provider means adding it there too — one place, not two.
+// Credentials for zai/xai live in internal/cred (env var first, then this
+// skill's 0600 store, then discovery of files another tool already wrote).
+// openrouter does not: opencode owns its own auth store
+// (~/.local/share/opencode/auth.json), and a cred row would be a second
+// owner of a secret this launcher never touches.
 //
 // URL is the provider's DEFAULT; cred.Base may point it at the same account's
 // other region (z.ai's coding plan ships on api.z.ai globally and
@@ -45,6 +47,8 @@ const (
 // measured: crush's built-in zai points at
 // https://api.z.ai/api/coding/paas/v4, not the Anthropic-compatible URL, so
 // forcing this column into `provider add` would break the working zai path.
+// opencode likewise resolves endpoints itself, so openrouter's URL is empty
+// for the same reason.
 type provider struct {
 	name         string
 	url          string
@@ -55,6 +59,7 @@ type provider struct {
 var providerTable = []provider{
 	{"zai", "https://api.z.ai/api/anthropic", "glm-5.3", false},
 	{"xai", "https://api.x.ai", "grok-4.6", true},
+	{"openrouter", "", "stealth/ox-alpha", true},
 }
 
 func findProvider(name string) (provider, bool) {
@@ -74,6 +79,43 @@ func providerNames() string {
 	return strings.Join(out, " ") + " "
 }
 
+// pairingRefusal is the one-line reason a (harness, provider) pair is not
+// wired. Empty means the pair is allowed. Checked before the registry records
+// a round that was never going to launch.
+func pairingRefusal(harness, provider string) string {
+	switch harness {
+	case "opencode":
+		if provider != "openrouter" {
+			return "opencode harness requires provider openrouter (provider '" + provider + "' is not wired)"
+		}
+	case "claude-code", "crush":
+		if provider == "openrouter" {
+			return "provider openrouter is not wired on the " + harness + " harness (no Anthropic-compatible URL / no cred row)"
+		}
+	}
+	return ""
+}
+
+func seedModel(provider, model string) string {
+	if model != "" {
+		return model
+	}
+	if provider == "zai" {
+		return os.Getenv("GLM_DELEGATE_MODEL")
+	}
+	return ""
+}
+
+func defaultHarness(provider, harness string) string {
+	if harness != "" {
+		return harness
+	}
+	if provider == "openrouter" {
+		return "opencode"
+	}
+	return "claude-code"
+}
+
 // imageRef matches a spec that names an image file. Case-insensitive, and the
 // extension must end the token so a word like "gifted" does not trip it.
 var imageRef = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)([^[:alnum:]]|$)`)
@@ -84,17 +126,16 @@ type opts struct {
 	allowAgent, noVisionCheck                              bool
 }
 
-// OutsourceMain launches a delegated run on a third-party provider, on one of two
-// harnesses. The provider is a table entry, not a hardcoded constant, and the
-// launcher asserts which model actually answered before calling the round a
-// success.
+// OutsourceMain launches a delegated run on a third-party provider, on one of
+// the wired harnesses. The provider is a table entry, not a hardcoded
+// constant, and the launcher asserts which model actually answered before
+// calling the round a success.
 //
 // The model is the point; the harness is only how it is driven headlessly.
 func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	o := opts{
-		harness:      envOr("OUTSOURCE_HARNESS", "claude-code"),
+		harness:      os.Getenv("OUTSOURCE_HARNESS"),
 		providerName: envOr("OUTSOURCE_PROVIDER", "zai"),
-		model:        os.Getenv("GLM_DELEGATE_MODEL"),
 	}
 	for i := 0; i < len(args); i++ {
 		need := func() (string, bool) {
@@ -136,7 +177,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "--no-vision-check":
 			o.noVisionCheck, ok = true, true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check]")
+			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check]")
 			return 0
 		default:
 			fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
@@ -170,10 +211,20 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unknown provider: %s (known: %s)\n", o.providerName, providerNames())
 		return ExitUsage
 	}
+	// GLM_DELEGATE_MODEL is a zai pin. Applying it to every provider leaked a
+	// glm-* id into opencode's -m, which opencode then rejected (the remainder
+	// must be openrouter/…). Scoped here, after the provider is known and
+	// after --model, so an explicit --model still wins.
+	o.model = seedModel(p.name, o.model)
+	o.harness = defaultHarness(p.name, o.harness)
 	// Validated here, not only at the dispatch below, so a usage error is caught
 	// before the run registry records a round that was never going to launch.
-	if o.harness != "claude-code" && o.harness != "crush" {
-		fmt.Fprintf(stderr, "--harness must be claude-code or crush, got: %s\n", o.harness)
+	if o.harness != "claude-code" && o.harness != "crush" && o.harness != "opencode" {
+		fmt.Fprintf(stderr, "--harness must be claude-code, crush, or opencode, got: %s\n", o.harness)
+		return ExitUsage
+	}
+	if msg := pairingRefusal(o.harness, p.name); msg != "" {
+		fmt.Fprintln(stderr, msg)
 		return ExitUsage
 	}
 	if o.configDir == "" {
@@ -237,11 +288,20 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// Fail before registering only when we can positively see that openrouter
+	// is missing from opencode's auth.json. A missing file is not proof —
+	// newer opencode also keeps credentials in opencode.db, which this
+	// binary does not open.
+	if p.name == "openrouter" && openrouterCredsPositivelyAbsent() {
+		fmt.Fprintln(stderr, "outsource: no OpenRouter credentials in opencode's auth store; run `opencode auth login` then retry")
+		return ExitNoCredential
+	}
+
 	r := &round{o: o, p: p, stdout: stdout, stderr: stderr, specBody: string(specBody)}
 	return r.run()
 }
 
-// round carries the state the two harness paths share, so the sentinel and the
+// round carries the state the harness paths share, so the sentinel and the
 // registry are written from one place regardless of which harness ran.
 type round struct {
 	o        opts
@@ -267,18 +327,22 @@ func (r *round) run() int {
 	r.hold = holdSignals()
 
 	// Where this round leaves a live trail, so the registry can tell a round that
-	// is working from one that is stuck without ever interrupting either. Both
-	// harnesses write continuously into their own data directory — crush into
-	// crush.db-wal and logs/crush.log every few seconds, the claude-code harness
-	// into projects/**.jsonl every turn. Neither path is the --log file: the
-	// claude-code harness writes that only once, at the end, so a perfectly
-	// healthy round shows an empty log for its entire life.
+	// is working from one that is stuck without ever interrupting either. crush
+	// writes into crush.db-wal and logs/crush.log every few seconds; the
+	// claude-code harness into projects/**.jsonl every turn. Those paths are
+	// not the --log file: the claude-code harness writes that only once, at
+	// the end, so a perfectly healthy round shows an empty log for its entire
+	// life. opencode is the exception — `--format json` flushes one JSONL
+	// event at a time onto --log while the process is still running
+	// (measured 2026-08-23), so the log file itself is the trail.
 	progressDir := ""
 	switch r.o.harness {
 	case "claude-code":
 		progressDir = filepath.Join(r.o.configDir, "claude", "projects")
 	case "crush":
 		progressDir = filepath.Join(r.o.configDir, "data")
+	case "opencode":
+		progressDir = r.o.log
 	}
 
 	// The model recorded in the REGISTRY is the bare table default when --model was
@@ -304,10 +368,17 @@ func (r *round) run() int {
 		r.o.cwd, r.o.spec, r.o.log, progressDir)
 
 	var rc int
-	if r.o.harness == "claude-code" {
+	switch r.o.harness {
+	case "claude-code":
 		rc = r.runClaudeCode()
-	} else {
+	case "crush":
 		rc = r.runCrush()
+	case "opencode":
+		rc = r.runOpencode()
+	default:
+		fmt.Fprintf(r.stderr, "--harness must be claude-code, crush, or opencode, got: %s\n", r.o.harness)
+		r.bailed = true
+		rc = ExitUsage
 	}
 	return r.finish(rc)
 }

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.11.0 — 2026-08-23 — opencode harness + OpenRouter stealth/ox-alpha
+
+- **Third backend: `opencode` driving OpenRouter `stealth/ox-alpha`.**
+  `--provider openrouter` defaults to harness `opencode` so
+  `outsource-run.sh --provider openrouter --cwd … --spec … --log …`
+  just works. The other five provider×harness cells refuse with a
+  one-line reason before a round is registered (opencode is not wired
+  for zai/xai; openrouter has no Anthropic-compatible URL and no cred
+  row on claude-code/crush).
+- **opencode owns its auth.** No `internal/cred` row: the launcher
+  looks at `~/.local/share/opencode/auth.json` (XDG_DATA_HOME honoured)
+  and only refuses when that file exists, parses, and has no openrouter
+  key. A missing file is not proof — newer opencode also keeps a
+  credential table in `opencode.db`, which this binary does not open.
+- **Isolated `OPENCODE_CONFIG_DIR`**, inherited value filtered out
+  before append (duplicate `KEY=value` in `os.Environ()` is
+  runtime-dependent). Generated `opencode.json` denies the git-write
+  class (and the listing forms the guard allows are re-allowed after,
+  last-match-wins). Measured: without the deny, `git commit
+  --allow-empty -m x` created a commit; with it — including under
+  `--auto` and with the user's orca `OPENCODE_CONFIG_DIR` still in the
+  parent env — the tool call was blocked and HEAD did not move.
+- **`--auto --pure`** on the child. `--auto` is what lets a `read` of
+  a path outside cwd through (`external_directory` defaults to ask;
+  headless ask was rejected and the round answered nothing). `--pure`
+  skips external plugins. Deny rules still hold under `--auto`.
+- **Vision = true.** An agentic round that named a solid-red PNG and
+  used the `read` tool answered `Red`. The `-f` attach flag remains
+  documented as a trap (it is an array: `-f red.png "message"` swallows
+  the message as a second file) but is not the vision path this skill
+  uses.
+- **`GLM_DELEGATE_MODEL` is zai-only.** It used to seed `--model` for
+  every provider; a glm-* string is then rejected by opencode's
+  `openrouter/<id>` check.
+- **`$PWD` is replaced with `--cwd` on the child.** opencode resolves
+  the session's directory from `$PWD`, not the process working
+  directory (measured: the lead's own E2E, launched from the repo,
+  wrote its artifact into the launcher shell's cwd while rc, marker
+  and identity all read green). The export's `info.directory` is now
+  asserted against `--cwd` — a round that ran elsewhere exits 70
+  (`DIRECTORY MISMATCH`).
+- **Live trail is the `--log` file** for this harness (`--format json`
+  flushed per event while the process was still running). `Idle` now
+  accepts a regular file `ProgressDir`; `HarnessShort` maps
+  opencode→oc.
+- **`last-report.sh` learns the opencode shape**: concatenation of
+  `part.text` after the last `tool_use`. `done_marker` therefore
+  scopes `report`, not a whole-log grep.
+- `--require-quota` stays the existing generic "not available for this
+  provider" path — stealth reported `cost: 0` and has no plan window.
+
 ## 0.10.5 — 2026-08-22 — the marker is the report's last line, not a substring
 
 - **`done_marker=found` now means the final report's last non-empty line IS

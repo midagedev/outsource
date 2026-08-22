@@ -10,9 +10,15 @@
 //	grok CLI (streaming-json ndjson): there is no result event at all — the
 //	  report is the concatenation of {"type":"text"} deltas after the LAST
 //	  tool_call/tool_call_update event.
+//	opencode CLI (`opencode run --format json`): events are step_start,
+//	  tool_use, text, step_finish. The report is part.text of every "text"
+//	  event after the last "tool_use" (same trailing-window rule as grok).
+//	  A final step_finish with part.reason=="stop" marks the end of that
+//	  turn but is not required — a died-mid-run log with trailing text is
+//	  still a report.
 //
-// The shape is detected per line, so a log that mixes both — or a future
-// harness that adopts either — still yields the report.
+// The shape is detected per line, so a log that mixes them — or a future
+// harness that adopts any — still yields the report.
 //
 // This prints the delegate's words verbatim. It does NOT prove completion: the
 // <log>.rc sentinel is the completion evidence, and a report without a sentinel
@@ -87,10 +93,11 @@ func Extract(r io.Reader) (string, bool) {
 					}
 				}
 			}
-		case "tool_call", "tool_call_update":
+		case "tool_call", "tool_call_update", "tool_use":
 			// A tool ran, so anything collected before it was not the final
 			// report: reset. This is what keeps a marker quoted during planning
-			// from being mistaken for the delegate's conclusion.
+			// from being mistaken for the delegate's conclusion. tool_use is
+			// opencode's name for the same boundary (measured 2026-08-23).
 			sawGrokTool = true
 			grokParts = nil
 		case "text":
@@ -105,6 +112,17 @@ func Extract(r io.Reader) (string, bool) {
 				}
 				if json.Unmarshal(raw, &d) == nil && d.Text != nil {
 					grokParts = append(grokParts, *d.Text)
+					break
+				}
+			}
+			// opencode: {"type":"text","part":{"text":"…"}}. Grok's "text"
+			// events carry "data", not "part", so the two do not collide.
+			if raw, ok := obj["part"]; ok {
+				var p struct {
+					Text string `json:"text"`
+				}
+				if json.Unmarshal(raw, &p) == nil && p.Text != "" {
+					grokParts = append(grokParts, p.Text)
 				}
 			}
 		}

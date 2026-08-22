@@ -3,11 +3,13 @@ name: outsource
 description: >
   Outsource implementation, investigation/research, numeric harnesses and
   vision-verdict work to third-party model CLIs running as headless
-  sub-agents — the grok CLI (grok-4.6) and GLM-5.3 (z.ai coding plan, run
-  through headless Claude Code or the crush CLI) — while the lead Claude
-  session stays orchestration-only. Use when the user asks to run work via
-  grok / glm / crush, to save tokens, or invokes /outsource. Pick the backend by task: GLM-5.3 cannot
-  read images, so vision verdicts go to grok (or a Claude agent).
+  sub-agents — the grok CLI (grok-4.6), GLM-5.3 (z.ai coding plan, run
+  through headless Claude Code or the crush CLI), and OpenRouter stealth
+  ox-alpha (opencode CLI) — while the lead Claude session stays
+  orchestration-only. Use when the user asks to run work via grok / glm /
+  crush / opencode / ox-alpha, to save tokens, or invokes /outsource. Pick
+  the backend by task: GLM-5.3 cannot read images, so vision verdicts go to
+  grok, ox-alpha, or a Claude agent.
 ---
 
 # outsource — third-party models as headless implementation sub-agents
@@ -24,30 +26,37 @@ conversation context, so the spec must be self-contained (file paths,
 contracts, completion criteria) and must never ask for taste judgments —
 only numeric contracts.
 
-## Backends — GLM-5.3 by default, grok when the task needs eyes
+## Backends — GLM-5.3 by default, grok or ox-alpha when the task needs eyes
 
 | Backend | Runs via | Use it for | Hard limits |
 |---|---|---|---|
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | **cannot see images at all**; style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** — the exception | `grok` CLI, headless (`references/grok.md`) | what GLM structurally cannot do: **vision verdicts** and image reading, image/video generation, and web research when GLM's harness lacks the tool | verdicts contradicting instrumentation escalate to a Claude agent |
+| **ox-alpha** — OpenRouter stealth | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | spec-able rounds when z.ai/xAI headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | stealth: model identity and limits can change without notice; free while listed as stealth (`step_finish.cost` was 0) |
 
 Selection rules:
 
 - **Default to GLM-5.3.** Reach for grok when the task needs eyes (pixels,
   framing, colour), pixels generated (image/video), or a web tool the GLM
-  harness does not have. "It feels exploratory" is not a reason — narrow the
+  harness does not have. Reach for ox-alpha when you want a free-while-stealth
+  OpenRouter round with vision, or another process family besides GLM's two
+  harnesses. "It feels exploratory" is not a reason — narrow the
   cause first, then delegate (see *When NOT to outsource*).
-- Anything that must **look at pixels** → grok or a Claude agent; never
-  GLM-5.3. This is a capability fact, not a preference: the model reports
-  `supports_attachments: false`.
-- Both backends parallelize: disjoint file whitelists, one worktree and one
-  config/session scope per track. Spreading tracks across the two providers —
+- Anything that must **look at pixels** → grok, ox-alpha, or a Claude agent;
+  never GLM-5.3. This is a capability fact, not a preference: GLM reports
+  `supports_attachments: false`. ox-alpha sees pixels through opencode's
+  `read` tool when the launcher passes `--auto` (without it, a path outside
+  cwd is `external_directory` default-ask and is rejected headless).
+- All three backends parallelize: disjoint file whitelists, one worktree and one
+  config/session scope per track. Spreading tracks across providers —
   and, for GLM, across its two harnesses — multiplies headroom.
 - **Model vs harness are separate choices.** The harness is only how a model
   is driven headlessly; the same spec, preamble and review checklist apply
   whichever one runs. GLM-5.3 ships with two (`--harness claude-code|crush`);
   pin the model explicitly, because z.ai maps an unqualified `claude-*`
-  request onto its plan default (measured: glm-4.7).
+  request onto its plan default (measured: glm-4.7). openrouter defaults to
+  harness `opencode` and is refused on the other two (no Anthropic-compatible
+  URL, no cred row).
 - Site-local defaults (which backend is *your* default, model overrides)
   belong in the user overlay (`references/local-overlay.md`); repo-specific
   gates and coordinates in the project overlay (`<repo>/.outsource/overlay.md`).
@@ -112,6 +121,10 @@ Then invoke the backend exactly as its reference describes:
   `--require-quota` pre-flight gate, model-identity assertion, `<log>.rc`
   sentinel), `bin/git-guard.sh` PreToolUse hook (works on both harnesses),
   z.ai model-mapping trap, measured behavior profile.
+- ox-alpha: `references/opencode.md` — `bin/outsource-run.sh --provider
+  openrouter` (harness `opencode` is the default for that provider), isolated
+  `OPENCODE_CONFIG_DIR`, git-write permission deny, `SESSION <id>` resume via
+  `-s`, model-identity via `opencode export`.
 
 ## Knowing what is in flight
 
@@ -135,10 +148,11 @@ message count almost linearly. Long rounds were long because there was a
 lot of work, so a time limit truncates a working delegate mid-edit and a
 90-minute round is not, by itself, evidence of anything.
 
-What separates the two is output, not duration. Both harnesses write
-continuously into their own data directory, so `runs.sh` reports an `IDLE`
-column and flags `⏳` only when a *running* round has written nothing for
-ten minutes (`OUTSOURCE_RUN_STALL`):
+What separates the two is output, not duration. The GLM harnesses write
+continuously into their own data directory; opencode flushes JSONL into
+`--log` per event, so `runs.sh` reports an `IDLE` column and flags `⏳`
+only when a *running* round has written nothing for ten minutes
+(`OUTSOURCE_RUN_STALL`):
 
 ```
 ▶refshot zai·crush 1h41m        # 101 minutes in, still writing — leave it
@@ -169,11 +183,12 @@ throwaway Python scripts, two log shapes):
 <skill-dir>/bin/last-report.sh <log> --max-chars 4000
 ```
 
-It understands both shapes — a claude-code `run.log` (last `result` event)
-and a grok CLI ndjson (text deltas after the last tool event) — and exits 65
-when the log holds no report at all, which is what a died-mid-run round
-looks like. It prints the delegate's words; **completion evidence is still
-the `.rc` sentinel**, never the report's existence.
+It understands three shapes — a claude-code `run.log` (last `result` event),
+a grok CLI ndjson (text deltas after the last tool event), and opencode
+`--format json` (concatenation of `part.text` after the last `tool_use`) —
+and exits 65 when the log holds no report at all, which is what a
+died-mid-run round looks like. It prints the delegate's words; **completion
+evidence is still the `.rc` sentinel**, never the report's existence.
 
 ## What the lead always does (backend-independent)
 

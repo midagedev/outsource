@@ -12,8 +12,9 @@ It is not a wrapper. It is an operating manual with receipts: every rule in it c
 |---|---|---|---|
 | **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on **either harness** — headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | **cannot see images**; does not flag a contract it cannot satisfy |
 | **grok-4.6** — the exception | `grok` CLI | what GLM structurally can't do: **vision verdicts**, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
+| **ox-alpha** — OpenRouter stealth | opencode CLI, via `bin/outsource-run.sh --provider openrouter` | spec-able rounds plus **vision through the read tool** (measured: named a solid-red PNG, answered "Red"); `step_finish.cost` was 0 while stealth | stealth identity/limits can change without notice |
 
-Adding a provider is one table row — base URL, default model, vision capability — plus its key resolution in `bin/credential.sh`. Two places, both single-owner, no code branch.
+A provider that talks Anthropic-compat (zai, xai) is a table row — base URL, default model, vision — plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode) is a table row with an empty URL, a dedicated harness, and no cred row — opencode already logged the user in.
 
 It also ships the [status line](#status-line) that makes delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 
@@ -38,7 +39,7 @@ cd outsource
 ./install.sh --project  # project scope: ./.claude/skills/outsource/
 ```
 
-You need [Claude Code](https://claude.com/claude-code) plus at least one backend: an authenticated `grok` CLI, and/or a z.ai coding-plan key.
+You need [Claude Code](https://claude.com/claude-code) plus at least one backend: an authenticated `grok` CLI, a z.ai coding-plan key, and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter).
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -84,14 +85,14 @@ orphan   docs-sweep       xai    crush     1h07m   /tmp/sp/spec-docs.md
 
 Neither harness can stop itself — `crush run` exposes no turn or time limit in its flag set at all, and this `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. The tempting fix is a time limit. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
 
-So the registry measures **output, not duration**. Both harnesses write continuously into their own data directory, so `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
+So the registry measures **output, not duration**. The GLM harnesses write continuously into their own data directory; opencode flushes JSONL into `--log` per event. `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
 
 ```
 ▶refshot zai·crush 1h41m        # 101 minutes in, wrote a second ago — leave it alone
 ⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of its 22 minutes — go read the log
 ```
 
-Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. Note that the `--log` file is *not* the signal — the claude-code harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness.
+Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness. opencode is the exception: `--format json` flushes one event at a time onto `--log` while the process is still running, so that file *is* the trail.
 
 A stall is a reason to read the log, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume) — it has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
 
