@@ -32,13 +32,17 @@ SP=<scratch-dir>
 cat ~/.claude/skills/outsource/references/spec-preamble.md \
     $SP/task.md > $SP/spec.md
 
-~/.claude/skills/outsource/bin/outsource-run.sh \
+~/.claude/skills/outsource/bin/outsource-run.sh --detach \
   --provider openrouter \
   --cwd /absolute/path/to/worktree --spec $SP/spec.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/oc-cfg-<track> --log $SP/oc-<track>.log \
   --done-marker DONE-<TRACK>
 ```
+
+`--detach` re-execs into its own session (same as grok-run / the zai
+harnesses — it happens before harness dispatch). A non-TTY foreground
+launch is refused at exit 64; use `--detach` or `--foreground`.
 
 `--harness opencode` is the default for this provider and can be omitted.
 `--model` is `openrouter/<id>`; the default is `openrouter/stealth/ox-alpha`.
@@ -54,7 +58,8 @@ subscription backends (zai, grok), and this provider has none. The
 launcher prints the existing generic refusal and exits 66.
 
 Flags the other harnesses also take work the same way: `--max-seconds N`
-(exit 124), `--done-marker` (absent → exit 72), `--no-vision-check`.
+(exit 124), `--done-marker` (absent → exit 72), `--no-vision-check`,
+`--detach`, `--foreground`.
 
 Read the round's report with `bin/last-report.sh <log>`.
 

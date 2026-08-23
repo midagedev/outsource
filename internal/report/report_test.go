@@ -1,6 +1,11 @@
 package report
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -77,5 +82,53 @@ func TestExtractOpencodeToollessText(t *testing.T) {
 	got, ok := Extract(strings.NewReader(log))
 	if !ok || got != "Red" {
 		t.Fatalf("toolless opencode text: got %q ok=%v, want Red", got, ok)
+	}
+}
+
+func TestLastReportNamesKilledSentinel(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "run.ndjson")
+	if err := os.WriteFile(log, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := "rc=-1\nfinished=2026-08-22T17:08:28Z\nwrapper_signal=TERM\n"
+	if err := os.WriteFile(log+".rc", []byte(sentinel), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	rc := Main([]string{log}, io.Discard, &stderr)
+	if rc != ExitNoReport {
+		t.Fatalf("want ExitNoReport (%d), got %d", ExitNoReport, rc)
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "no report-shaped content") {
+		t.Errorf("must keep the original 65 line, got %s", got)
+	}
+	for _, want := range []string{"killed (TERM)", "2026-08-22T17:08:28Z", "rc=-1", log + ".rc"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sentinel diagnosis missing %q; got %s", want, got)
+		}
+	}
+}
+
+func TestLastReportNamesRunningRound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	log := filepath.Join(dir, "live.log")
+	if err := os.WriteFile(log, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pid := strconv.Itoa(os.Getpid())
+	rec := "id=test-running\npid=" + pid + "\nlabel=live\nlog=" + log + "\nstartedAt=1\n"
+	if err := os.WriteFile(filepath.Join(dir, "test-running.run"), []byte(rec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	rc := Main([]string{log}, io.Discard, &stderr)
+	if rc != ExitNoReport {
+		t.Fatalf("want ExitNoReport (%d), got %d stderr=%s", ExitNoReport, rc, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "round still running — no report expected yet") {
+		t.Errorf("running diagnosis missing; got %s", stderr.String())
 	}
 }

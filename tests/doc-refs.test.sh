@@ -13,6 +13,10 @@
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 
 python3 - <<'PY'
 import glob, os, re, sys

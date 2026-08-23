@@ -19,6 +19,11 @@ set -uo pipefail
 GUARD="$(cd "$(dirname "$0")/.." && pwd)/skills/outsource/bin/git-guard.sh"
 [ -x "$GUARD" ] || { echo "not executable: $GUARD" >&2; exit 1; }
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+
 pass=0
 fail=0
 

@@ -14,6 +14,8 @@ RUNS="${RUNS_SH:-$HERE/skills/outsource/bin/runs.sh}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 
 pass=0; fail=0

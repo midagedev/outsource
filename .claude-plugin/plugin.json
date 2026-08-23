@@ -1,6 +1,6 @@
 {
   "name": "outsource",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Outsource implementation, investigation and vision-verdict work to third-party model CLIs (GLM-5.3 on the z.ai coding plan, grok-4.6, OpenRouter stealth/ox-alpha via opencode) as headless sub-agents, with spec linting, plan-quota gates and model-identity assertions, while the lead Claude session stays orchestration-only.",
   "author": {
     "name": "midagedev",

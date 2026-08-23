@@ -17,6 +17,9 @@ LINT="${SPEC_LINT:-$HERE/skills/outsource/bin/spec-lint.sh}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+export OUTSOURCE_TELEMETRY_FILE="$TMP/state/outsource/telemetry.jsonl"
 mkdir -p "$TMP/root/pkg"
 printf 'one\ntwo\nthree\n' > "$TMP/root/pkg/exists.go"
 
@@ -245,6 +248,36 @@ run <<'EOF'
 Prose with an abbreviation, e.g. a note about `pkg/exists.go` behaviour.
 EOF
 ok "prose dots are still stripped" 0 "ok" "missing"
+
+# ---- telemetry details: findings / exempt / missing / already-exists --------
+# A missing path produces findings=1 missing=1. The dispatcher writes the row
+# (Note() is not enough); this file already invokes the real binary.
+run <<'EOF'
+See `pkg/absent.go` for the pattern.
+EOF
+if python3 - "$OUTSOURCE_TELEMETRY_FILE" <<'PY'
+import json, sys
+last = None
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if not line:
+        continue
+    last = json.loads(line)
+if not last or last.get("tool") != "spec-lint":
+    print("last row is not spec-lint:", last)
+    sys.exit(1)
+d = last.get("details") or {}
+for k in ("findings", "exempt", "missing", "already-exists"):
+    if k not in d:
+        print("missing details key", k, "in", d)
+        sys.exit(1)
+if d["findings"] != "1" or d["missing"] != "1":
+    print("want findings=1 missing=1, got", d)
+    sys.exit(1)
+PY
+then pass=$((pass + 1))
+else fail=$((fail + 1)); echo "FAIL  spec-lint telemetry details shape" >&2
+fi
 
 printf '\nspec-lint: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

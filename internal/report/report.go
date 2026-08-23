@@ -33,6 +33,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/midagedev/outsource/internal/runs"
 )
 
 const (
@@ -217,7 +219,11 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		// Exit 65 rather than printing nothing, so a died-mid-run round is a
 		// branch a caller can take and not a silence it has to interpret.
+		// Measured 2026-08-22: a lead asked for the report of a round the
+		// external killer had TERM'd 41 seconds earlier; the tool said only
+		// "no report" while the sentinel already had rc=-1 + wrapper_signal=TERM.
 		fmt.Fprintf(stderr, "last-report: no report-shaped content in %s\n", path)
+		diagnoseNoReport(path, stderr)
 		return ExitNoReport
 	}
 	// Truncation counts runes, not bytes: cutting a report mid-character would
@@ -229,4 +235,37 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, rep)
 	return 0
+}
+
+// diagnoseNoReport appends what the sentinel or the run registry already
+// knows, so exit 65 is not a blind "no report". Sentinel wins: a killed
+// round has a .rc even when the registry still looks running for a moment.
+func diagnoseNoReport(logPath string, stderr io.Writer) {
+	rcPath := logPath + ".rc"
+	if b, err := os.ReadFile(rcPath); err == nil {
+		kv := parseSentinel(string(b))
+		rc, finished, sig := kv["rc"], kv["finished"], kv["wrapper_signal"]
+		if sig != "" {
+			fmt.Fprintf(stderr, "no report: the round was killed (%s) at %s (rc=%s); see %s\n",
+				sig, finished, rc, rcPath)
+			return
+		}
+		fmt.Fprintf(stderr, "no report: the round finished at %s (rc=%s); see %s\n",
+			finished, rc, rcPath)
+		return
+	}
+	if rec := runs.FindByLog(logPath); rec != nil && rec.State() == runs.Running {
+		fmt.Fprintln(stderr, "round still running — no report expected yet")
+	}
+}
+
+func parseSentinel(s string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range strings.Split(s, "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if ok {
+			m[k] = v
+		}
+	}
+	return m
 }

@@ -9,6 +9,11 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+
 if ! command -v go >/dev/null 2>&1; then
   echo "go-unit: SKIP (no Go toolchain on PATH; the shipped binary is prebuilt)"
   exit 0

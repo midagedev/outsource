@@ -123,7 +123,7 @@ var imageRef = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)([^[:alnum:]]|$)`)
 type opts struct {
 	cwd, spec, log, session, model, harness, providerName  string
 	configDir, label, doneMarker, requireQuota, maxSeconds string
-	allowAgent, noVisionCheck                              bool
+	allowAgent, noVisionCheck, detach, foreground          bool
 }
 
 // OutsourceMain launches a delegated run on a third-party provider, on one of
@@ -176,8 +176,12 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.allowAgent, ok = true, true
 		case "--no-vision-check":
 			o.noVisionCheck, ok = true, true
+		case "--detach":
+			o.detach, ok = true, true
+		case "--foreground":
+			o.foreground, ok = true, true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check]")
+			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground]")
 			return 0
 		default:
 			fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
@@ -247,6 +251,14 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 
+	// Same non-TTY refusal as grok-run, before quota (which contacts a
+	// provider) and before a round is registered. --detach skips it; the
+	// re-exec child is marked via cmd.Env so a nil stdin does not refuse.
+	if !skipForegroundGuard(o.foreground, o.detach) {
+		refuseNonTTYForeground("outsource-run", stderr)
+		return ExitUsage
+	}
+
 	// The vision capability comes from the table — never a provider-name test at
 	// the call site.
 	if !o.noVisionCheck && !p.vision && imageRef.Match(specBody) {
@@ -295,6 +307,25 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	if p.name == "openrouter" && openrouterCredsPositivelyAbsent() {
 		fmt.Fprintln(stderr, "outsource: no OpenRouter credentials in opencode's auth store; run `opencode auth login` then retry")
 		return ExitNoCredential
+	}
+
+	if o.detach {
+		bin := "claude"
+		switch o.harness {
+		case "crush":
+			bin = "crush"
+		case "opencode":
+			bin = "opencode"
+		}
+		if _, err := exec.LookPath(bin); err != nil {
+			fmt.Fprintf(stderr, "harness %s needs the '%s' CLI on PATH\n", o.harness, bin)
+			return ExitHarnessMissing
+		}
+		label := o.label
+		if label == "" {
+			label = defaultLabel(o.spec)
+		}
+		return reexecDetached("outsource-run", args, label, o.log, stdout, stderr)
 	}
 
 	r := &round{o: o, p: p, stdout: stdout, stderr: stderr, specBody: string(specBody)}

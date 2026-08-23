@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.11.1 — 2026-08-23 — non-TTY foreground refusal, outsource-run --detach
+
+- **A foreground launch whose stdin is not a TTY is refused (exit 64)** on
+  both `grok-run` and `outsource-run`, unless `--detach` or `--foreground`
+  is given. Measured: 6 field rounds (5 with `wrapper_signal=TERM`, rc=-1)
+  died at wall-clock times aligned to `:08:26` / `:38:26` — a 30-minute-period
+  external killer (seconds drifted 25→28 over days; identity unknown and
+  outside this repo). Every victim was `grok-run.sh` launched foreground
+  inside a harness-tracked background task. `--detach` rounds survived,
+  including a 37-minute one. The 2026-08-19 orchestrator-timeout TERM is
+  the same class. The detached child is marked `OUTSOURCE_DETACHED=1` on
+  its `cmd.Env` only, so a nil stdin does not refuse itself.
+- **`--detach` on `outsource-run`**, same re-exec-into-own-session
+  semantics as grok-run, before harness dispatch (all three harnesses).
+- **Test-suite state isolation.** Every `tests/*.test.sh` sets
+  `XDG_STATE_HOME` (and `OUTSOURCE_TELEMETRY_FILE` where a test asserts
+  telemetry). The field telemetry.jsonl was majority-noise on several
+  axes: 151 of 153 `guard rc=2` rows, all 9 `rc=70`, all 9 vision-guard
+  `rc=65` were test artifacts.
+- **done-marker tests are hermetic** by default (fake `grok`/`crush`/`claude`
+  on PATH; live rounds behind `OUTSOURCE_LIVE_TESTS=1`). The 2026-08-22
+  live flake — model omitted the last-line marker, launcher correctly
+  scored `absent` → 72, test went red — is pinned as a fake-backend case.
+- **`last-report` exit 65** names what the sentinel knows (rc,
+  `wrapper_signal`, finished) or that the round is still running, instead
+  of a blind "no report".
+- **spec-lint telemetry** carries `details.findings` / `exempt` / `missing`
+  / `already-exists` so a stable ~40%/day exit-1 rate can be split into
+  real wrong-premise catches vs cry-wolf.
+
 ## 0.11.0 — 2026-08-23 — opencode harness + OpenRouter stealth/ox-alpha
 
 - **Third backend: `opencode` driving OpenRouter `stealth/ox-alpha`.**

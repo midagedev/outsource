@@ -41,6 +41,11 @@ then the round re-execs into its own session and survives you. Do not wrap
 it in `nohup … &` yourself — the foreground form dies with your process
 group (measured 2026-08-19: an orchestrator's 2-minute command timeout
 TERM-ed a lane ten minutes into its work; rc=143, wrapper_signal=TERM).
+The same class lost six more rounds on 2026-08-22 (wall-clock times aligned
+to :08:26/:38:26, an external 30-minute killer; identity unknown) when
+`grok-run.sh` was launched foreground inside a harness-tracked background
+task with no TTY; a non-TTY foreground launch now refuses at exit 64 and
+names `--detach` (recommended) or `--foreground` (deliberate block / tests).
 
 It registers the round in `runs.sh` (the status line sees it), verifies grok
 actually started (ndjson must grow within 30s, else exit 69 out loud), writes

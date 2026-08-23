@@ -36,6 +36,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/midagedev/outsource/internal/telemetry"
 )
 
 // Exit codes keep the shell contract: 0 clean · 1 findings · 2 usage error
@@ -115,28 +117,45 @@ parse:
 		}
 	}
 
-	findings := 0
+	var total lintStats
 	for _, spec := range specs {
-		n, err := lintSpec(spec, root, quiet, stdout)
+		s, err := lintSpec(spec, root, quiet, stdout)
 		if err != nil {
 			fmt.Fprintf(stderr, "spec-lint: spec is not a readable file: %s\n", spec)
 			return ExitUsage
 		}
-		findings += n
+		total.findings += s.findings
+		total.exempt += s.exempt
+		total.missing += s.missing
+		total.already += s.already
 	}
-	if findings > 0 {
+	// Counts are strings because telemetry.Note is a map[string]string — the
+	// same shape every other tool writes. Mining splits on the keys.
+	telemetry.Note("findings", strconv.Itoa(total.findings))
+	telemetry.Note("exempt", strconv.Itoa(total.exempt))
+	telemetry.Note("missing", strconv.Itoa(total.missing))
+	telemetry.Note("already-exists", strconv.Itoa(total.already))
+	if total.findings > 0 {
 		return ExitFindings
 	}
 	return ExitClean
 }
 
+// lintStats is one spec's counts, summed across files in Main for the
+// telemetry row. findings is the exit-1 axis; exempt is the to-be-created
+// suppression; missing vs already-exists split the findings that those two
+// checks produce (line-out-of-range is a finding in neither bucket).
+type lintStats struct {
+	findings, exempt, missing, already int
+}
+
 // lintSpec lints one spec and prints its findings and its ok line. The
 // returned error is only the read of the file itself, which the shell caught
 // with a pre-flight [ -f ] check; the caller turns it into the same message.
-func lintSpec(spec, root string, quiet bool, stdout io.Writer) (int, error) {
+func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error) {
 	data, err := os.ReadFile(spec)
 	if err != nil {
-		return 0, err
+		return lintStats{}, err
 	}
 	// The shell read the file through open(..., "r", errors="replace") and
 	// readlines(): undecodable bytes became U+FFFD instead of aborting, and
@@ -180,8 +199,7 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (int, error) {
 		}
 	}
 
-	specFindings := 0
-	exemptCount := 0
+	var st lintStats
 	seen := map[lineTok]bool{}
 	for _, r := range refs {
 		key := lineTok{r.lineno, r.tok}
@@ -197,18 +215,20 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (int, error) {
 			// path that already exists means the spec and the tree disagree
 			// about what the round is for. That finding is only visible
 			// here, before launch.
-			exemptCount++
+			st.exempt++
 			if exists && toCreate[r.lineno] {
 				fmt.Fprintf(stdout, "%s:%d: already-exists: %s (spec says create it; resolved: %s)\n",
 					spec, r.lineno, r.tok, resolved)
-				specFindings++
+				st.findings++
+				st.already++
 			}
 			continue
 		}
 		if !exists {
 			fmt.Fprintf(stdout, "%s:%d: missing: %s (resolved: %s)\n",
 				spec, r.lineno, r.tok, resolved)
-			specFindings++
+			st.findings++
+			st.missing++
 			continue
 		}
 		if r.cited && !isDir(resolved) {
@@ -216,20 +236,20 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (int, error) {
 			if r.line < 1 || r.line > total {
 				fmt.Fprintf(stdout, "%s:%d: line-out-of-range: %s (file has %d lines)\n",
 					spec, r.lineno, r.tok, total)
-				specFindings++
+				st.findings++
 			}
 		}
 	}
-	if specFindings == 0 && !quiet {
+	if st.findings == 0 && !quiet {
 		// The exemption count is printed rather than kept quiet: a
 		// suppression nobody can see is how a linter starts lying.
 		note := ""
-		if exemptCount > 0 {
-			note = fmt.Sprintf(" (%d to-be-created exempt)", exemptCount)
+		if st.exempt > 0 {
+			note = fmt.Sprintf(" (%d to-be-created exempt)", st.exempt)
 		}
 		fmt.Fprintf(stdout, "%s: ok%s\n", spec, note)
 	}
-	return specFindings, nil
+	return st, nil
 }
 
 // ─── the reference walk ─────────────────────────────────────────────────────

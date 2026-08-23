@@ -342,8 +342,8 @@ $ bin/quota.sh --provider grok
 | `references/glm-preamble.md` | GLM 런타임 델타 (이미지 없음, 플래그 아닌 훅, 증거 규칙) |
 | `references/spec-authoring.md` · `references/spec-template.md` | 품질 번들, 그리고 태스크별 스펙 골격 |
 | `bin/outsource` | **하나의 Go 바이너리가 아래 도구 전부입니다.** 아래 `bin/*.sh` 이름들은 3줄짜리 호환 shim이고, 각각 이 바이너리로 exec합니다 — 문서·훅·설치본·테스트가 전부 경로로 호출하기 때문에 이름을 유지합니다. `outsource <도구>` 로 직접 부르면 fork 하나를 아낍니다 |
-| `outsource-run` | 런처: 프로바이더 테이블, 하네스 선택, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬 |
-| `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명 |
+| `outsource-run` | 런처: 프로바이더 테이블, 하네스 선택, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--detach` / non-TTY 포그라운드 거절 |
+| `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명, `--detach` / `--foreground` |
 | `guard` | git 금지 `PreToolUse` 훅. 두 하네스 공용 (54 회귀 케이스 + 670건 판정 골든) |
 | `credential` · `setup-key.sh` | 키 **와 호스트** 해석의 단일 소유자, 그리고 그 대화형 절반. `setup-key.sh` 는 의도적으로 셸로 남았습니다(TTY 상호작용 전용, `tests/shell-boundary.test.sh` 가 경계를 강제) |
 | `verify-key` | 저장 전 키 검증. 키는 argv가 아니라 stdin으로 받습니다 |

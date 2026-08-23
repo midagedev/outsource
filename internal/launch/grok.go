@@ -53,9 +53,14 @@ const researchNotice = "> [runner notice — research mode] 이 라운드에는 
 type grokOpts struct {
 	cwd, spec, log, label, marker, profile, resume string
 	model, effort, maxTurns                        string
-	research, detach                               bool
+	research, detach, foreground                   bool
 	extra                                          []string
 }
+
+// detachedEnvKey is set only on the --detach re-exec child's cmd.Env, so a
+// child whose stdin is nil (not a TTY) does not refuse itself. The name is
+// shared with outsource-run; both launchers re-exec the same binary.
+const detachedEnvKey = "OUTSOURCE_DETACHED"
 
 // GrokMain launches a raw grok CLI round with the same observability contract as
 // the zai launcher: a registry entry while it runs, a <log>.rc sentinel when it
@@ -103,8 +108,10 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 			o.research, ok = true, true
 		case "--detach":
 			o.detach, ok = true, true
+		case "--foreground":
+			o.foreground, ok = true, true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: grok-run --cwd <dir> --spec <file> --log <file.ndjson> [--label L] [--done-marker M] [--git-profile strict|readonly-plus|trusted] [--resume SID] [--model M] [--reasoning-effort E] [--max-turns N] [--research] [--detach] [-- <grok flags...>]")
+			fmt.Fprintln(stdout, "usage: grok-run --cwd <dir> --spec <file> --log <file.ndjson> [--label L] [--done-marker M] [--git-profile strict|readonly-plus|trusted] [--resume SID] [--model M] [--reasoning-effort E] [--max-turns N] [--research] [--detach] [--foreground] [-- <grok flags...>]")
 			return 0
 		case "--":
 			o.extra = append(o.extra, args[i+1:]...)
@@ -159,10 +166,6 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	if _, err := exec.LookPath("grok"); err != nil {
-		fmt.Fprintln(stderr, "grok-run: grok CLI not on PATH")
-		return ExitNoStart
-	}
 	if o.label == "" {
 		o.label = strings.TrimSuffix(filepath.Base(o.spec), ".md")
 	}
@@ -173,6 +176,23 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 
+	// Non-TTY foreground is the hazardous shape: a harness-tracked background
+	// task whose stdin is a pipe, not a terminal. Measured 2026-08-22: 6
+	// rounds (5 with wrapper_signal=TERM, rc=-1) died at wall-clock times
+	// aligned to :08:26/:38:26 — an external 30-minute-period killer, not
+	// this launcher. --detach is the way out; --foreground is the opt-out
+	// for tests and deliberate blocking waits. The detached child is marked
+	// via cmd.Env so it does not refuse itself (its stdin is nil).
+	if !skipForegroundGuard(o.foreground, o.detach) {
+		refuseNonTTYForeground("grok-run", stderr)
+		return ExitUsage
+	}
+
+	if _, err := exec.LookPath("grok"); err != nil {
+		fmt.Fprintln(stderr, "grok-run: grok CLI not on PATH")
+		return ExitNoStart
+	}
+
 	// --detach: re-exec this same launch in its own session and return. This
 	// point — after every usage check, before anything stateful (session id,
 	// registry, log files) — is the only safe seam: usage errors stay
@@ -181,30 +201,10 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	// meant all along; the flag exists because callers kept hand-assembling
 	// that layer with nohup and losing rounds to their orchestrator's command
 	// timeout delivering TERM to the foreground process group (measured
-	// 2026-08-19: rc=143, wrapper_signal=TERM, ten minutes of work gone).
+	// 2026-08-19: rc=143, wrapper_signal=TERM, ten minutes of work gone;
+	// 2026-08-22: six more, the 30-min external killer).
 	if o.detach {
-		self, err := os.Executable()
-		if err != nil {
-			fmt.Fprintf(stderr, "grok-run: cannot re-exec for --detach: %v\n", err)
-			return ExitUsage
-		}
-		child := []string{"grok-run"}
-		for _, a := range args {
-			if a != "--detach" {
-				child = append(child, a)
-			}
-		}
-		cmd := exec.Command(self, child...)
-		cmd.SysProcAttr = detachAttr()
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-		if err := cmd.Start(); err != nil {
-			fmt.Fprintf(stderr, "grok-run: could not detach: %v\n", err)
-			return ExitNoStart
-		}
-		fmt.Fprintf(stdout, "grok-run: detached (pid=%d, label=%s, log=%s) — completion evidence is %s.rc, watch with: outsource runs\n",
-			cmd.Process.Pid, o.label, o.log, o.log)
-		_ = cmd.Process.Release()
-		return 0
+		return reexecDetached("grok-run", args, o.label, o.log, stdout, stderr)
 	}
 
 	promptFile := o.spec
@@ -462,6 +462,88 @@ func newUUID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// skipForegroundGuard is true when a non-TTY stdin must not refuse the launch:
+// the caller opted into --detach or --foreground, the process is already the
+// detached re-exec child, or stdin really is a terminal.
+func skipForegroundGuard(foreground, detach bool) bool {
+	if foreground || detach {
+		return true
+	}
+	if os.Getenv(detachedEnvKey) == "1" {
+		return true
+	}
+	return stdinIsTerminal()
+}
+
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	// A character device is not yet a terminal: /dev/null is one too, and it
+	// is exactly what an agent harness wires as a background task's stdin.
+	// Measured 2026-08-23: with the bare ModeCharDevice test this guard never
+	// fired in the environment it was built for — a live foreground round
+	// sailed through from a harness shell — while the test suite passed,
+	// because tests feed stdin from pipes. A real isatty needs an ioctl; the
+	// one non-terminal char device that actually reaches this guard is
+	// /dev/null, so exclude it by file identity.
+	if dn, err := os.Stat(os.DevNull); err == nil && os.SameFile(fi, dn) {
+		return false
+	}
+	return true
+}
+
+func refuseNonTTYForeground(tool string, stderr io.Writer) {
+	fmt.Fprintf(stderr, "%s: launched foreground without a terminal — as a harness-tracked background task this exact shape lost 6 rounds to an external 30-min killer (2026-08-22); relaunch with --detach (recommended) or pass --foreground if you really mean to block\n", tool)
+	telemetry.Note("why", "foreground without a terminal")
+}
+
+// reexecDetached starts this binary again without --detach, in its own
+// session, and returns. Usage errors must already have been checked: the
+// child is not a place they can still print on the caller's terminal.
+func reexecDetached(tool string, args []string, label, logPath string, stdout, stderr io.Writer) int {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: cannot re-exec for --detach: %v\n", tool, err)
+		return ExitUsage
+	}
+	child := []string{tool}
+	for _, a := range args {
+		if a != "--detach" {
+			child = append(child, a)
+		}
+	}
+	cmd := exec.Command(self, child...)
+	cmd.SysProcAttr = detachAttr()
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
+	cmd.Env = envWithDetached()
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(stderr, "%s: could not detach: %v\n", tool, err)
+		return ExitNoStart
+	}
+	fmt.Fprintf(stdout, "%s: detached (pid=%d, label=%s, log=%s) — completion evidence is %s.rc, watch with: outsource runs\n",
+		tool, cmd.Process.Pid, label, logPath, logPath)
+	_ = cmd.Process.Release()
+	return 0
+}
+
+// envWithDetached is the re-exec child's environment: the caller's env plus
+// OUTSOURCE_DETACHED=1, with any inherited copy of that key stripped first so
+// a stale "0" cannot win. Scoped to this Command.Env only — the parent does
+// not os.Setenv, so a sibling the parent later starts does not see the marker.
+func envWithDetached() []string {
+	prefix := detachedEnvKey + "="
+	out := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, prefix) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, prefix+"1")
 }
 
 // registerRun and finishRun call the registry in-process. Bookkeeping must never

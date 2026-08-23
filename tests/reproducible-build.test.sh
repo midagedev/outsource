@@ -27,6 +27,8 @@ BIN=skills/outsource/bin/outsource
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 
 # The same flags build.sh uses. Kept literal rather than sourced, so this test
 # fails loudly if build.sh changes them without a decision.

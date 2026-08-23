@@ -60,12 +60,18 @@ cat ~/.claude/skills/outsource/references/spec-preamble.md \
     ~/.claude/skills/outsource/references/glm-preamble.md \
     $SP/task.md > $SP/spec.md
 
-~/.claude/skills/outsource/bin/outsource-run.sh \
+~/.claude/skills/outsource/bin/outsource-run.sh --detach \
   --cwd /absolute/path/to/worktree --spec $SP/spec.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/glm-cfg-<track> --log $SP/glm-<track>.log
 # add --harness crush to run the same spec on the other harness
 ```
+
+`--detach` is the same re-exec-into-own-session as `grok-run.sh`: usage
+errors still fail on your terminal, then the round survives the caller's
+process group. A foreground launch whose stdin is not a TTY is refused
+(exit 64) — that shape lost 6 rounds to an external 30-min killer
+(2026-08-22). Pass `--foreground` only for tests or a deliberate block.
 
 `--label` is the track's purpose, and it is worth typing every time: with
 one spec file per scratch dir — the layout above — the derived default is
@@ -73,10 +79,13 @@ the same word for every parallel round, which is exactly when you need to
 tell them apart. `api-migration`, `test-backfill`, `docs-sweep`; not
 `track-a`.
 
-Run with `run_in_background: true`; collect the log on completion. The last
-stdout line is `SESSION <id>` — pass it back with `--session <id>` for a
-follow-up in the same context (keep that rare; a fresh round with a
-summarized spec is usually better).
+`--detach` returns immediately; the child's stdout is discarded (completion
+evidence is `<log>.rc`, session id is in the sentinel). Do not also wrap it
+in a harness `run_in_background` task — that is the shape the non-TTY
+refusal closes. For a blocking wait on a TTY, omit `--detach`. A foreground
+run's last stdout line is `SESSION <id>` — pass it back with `--session
+<id>` for a follow-up in the same context (keep that rare; a fresh round
+with a summarized spec is usually better).
 
 Flags: `--harness claude-code|crush` (default claude-code, or
 `OUTSOURCE_HARNESS`); `--model` — bare id on claude-code (`glm-5.3`),
@@ -90,9 +99,11 @@ git ban** (hooks fire only on top-level tool calls) — only for tasks with
 zero repository-state risk; `--label <name>` names the track in the run
 registry; `--max-seconds N` kills the harness at N seconds (exit 124);
 `--done-marker <string>` records in the sentinel whether the transcript
-carries the spec's completion marker (`done_marker=found|absent`). A clean
-harness exit without the marker is **exit 72** (same code and same-intent
-stderr as `grok-run.sh`). 70 stays the model-identity assertion.
+carries the spec's completion marker (`done_marker=found|absent`);
+`--detach` re-execs into its own session; `--foreground` opts out of the
+non-TTY refusal. A clean harness exit without the marker is **exit 72**
+(same code and same-intent stderr as `grok-run.sh`). 70 stays the
+model-identity assertion.
 
 Pass `--done-marker` whenever the task spec ends with one, because **`rc=0`
 only means the harness exited cleanly.** Measured on one day: a round exited

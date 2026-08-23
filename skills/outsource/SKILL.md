@@ -111,7 +111,12 @@ five of them (a nonexistent tool, a nonexistent column, an absent fixture,
 a wrong runner cwd, a wrong manifest path) each cost part of a round. The
 delegate catches them, but only after it has started.
 
-Then invoke the backend exactly as its reference describes:
+Then invoke the backend exactly as its reference describes. **Do not launch
+either wrapper foreground under a harness-tracked background task with no
+TTY** — that shape lost 6 rounds to an external 30-minute killer
+(2026-08-22, wall-clock :08:26/:38:26). Both launchers refuse it at exit 64
+and name `--detach` (recommended) or `--foreground` (tests / a deliberate
+block). `outsource-run.sh --detach` matches `grok-run.sh --detach`.
 
 - grok: `references/grok.md` — flag combo, git-safety profiles, sentinel
   completion proof, vision-verdict recipe, image generation, mid-round
@@ -187,7 +192,9 @@ It understands three shapes — a claude-code `run.log` (last `result` event),
 a grok CLI ndjson (text deltas after the last tool event), and opencode
 `--format json` (concatenation of `part.text` after the last `tool_use`) —
 and exits 65 when the log holds no report at all, which is what a
-died-mid-run round looks like. It prints the delegate's words; **completion
+died-mid-run round looks like. On that path it now also names what the
+sentinel already knows (`rc`, `wrapper_signal`, finished) or that the
+round is still running. It prints the delegate's words; **completion
 evidence is still the `.rc` sentinel**, never the report's existence.
 
 ## What the lead always does (backend-independent)

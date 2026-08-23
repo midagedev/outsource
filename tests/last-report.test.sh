@@ -16,6 +16,9 @@ BIN="${LAST_REPORT:-$HERE/skills/outsource/bin/last-report.sh}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
+export OUTSOURCE_RUNS_DIR="$TMP/runs"
 
 pass=0; fail=0
 out=""; rc=0
@@ -114,6 +117,19 @@ ok "an empty log is a died round, not a crash" 65 "no report-shaped content" "-"
 
 out="$("$BIN" "$TMP/definitely-absent" 2>&1)"; rc=$?
 ok "a missing file is its own error (66)" 66 "unreadable" "-"
+
+# ---- sentinel / registry diagnosis on exit 65 --------------------------------
+printf '' > "$TMP/killed.log"
+printf 'rc=-1\nfinished=2026-08-22T17:08:28Z\nwrapper_signal=TERM\n' > "$TMP/killed.log.rc"
+out="$("$BIN" "$TMP/killed.log" 2>&1)"; rc=$?
+ok "killed sentinel is named on exit 65" 65 "killed (TERM)" "-"
+
+printf '' > "$TMP/running.log"
+mkdir -p "$OUTSOURCE_RUNS_DIR"
+printf 'id=shell-running\npid=%s\nlabel=live\nlog=%s\nstartedAt=1\n' "$$" "$TMP/running.log" \
+  > "$OUTSOURCE_RUNS_DIR/shell-running.run"
+out="$("$BIN" "$TMP/running.log" 2>&1)"; rc=$?
+ok "running round is named on exit 65" 65 "round still running" "-"
 
 printf '\nlast-report: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

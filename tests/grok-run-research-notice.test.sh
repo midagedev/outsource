@@ -20,6 +20,8 @@ GROK_RUN="$(cd "$(dirname "$0")/.." && pwd)/skills/outsource/bin/grok-run.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 export GROK_RUN_STARTUP_GRACE=10
 
@@ -46,7 +48,7 @@ fail=0
 note() { fail=$((fail + 1)); echo "FAIL  $*" >&2; }
 
 # ── 1. research mode: notice prepended, body kept, caller file untouched ──
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/r.ndjson" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/r.ndjson" \
   --label research-case --research >/dev/null 2>&1
 if [ ! -f "$TMP/received-spec.md" ]; then
   note "fake grok never received a prompt file (research)"
@@ -61,7 +63,7 @@ fi
 
 # ── 2. normal mode: no notice ─────────────────────────────────────────────
 rm -f "$TMP/received-spec.md"
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/n.ndjson" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/n.ndjson" \
   --label normal-case >/dev/null 2>&1
 if [ ! -f "$TMP/received-spec.md" ]; then
   note "fake grok never received a prompt file (normal)"

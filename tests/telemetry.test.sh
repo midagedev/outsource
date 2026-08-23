@@ -12,6 +12,8 @@ BIN="$(pwd)/skills/outsource/bin/outsource"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_TELEMETRY_FILE="$TMP/telemetry.jsonl"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 
@@ -26,7 +28,7 @@ ok()  { pass=$((pass+1)); }
 bad() { fail=$((fail+1)); printf 'FAIL  %s\n' "$1" >&2; }
 
 # Calls that fail on purpose, since a failure records the most detail.
-"$BIN" outsource-run --cwd "$SECRET_DIR" --spec "$SECRET_DIR/plan.md" \
+"$BIN" outsource-run --foreground --cwd "$SECRET_DIR" --spec "$SECRET_DIR/plan.md" \
   --harness crush --label BLUEHERON-track --done-marker DONE-BLUEHERON >/dev/null 2>&1
 "$BIN" spec-lint --root "$SECRET_DIR" "$SECRET_DIR/plan.md" >/dev/null 2>&1
 "$BIN" last-report "$SECRET_DIR/plan.md" >/dev/null 2>&1

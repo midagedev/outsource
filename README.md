@@ -347,8 +347,8 @@ $ bin/quota.sh --provider grok
 | `references/glm-preamble.md` | GLM runtime delta (no images, hooks not flags, evidence rules) |
 | `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
 | `bin/outsource` | **One Go binary is every tool below.** The `bin/*.sh` names beside it are three-line compatibility shims that exec into it — kept because docs, hooks, installed copies and tests all call these tools by path. Invoke `outsource <tool>` directly to save a fork |
-| `outsource-run` | The launcher: provider table, harness picker, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel |
-| `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, and a startup proof |
+| `outsource-run` | The launcher: provider table, harness picker, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
+| `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, a startup proof, `--detach` / `--foreground` |
 | `guard` | The git-ban `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden) |
 | `credential` · `setup-key.sh` | The single owner of key *and* host resolution, and its interactive half. `setup-key.sh` stays shell on purpose — its whole job is TTY interaction, and `tests/shell-boundary.test.sh` enforces that boundary |
 | `verify-key` | Checks a key before it is stored; the key arrives on stdin, never in argv |

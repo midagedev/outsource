@@ -65,6 +65,31 @@ func TestReadValueContainingEquals(t *testing.T) {
 	}
 }
 
+func TestFindByLogMatchesAbsAndRelative(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	log := filepath.Join(dir, "round.log")
+	os.WriteFile(filepath.Join(dir, "x.run"), []byte("id=x\nlog="+log+"\npid=1\n"), 0o644)
+	if got := FindByLog(log); got == nil || got.ID != "x" {
+		t.Fatalf("exact path: got %+v", got)
+	}
+	// A relative spelling of the same file still hits.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(cwd, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := FindByLog(rel); got == nil || got.ID != "x" {
+		t.Fatalf("relative path %q: got %+v", rel, got)
+	}
+	if got := FindByLog(filepath.Join(dir, "other.log")); got != nil {
+		t.Fatalf("mismatch must be nil, got %+v", got)
+	}
+}
+
 func TestReadRejectsRecordWithoutID(t *testing.T) {
 	// A half-written record must not become a run with an empty name.
 	dir := t.TempDir()

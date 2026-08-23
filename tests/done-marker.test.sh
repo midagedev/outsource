@@ -45,9 +45,12 @@ OUT_RUN="$HERE/skills/outsource/bin/outsource-run.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 export GROK_RUN_STARTUP_GRACE=10
 export ZAI_API_KEY="test-key-not-a-real-credential"
+LIVE_PATH="$PATH"
 
 MARKER="DONE-MARKER-CONTRACT"
 # Shared payload both launchers must print on a missing marker (prefix may
@@ -57,63 +60,18 @@ INTENT="the round finished but --done-marker '$MARKER' is absent; not claiming a
 PREFLIGHT_INTENT="--done-marker '$MARKER' does not appear in the spec"
 PREFLIGHT_FIX="Add that exact string as the spec's last line (the completion marker), then relaunch."
 
-mkdir -p "$TMP/bin" "$TMP/cwd"
+mkdir -p "$TMP/cwd"
 # Spec carries the marker so a --done-marker launch is satisfiable. The
 # preflight cases below use a separate file that does not.
 printf 'do the thing\n%s\n' "$MARKER" > "$TMP/spec.md"
 printf 'do the thing\n' > "$TMP/spec-no-marker.md"
 
-# Fake grok: writes one text event (what last-report.sh extracts) then exits 0.
-# FAKE_GROK_NDJSON, when set, is the whole stream (plan-vs-report fixtures).
-# FAKE_PROVIDER_CANARY is touched only if the binary actually runs.
-cat > "$TMP/bin/grok" <<'FAKE'
-#!/usr/bin/env bash
-if [ -n "${FAKE_PROVIDER_CANARY:-}" ]; then
-  : > "$FAKE_PROVIDER_CANARY"
-fi
-if [ -n "${FAKE_GROK_NDJSON:-}" ]; then
-  printf '%s\n' "$FAKE_GROK_NDJSON"
-else
-  printf '{"type":"text","data":%s}\n' "$(python3 -c 'import json,os; print(json.dumps(os.environ.get("FAKE_GROK_TEXT","working, no marker")))')"
-fi
-printf '{"type":"end","stopReason":"end_turn"}\n'
-exit 0
-FAKE
-chmod +x "$TMP/bin/grok"
-
-# Fake crush: stdout is the launcher log. last-report.sh can extract a
-# report only when this output is JSONL; plain text is the real crush
-# shape and forces the log-wide fallback. `crush session last` is a
-# post-round lookup the launcher ignores on failure.
-cat > "$TMP/bin/crush" <<'FAKE'
-#!/usr/bin/env bash
-if [ "${1:-}" = "session" ]; then
-  printf '%s\n' '{}'
-  exit 0
-fi
-if [ -n "${FAKE_PROVIDER_CANARY:-}" ]; then
-  : > "$FAKE_PROVIDER_CANARY"
-fi
-cat >/dev/null
-printf '%s\n' "${FAKE_CRUSH_OUTPUT:-working, no marker}"
-exit 0
-FAKE
-chmod +x "$TMP/bin/crush"
-
-# Fake claude: a JSON result with modelUsage echoing the requested id and
-# no session transcript — the unverifiable path that must stay exit 70.
-cat > "$TMP/bin/claude" <<'FAKE'
-#!/usr/bin/env bash
-if [ -n "${FAKE_PROVIDER_CANARY:-}" ]; then
-  : > "$FAKE_PROVIDER_CANARY"
-fi
-cat >/dev/null
-printf '%s\n' '{"session_id":"sess-identity","usage":{"input_tokens":1},"total_cost_usd":0,"modelUsage":{"glm-5.3":{"inputTokens":1}}}'
-exit 0
-FAKE
-chmod +x "$TMP/bin/claude"
-
-export PATH="$TMP/bin:$PATH"
+# Hermetic by default: stub model CLIs, real launchers. Live grok rounds
+# (the 2026-08-22 MARKER-CONTRACT flake: model omitted the last-line marker,
+# launcher correctly scored absent/72, test went red) stay behind
+# OUTSOURCE_LIVE_TESTS=1.
+# shellcheck source=fake-backend.sh
+. "$HERE/tests/fake-backend.sh"
 
 pass=0
 fail=0
@@ -138,13 +96,13 @@ run_grok() {  # <label> <text-in-report>
   rm -f "$LOG" "$LOG.rc"
   set +e
   GROK_ERR="$TMP/${label}.wrapper.err"
-  bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
+  bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
     --label "$label" --done-marker "$MARKER" >"$TMP/${label}.out" 2>"$GROK_ERR"
   GROK_RC=$?
   set -e
 }
 
-run_grok "grok-found" "report body $MARKER tail"
+run_grok "grok-found" "$(printf 'report body\n%s' "$MARKER")"
 if [ "$GROK_RC" -eq 0 ]; then
   grep -q '^done_marker=found$' "$LOG.rc" \
     || note "grok found: sentinel is not done_marker=found: $(cat "$LOG.rc")"
@@ -178,7 +136,7 @@ run_glm() {  # <label> <log-body>
   rm -f "$LOG" "$LOG.rc"
   set +e
   GLM_ERR="$TMP/${label}.wrapper.err"
-  bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
+  bash "$OUT_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
     --harness crush --label "$label" --done-marker "$MARKER" \
     --config-dir "$TMP/cfg-$label" >"$TMP/${label}.out" 2>"$GLM_ERR"
   GLM_RC=$?
@@ -224,7 +182,7 @@ fi
 ID_LOG="$TMP/identity.log"
 rm -f "$ID_LOG" "$ID_LOG.rc"
 set +e
-bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$ID_LOG" \
+bash "$OUT_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$ID_LOG" \
   --harness claude-code --label identity-70 --done-marker "$MARKER" \
   --config-dir "$TMP/cfg-identity" >"$TMP/identity.out" 2>"$TMP/identity.err"
 ID_RC=$?
@@ -242,7 +200,7 @@ fi
 # ── vision refusal copy (condition unchanged; wording must distinguish) ──
 printf 'wire a capture harness; write frames/shot.png then decode pixels\n' > "$TMP/vision-spec.md"
 set +e
-bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/vision-spec.md" --log "$TMP/vision.log" \
+bash "$OUT_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/vision-spec.md" --log "$TMP/vision.log" \
   --label vision-copy --config-dir "$TMP/cfg-vision" \
   >"$TMP/vision.out" 2>"$TMP/vision.err"
 VIS_RC=$?
@@ -267,7 +225,7 @@ run_preflight_grok() {
   LOG="$TMP/preflight-grok.ndjson"
   rm -f "$LOG" "$LOG.rc" "${LOG%.ndjson}.sid"
   set +e
-  bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec-no-marker.md" --log "$LOG" \
+  bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec-no-marker.md" --log "$LOG" \
     --label preflight-grok --done-marker "$MARKER" \
     >"$TMP/preflight-grok.out" 2>"$TMP/preflight-grok.err"
   GROK_PRE_RC=$?
@@ -281,7 +239,7 @@ run_preflight_glm() {
   LOG="$TMP/preflight-glm.log"
   rm -f "$LOG" "$LOG.rc"
   set +e
-  bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec-no-marker.md" --log "$LOG" \
+  bash "$OUT_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec-no-marker.md" --log "$LOG" \
     --harness crush --label preflight-glm --done-marker "$MARKER" \
     --config-dir "$TMP/cfg-preflight-glm" \
     >"$TMP/preflight-glm.out" 2>"$TMP/preflight-glm.err"
@@ -350,7 +308,7 @@ run_grok_ndjson() {  # <label> <ndjson>
   rm -f "$LOG" "$LOG.rc"
   set +e
   GROK_ERR="$TMP/${label}.wrapper.err"
-  bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
+  bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
     --label "$label" --done-marker "$MARKER" >"$TMP/${label}.out" 2>"$GROK_ERR"
   GROK_RC=$?
   set -e
@@ -404,7 +362,7 @@ rm -f "$FAKE_PROVIDER_CANARY"
 SCHEMA_LOG="$TMP/schema-marker.ndjson"
 rm -f "$SCHEMA_LOG" "$SCHEMA_LOG.rc"
 set +e
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$SCHEMA_LOG" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$SCHEMA_LOG" \
   --label schema-marker --done-marker "$MARKER" \
   -- --json-schema '{"type":"object"}' \
   >"$TMP/schema-marker.out" 2>"$TMP/schema-marker.err"
@@ -431,7 +389,7 @@ export FAKE_GROK_TEXT
 SCHEMA_OK_LOG="$TMP/schema-nomarker.ndjson"
 rm -f "$SCHEMA_OK_LOG" "$SCHEMA_OK_LOG.rc"
 set +e
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$SCHEMA_OK_LOG" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$SCHEMA_OK_LOG" \
   --label schema-nomarker \
   -- --json-schema '{"type":"object"}' \
   >"$TMP/schema-nomarker.out" 2>"$TMP/schema-nomarker.err"
@@ -442,6 +400,103 @@ if [ "$SCHEMA_OK_RC" -eq 0 ] && [ -e "$SCHEMA_OK_LOG.rc" ] \
   pass=$((pass + 1))
 else
   note "schema without marker: rc=$SCHEMA_OK_RC want=0 and no done_marker key; sentinel=$(cat "$SCHEMA_OK_LOG.rc" 2>/dev/null); err=$(cat "$TMP/schema-nomarker.err" 2>/dev/null)"
+fi
+
+# ── non-TTY refusal without --foreground names --detach (contract 2) ─────
+# Two stdin shapes, both must refuse at 64 BEFORE the fake provider runs:
+# a pipe (`echo |`), and /dev/null — which IS a char device on Unix and
+# therefore slipped past a bare ModeCharDevice test (measured 2026-08-23:
+# a Claude-harness Bash wires stdin to /dev/null, and a live foreground
+# round sailed through the guard built for exactly that harness).
+export FAKE_PROVIDER_CANARY="$TMP/tty-refuse.canary"
+rm -f "$FAKE_PROVIDER_CANARY"
+set +e
+echo | bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/tty-grok.ndjson" \
+  --label tty-refuse-grok >"$TMP/tty-grok.out" 2>"$TMP/tty-grok.err"
+TTY_GROK_RC=$?
+echo | bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/tty-glm.log" \
+  --harness crush --label tty-refuse-glm --config-dir "$TMP/cfg-tty" \
+  >"$TMP/tty-glm.out" 2>"$TMP/tty-glm.err"
+TTY_GLM_RC=$?
+set -e
+if [ "$TTY_GROK_RC" -eq 64 ] && [ "$TTY_GLM_RC" -eq 64 ] \
+   && grep -qF -- '--detach' "$TMP/tty-grok.err" \
+   && grep -qF -- '--foreground' "$TMP/tty-grok.err" \
+   && grep -qF -- '--detach' "$TMP/tty-glm.err" \
+   && [ ! -e "$FAKE_PROVIDER_CANARY" ] \
+   && [ ! -e "$TMP/tty-grok.ndjson.rc" ] \
+   && [ ! -e "$TMP/tty-glm.log.rc" ]; then
+  pass=$((pass + 1))
+else
+  note "non-TTY refusal: grok rc=$TTY_GROK_RC glm rc=$TTY_GLM_RC want=64+--detach; grok-err=$(cat "$TMP/tty-grok.err" 2>/dev/null); glm-err=$(cat "$TMP/tty-glm.err" 2>/dev/null)"
+fi
+
+# /dev/null stdin — the real harness shape. FAIL-first 2026-08-23: with the
+# bare char-device test this case launched the round instead of refusing.
+export FAKE_PROVIDER_CANARY="$TMP/devnull-refuse.canary"
+rm -f "$FAKE_PROVIDER_CANARY"
+set +e
+bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/devnull-grok.ndjson" \
+  --label devnull-refuse-grok >"$TMP/devnull-grok.out" 2>"$TMP/devnull-grok.err" < /dev/null
+DEVNULL_GROK_RC=$?
+bash "$OUT_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$TMP/devnull-glm.log" \
+  --harness crush --label devnull-refuse-glm --config-dir "$TMP/cfg-devnull" \
+  >"$TMP/devnull-glm.out" 2>"$TMP/devnull-glm.err" < /dev/null
+DEVNULL_GLM_RC=$?
+set -e
+if [ "$DEVNULL_GROK_RC" -eq 64 ] && [ "$DEVNULL_GLM_RC" -eq 64 ] \
+   && grep -qF -- '--detach' "$TMP/devnull-grok.err" \
+   && grep -qF -- '--detach' "$TMP/devnull-glm.err" \
+   && [ ! -e "$FAKE_PROVIDER_CANARY" ] \
+   && [ ! -e "$TMP/devnull-grok.ndjson.rc" ] \
+   && [ ! -e "$TMP/devnull-glm.log.rc" ]; then
+  pass=$((pass + 1))
+else
+  note "devnull refusal: grok rc=$DEVNULL_GROK_RC glm rc=$DEVNULL_GLM_RC want=64; grok-err=$(cat "$TMP/devnull-grok.err" 2>/dev/null); glm-err=$(cat "$TMP/devnull-glm.err" 2>/dev/null)"
+fi
+unset FAKE_PROVIDER_CANARY
+
+# ── outsource-run --detach: parent returns, child writes the sentinel ────
+FAKE_CRUSH_OUTPUT="crush log $MARKER tail"
+export FAKE_CRUSH_OUTPUT
+DETACH_LOG="$TMP/detach.log"
+rm -f "$DETACH_LOG" "$DETACH_LOG.rc"
+set +e
+bash "$OUT_RUN" --detach --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$DETACH_LOG" \
+  --harness crush --label detach-glm --done-marker "$MARKER" \
+  --config-dir "$TMP/cfg-detach" >"$TMP/detach.out" 2>"$TMP/detach.err"
+DETACH_RC=$?
+set -e
+for _ in $(seq 1 50); do [ -f "$DETACH_LOG.rc" ] && break; sleep 0.1; done
+if [ "$DETACH_RC" -eq 0 ] \
+   && grep -q 'detached (pid=' "$TMP/detach.out" \
+   && [ -f "$DETACH_LOG.rc" ] \
+   && grep -q '^done_marker=found' "$DETACH_LOG.rc"; then
+  pass=$((pass + 1))
+else
+  note "outsource-run --detach: rc=$DETACH_RC want=0+detached+sentinel found; out=$(cat "$TMP/detach.out" 2>/dev/null); err=$(cat "$TMP/detach.err" 2>/dev/null); sentinel=$(cat "$DETACH_LOG.rc" 2>/dev/null)"
+fi
+
+# Live grok rounds spend quota and flake on model behavior (2026-08-22
+# MARKER-CONTRACT: the launcher correctly scored absent → 72; the test
+# expected found). The hermetic grok-absent case above pins that verdict.
+if [ "${OUTSOURCE_LIVE_TESTS:-}" = "1" ]; then
+  echo "done-marker: OUTSOURCE_LIVE_TESTS=1 — live grok round (spends quota)"
+  LIVE_LOG="$TMP/live.ndjson"
+  rm -f "$LIVE_LOG" "$LIVE_LOG.rc"
+  set +e
+  env PATH="$LIVE_PATH" bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" \
+    --spec "$TMP/spec.md" --log "$LIVE_LOG" --label live-marker \
+    --done-marker "$MARKER" >"$TMP/live.out" 2>"$TMP/live.err"
+  LIVE_RC=$?
+  set -e
+  if [ -f "$LIVE_LOG.rc" ] && grep -q '^done_marker=' "$LIVE_LOG.rc"; then
+    pass=$((pass + 1))
+  else
+    note "live grok: rc=$LIVE_RC no sentinel/done_marker; err=$(cat "$TMP/live.err" 2>/dev/null)"
+  fi
+else
+  echo "done-marker: skipping live grok rounds (set OUTSOURCE_LIVE_TESTS=1 to enable; they spend quota and are flaky on model behavior, not launcher behavior)"
 fi
 
 echo "done-marker: $pass passed, $fail failed"

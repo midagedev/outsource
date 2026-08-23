@@ -22,6 +22,8 @@ RUNS_SH="${RUNS_SH:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/skills/outs
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 
 pass=0; fail=0

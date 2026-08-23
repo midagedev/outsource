@@ -213,6 +213,37 @@ func Read(path string) (*Record, error) {
 	return r, nil
 }
 
+// sameLog reports whether two log paths name the same file. last-report looks
+// a round up by the path the caller typed, which may be relative, while the
+// registry stores whatever the launcher wrote (usually absolute).
+func sameLog(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	aa, err1 := filepath.Abs(a)
+	ba, err2 := filepath.Abs(b)
+	return err1 == nil && err2 == nil && aa == ba
+}
+
+// FindByLog returns the first record whose Log matches path, or nil. The
+// directory missing is "not found", not an error — last-report treats that
+// as "no registry row", the same as an empty registry.
+func FindByLog(path string) *Record {
+	recs, err := List()
+	if err != nil {
+		return nil
+	}
+	for _, r := range recs {
+		if sameLog(r.Log, path) {
+			return r
+		}
+	}
+	return nil
+}
+
 // List returns every record oldest-first. The <startedAt>-<pid> name makes a
 // plain sorted glob chronological, and that ordering is part of the contract:
 // callers render in it.

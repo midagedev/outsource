@@ -26,6 +26,8 @@ GROK_RUN="$(cd "$(dirname "$0")/.." && pwd)/skills/outsource/bin/grok-run.sh"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 export GROK_RUN_STARTUP_GRACE=10
 
@@ -51,7 +53,7 @@ note() { fail=$((fail + 1)); echo "FAIL  $*" >&2; }
 
 # ── 1. TERM to the wrapper mid-round: sentinel still appears ─────────────
 LOG="$TMP/signal.ndjson"
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG" \
   --label signal-case >/dev/null 2>&1 &
 WRAP=$!
 for _ in $(seq 1 50); do [ -s "$LOG" ] && break; sleep 0.2; done
@@ -71,7 +73,7 @@ fi
 
 # ── 2. Normal path unregressed: no signal, sentinel as before ────────────
 LOG2="$TMP/normal.ndjson"
-bash "$GROK_RUN" --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG2" \
+bash "$GROK_RUN" --foreground --cwd "$TMP/cwd" --spec "$TMP/spec.md" --log "$LOG2" \
   --label normal-case >/dev/null 2>&1
 if [ -f "$LOG2.rc" ]; then
   grep -q '^rc=0$' "$LOG2.rc" || note "normal case: rc is not 0: $(cat "$LOG2.rc")"

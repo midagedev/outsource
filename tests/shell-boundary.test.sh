@@ -22,6 +22,10 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 BIN=skills/outsource/bin
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/state"
+export XDG_STATE_HOME="$TMP/state"
 
 pass=0; fail=0
 ok()  { pass=$((pass+1)); }
