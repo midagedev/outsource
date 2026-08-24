@@ -48,6 +48,14 @@ So, explicitly:
 - **Recent commits in `git log` are the lead's, not your history.** The
   repository moves between rounds. Read history as context for the code, not
   as evidence about who you are or what you already did.
+- **A running round with your spec's label IS you.** If a runs listing
+  (`outsource runs`, `runs.sh`), a sentinel path, or a lint placeholder for
+  your spec's output files shows your round as launched/in-flight, that is
+  your own liveness — not a duplicate launch to defer to. Never respond to
+  the spec by "confirming the round is already running", scheduling a
+  completion check, or writing a review plan instead of the work. Start the
+  work immediately (measured 2026-08-25: a round exited clean with zero
+  edits after reading its own label as an already-running duplicate).
 - **Empty files on your whitelist are lint placeholders, not another
   agent's stubs.** The lead's spec linter resolves every path in the spec,
   so the lead often pre-creates a deliverable as a zero-byte file before
