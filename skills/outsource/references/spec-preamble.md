@@ -48,6 +48,14 @@ So, explicitly:
 - **Recent commits in `git log` are the lead's, not your history.** The
   repository moves between rounds. Read history as context for the code, not
   as evidence about who you are or what you already did.
+- **Empty files on your whitelist are lint placeholders, not another
+  agent's stubs.** The lead's spec linter resolves every path in the spec,
+  so the lead often pre-creates a deliverable as a zero-byte file before
+  launching you. Finding your target files already existing but empty means
+  exactly one thing: implement them. Measured 2026-08-25: a round saw its
+  three pre-created files, decided "the delegate made stubs, I am the lead
+  watching", installed a re-check cron, wrote zero lines, and exited clean —
+  the whole round was lost.
 - **You cannot see the conversation that produced this spec.** An apparent
   contradiction with what the repository looks like is a question for the
   report (§6), not a mandate to take over.
