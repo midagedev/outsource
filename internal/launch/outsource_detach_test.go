@@ -72,3 +72,32 @@ func TestOutsourceUnknownDetachGone(t *testing.T) {
 		t.Fatalf("help must list --foreground, got %s", stdout.String())
 	}
 }
+
+// A crush --model that is not provider/id is a usage error too, and it was
+// being swallowed: the check lived in runCrush, which only runs after the
+// detach re-exec, so the caller was told "detached (pid=…)" and got exit 0
+// while the round was already dead with no message anywhere. Measured
+// 2026-08-26 launching a real audit round with --model glm-5.3 on crush.
+func TestOutsourceDetachRefusesUnqualifiedCrushModel(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	if err := os.WriteFile(spec, []byte("do the thing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errBuf bytes.Buffer
+	rc := OutsourceMain([]string{
+		"--detach",
+		"--cwd", dir, "--spec", spec, "--log", filepath.Join(dir, "run.log"),
+		"--harness", "crush",
+		"--model", "glm-5.3",
+	}, io.Discard, &errBuf)
+	if rc != ExitUsage {
+		t.Fatalf("want ExitUsage (%d) before any detach, got %d", ExitUsage, rc)
+	}
+	if !strings.Contains(errBuf.String(), "provider/id") {
+		t.Fatalf("the refusal must name the expected form; stderr was: %q", errBuf.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "run.log.rc")); err == nil {
+		t.Fatal("a refused launch must not write a sentinel")
+	}
+}

@@ -309,6 +309,16 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitNoCredential
 	}
 
+	// The harness's own model-form rule, checked here and not only inside the
+	// harness: past the re-exec below there is no caller left to tell.
+	if o.harness == "crush" {
+		if msg, ok := crushModelFormError(o.model, p.name); !ok {
+			fmt.Fprintln(stderr, msg)
+			telemetry.Note("why", "crush --model is not provider/id")
+			return ExitUsage
+		}
+	}
+
 	if o.detach {
 		bin := "claude"
 		switch o.harness {

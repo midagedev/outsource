@@ -54,14 +54,8 @@ func (r *round) runCrush() int {
 	if r.o.model == "" {
 		r.o.model = r.p.name + "/" + r.p.defaultModel
 	}
-	prefix, _, hasSlash := strings.Cut(r.o.model, "/")
-	if !hasSlash {
-		fmt.Fprintf(r.stderr, "--model must be provider/id for the crush harness, got: %s\n", r.o.model)
-		r.bailed = true
-		return ExitUsage
-	}
-	if prefix != r.p.name {
-		fmt.Fprintf(r.stderr, "--model %s does not match --provider %s\n", r.o.model, r.p.name)
+	if msg, ok := crushModelFormError(r.o.model, r.p.name); !ok {
+		fmt.Fprintln(r.stderr, msg)
 		r.bailed = true
 		return ExitUsage
 	}
@@ -187,4 +181,25 @@ func (r *round) crushSession(dataDir string) string {
 		return id
 	}
 	return ""
+}
+
+// crushModelFormError is the single owner of crush's provider/id rule. It is
+// checked twice: here, when the round starts, and again before the --detach
+// re-exec — because a check that only runs in the detached child has nowhere
+// to print. That is how an unqualified --model came back as "detached
+// (pid=…)" and exit 0 over a round that was already dead (2026-08-26).
+//
+// An empty model is not an error: runCrush qualifies the default itself.
+func crushModelFormError(model, provider string) (string, bool) {
+	if model == "" {
+		return "", true
+	}
+	prefix, _, hasSlash := strings.Cut(model, "/")
+	if !hasSlash {
+		return fmt.Sprintf("--model must be provider/id for the crush harness, got: %s", model), false
+	}
+	if prefix != provider {
+		return fmt.Sprintf("--model %s does not match --provider %s", model, provider), false
+	}
+	return "", true
 }
