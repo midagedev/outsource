@@ -12,7 +12,10 @@
 # only when files changed since the LAST INSTALL (i.e. someone hand-edited
 # the installed copy). references/local-overlay.md is always preserved and
 # never checksummed; when the install has none, an untracked
-# local-overlay*.md at the repo root seeds it.
+# local-overlay*.md at the repo root seeds it. references/overlays/ — the
+# declared project overlays — is preserved the same way and for the same
+# reason: it is the user's content living inside a directory this script
+# deletes wholesale.
 set -eu
 
 SRC="$(cd "$(dirname "$0")" && pwd)/skills/outsource"
@@ -46,7 +49,7 @@ if [ -d "$DEST" ] && [ "$FORCE" -ne 1 ]; then
       echo "use --force to discard those local edits (local-overlay.md survives either way)." >&2
       exit 1
     fi
-  elif ! diff -rq -x local-overlay.md -x "$MANIFEST" "$SRC" "$DEST" >/dev/null 2>&1; then
+  elif ! diff -rq -x local-overlay.md -x overlays -x "$MANIFEST" "$SRC" "$DEST" >/dev/null 2>&1; then
     echo "refusing: $DEST differs and has no install manifest (pre-manifest install)." >&2
     echo "use --force once; upgrades after that won't need it." >&2
     exit 1
@@ -61,6 +64,15 @@ if [ -f "$OVERLAY" ]; then
   cp "$OVERLAY" "$TMP_OVERLAY"
 fi
 
+# Same for declared project overlays. They are user content that happens to
+# live under the installed tree, and the install below is a clean one.
+DECLARED="$DEST/references/overlays"
+TMP_DECLARED=""
+if [ -d "$DECLARED" ]; then
+  TMP_DECLARED="$(mktemp -d)"
+  cp -R "$DECLARED/." "$TMP_DECLARED/"
+fi
+
 # Clean install so files removed upstream don't linger.
 rm -rf "$DEST"
 mkdir -p "$DEST"
@@ -71,6 +83,13 @@ if [ -n "$TMP_OVERLAY" ]; then
   cp "$TMP_OVERLAY" "$OVERLAY"
   rm -f "$TMP_OVERLAY"
   echo "preserved local overlay: $OVERLAY"
+fi
+
+if [ -n "$TMP_DECLARED" ]; then
+  mkdir -p "$DECLARED"
+  cp -R "$TMP_DECLARED/." "$DECLARED/"
+  rm -rf "$TMP_DECLARED"
+  echo "preserved declared overlays: $DECLARED"
 fi
 
 # Seed the overlay from a personal source kept untracked at the repo root
@@ -93,6 +112,7 @@ fi
 (
   cd "$DEST" &&
   find . -type f ! -name "$MANIFEST" ! -path "./references/local-overlay.md" \
+    ! -path "./references/overlays/*" \
     | LC_ALL=C sort \
     | while IFS= read -r f; do checksum "$f"; done
 ) > "$DEST/$MANIFEST"
