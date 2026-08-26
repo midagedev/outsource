@@ -67,10 +67,16 @@ Selection rules:
 ```bash
 cat <skill-dir>/references/spec-preamble.md \      # shared rules — every clause from a real incident
     <skill-dir>/references/glm-preamble.md \       # GLM runs only: the runtime delta
-    <skill-dir>/references/local-overlay.md \      # user overlay — if it exists AND applies to this repo
-    <repo>/.outsource/overlay.md \                 # project overlay, if it exists
+    $(<skill-dir>/bin/outsource overlays --root <repo>) \   # user + declared + in-repo overlays, in order
     <scratch>/task.md > <scratch>/spec.md
 ```
+
+`outsource overlays` is the one place that decides which overlays apply, so
+the answer does not depend on which of them the lead happened to remember.
+It prints nothing when none exist, `--explain` adds the kind and the pattern
+that matched, and a declaration that could never match is named on stderr
+rather than silently absent. Listing the files by hand still works — the
+resolver is a lookup, not a new format.
 
 **Keep the overlay repo-agnostic, and include only the part that applies.**
 An overlay section written for one project reaches a spec for a different
@@ -290,22 +296,41 @@ Two layers, most specific last so it wins on conflict:
    Holds only what is true for this user on every repo: default backend,
    model/effort flags, provider headroom notes. The installer preserves it
    on upgrade; this repository never ships one.
-2. **Project overlay** — `<repo>/.outsource/overlay.md`. Holds what is true
-   only there: base branch and repo coordinates, house gate recipes,
-   incident history, files-to-read lists. A repo-specific fact in the user
-   overlay is a bug — move it here, next to the code it describes.
+2. **Project overlay** — what is true only in one repo: base branch and repo
+   coordinates, house gate recipes, incident history, files-to-read lists. A
+   repo-specific fact in the user overlay is a bug — move it here. There are
+   two ways to attach one, for two shapes of working copy:
 
-   Checking it in is the default, and it is the wrong default once one repo
-   has **several checkouts on one machine** — clones plus worktrees, each on
-   a different branch. Then a committed overlay is N copies that drift with
-   whatever branch each checkout sits on, and a fix to one is invisible to
-   the rest; a lead who edits the overlay in the clone they happen to be in
-   silently forks the rules. Measured: 16 checkouts of one repo, two overlays
-   already written months apart, neither aware of the other. Keep one file
-   outside the checkouts, symlink `.outsource` into each, and ignore it per
-   checkout via `.git/info/exclude` (worktrees share the main checkout's
-   exclude file, so one line covers them all). Detection reads the symlink
-   like a real file, so nothing else changes.
+   - **In-repo** — `<repo>/.outsource/overlay.md`, committed next to the code
+     it describes. The default: it versions with the branch, arrives with a
+     fresh clone, and teammates get it for free.
+   - **Declared** — `<skill-dir>/references/overlays/<name>.md` whose front
+     matter lists the paths it applies to, the way `.claude/rules/*` declare
+     theirs. The file lives once in user scope and names the working copies
+     it covers.
+
+   ```markdown
+   ---
+   paths:
+     - ~/repo/ds*          # every clone
+     - ~/repo/uf*/**       # and the worktrees under them
+   ---
+   # Project overlay — <repo>
+   ```
+
+   Reach for **declared** when one repo has **several checkouts on one
+   machine** — clones plus worktrees, each parked on a different branch.
+   Committing the overlay there means N copies drifting with N branches, and
+   a lead who edits it in whichever checkout they are standing in forks the
+   rules for every other one, silently. Measured: 16 checkouts of one repo,
+   two overlays written months apart in two different clones, neither aware
+   of the other, with disagreeing gate tables — so which rules a delegate got
+   depended on which clone the lead was in.
+
+   Both modes can be active at once, and an in-repo overlay comes last so it
+   wins on conflict. Prefer one per repo: two active overlays put the same
+   subject in the spec twice, and the delegate has no way to tell which
+   sentence is current.
 
 Read both when they exist and apply them on top of these instructions.
 Include both in spec assembly, user overlay first, project overlay second,

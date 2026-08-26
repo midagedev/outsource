@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0 — 2026-08-26 — declared project overlays, pinned toolchain
+
+- **A project overlay can now be *declared* instead of committed.** A file in
+  `references/overlays/` whose front matter lists `paths:` applies to the
+  working copies those patterns cover, the way Claude Code's `.claude/rules/*`
+  declare theirs. The in-repo `<repo>/.outsource/overlay.md` is unchanged and
+  still the default; both can be active, in-repo last so it wins.
+  Committing inverts once one repo has several checkouts on one machine —
+  clones plus worktrees on different branches — because the overlay becomes N
+  copies drifting with N branches, and editing it in whichever checkout you are
+  standing in forks the rules for the rest, silently. Measured on a repo with
+  16 checkouts: two overlays written months apart in two different clones,
+  neither aware of the other, with disagreeing gate tables.
+- **`outsource overlays [--root DIR] [--explain]`** is the single resolver, so
+  which overlays apply does not depend on what the lead remembered to `cat`.
+  A declaration whose `paths:` could never match is named on stderr rather than
+  being quietly absent — the failure this mode exists to prevent is a silent one.
+- **`go.mod` pins `toolchain go1.26.4`.** The committed binary was built with
+  go1.26.4 and `reproducible-build.test.sh` compares bytes, so any other patch
+  release failed the suite with "the build is no longer reproducible" — a
+  toolchain difference wearing the costume of a tampered artifact. Measured on
+  go1.26.1: fails before, byte-identical after.
+
 ## 0.11.1 — 2026-08-23 — non-TTY foreground refusal, outsource-run --detach
 
 - **A foreground launch whose stdin is not a TTY is refused (exit 64)** on

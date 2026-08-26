@@ -375,11 +375,21 @@ What closed the measured quality gap, each device with an effect behind it:
 Two layers, most specific last:
 
 - **User overlay** — `references/local-overlay.md` next to the installed skill. Only what is true for you on every repo (default backend, model flags). Preserved by `install.sh` across upgrades, never shipped by this repo.
-- **Project overlay** — `<repo>/.outsource/overlay.md`. Base branch, house gate recipes, incident history — the facts that belong next to the code they describe.
+- **Project overlay** — base branch, house gate recipes, incident history: the facts true in one repo only. Two ways to attach one:
+  - **In-repo** — `<repo>/.outsource/overlay.md`, committed next to the code it describes. The default.
+  - **Declared** — `references/overlays/<name>.md` in user scope, whose front matter lists the paths it applies to, the way `.claude/rules/*` declare theirs:
 
-Both are applied automatically and included in spec assembly, user first, project second.
+    ```markdown
+    ---
+    paths:
+      - ~/repo/ds*          # every clone
+      - ~/repo/uf*/**       # and the worktrees under them
+    ---
+    ```
 
-Committing the project overlay is the default. It stops being the right default once one repo has **several checkouts on one machine** — clones plus worktrees, each parked on a different branch. A committed overlay is then N copies drifting with N branches, and the lead who edits it in whichever checkout they are standing in silently forks the rules for everyone else. Measured on a repo with 16 checkouts: two overlays written months apart, neither aware of the other. Keep one file outside the checkouts, symlink `.outsource` into each, and ignore it per checkout with `.git/info/exclude` — worktrees share the main checkout's exclude file, so one line covers all of them. Overlay detection follows the symlink, so nothing else changes.
+Reach for **declared** when one repo has several checkouts on one machine — clones plus worktrees, each parked on a different branch. A committed overlay is then N copies drifting with N branches, and the lead who edits it in whichever checkout they are standing in silently forks the rules for everyone else. Measured on a repo with 16 checkouts: two overlays written months apart, neither aware of the other, with disagreeing gate tables.
+
+`outsource overlays --root <repo>` prints what applies, in assembly order — user, then declared, then in-repo, so the committed file wins on conflict. `--explain` adds the kind and the pattern that matched, and a declaration whose paths could never match is named on stderr instead of quietly doing nothing.
 
 ## Known limits
 
