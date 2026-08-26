@@ -73,6 +73,27 @@ if [ -d "$DECLARED" ]; then
   cp -R "$DECLARED/." "$TMP_DECLARED/"
 fi
 
+# The binary in bin/ is a build artifact, and installing a stale one is
+# silently wrong: tests/reproducible-build.test.sh guards the COMMITTED
+# artifact, not this action. Measured 2026-08-26 — a source fix followed by
+# ./install.sh printed "installed." while shipping the previous binary, and
+# the change looked like it had not worked.
+BIN="$SRC/bin/outsource"
+if [ -e "$BIN" ]; then
+  ROOT="$(cd "$(dirname "$0")" && pwd)"
+  STALE=""
+  for d in "$ROOT/cmd" "$ROOT/internal"; do
+    [ -d "$d" ] || continue
+    found="$(find "$d" -name '*.go' -newer "$BIN" -print 2>/dev/null | head -1)"
+    if [ -n "$found" ]; then STALE="$found"; break; fi
+  done
+  if [ -n "$STALE" ]; then
+    echo "install: $STALE is newer than bin/outsource — run ./build.sh first." >&2
+    echo "install: refusing, because copying now would install the previous binary." >&2
+    exit 1
+  fi
+fi
+
 # Clean install so files removed upstream don't linger.
 rm -rf "$DEST"
 mkdir -p "$DEST"
