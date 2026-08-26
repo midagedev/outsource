@@ -516,6 +516,25 @@ func reexecDetached(tool string, args []string, label, logPath string, stdout, s
 			child = append(child, a)
 		}
 	}
+	// Create the log here, in the parent, before the child exists.
+	//
+	// Two things depend on it. The recipe this skill teaches is "launch
+	// detached, then arm bin/wait.sh over the logs you just started", and
+	// the waiter refuses a log that is not there yet — deliberately, so a
+	// typo'd path cannot poll forever. Without this line that refusal is a
+	// race: the child creates the log, and the parent prints "detached" the
+	// instant after Start(), so an immediately-armed waiter sometimes lost
+	// to a process that had not reached its own os.Create yet.
+	//
+	// It also moves an unwritable --log path back onto the caller's
+	// terminal. In the child that failure had no terminal to print on, so a
+	// bad directory read as a round that started and vanished.
+	if f, err := os.Create(logPath); err != nil {
+		fmt.Fprintf(stderr, "%s: cannot create --log %s: %v\n", tool, logPath, err)
+		return ExitUsage
+	} else {
+		_ = f.Close()
+	}
 	cmd := exec.Command(self, child...)
 	cmd.SysProcAttr = detachAttr()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil

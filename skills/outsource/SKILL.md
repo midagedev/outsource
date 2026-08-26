@@ -122,7 +122,10 @@ either wrapper foreground under a harness-tracked background task with no
 TTY** — that shape lost 6 rounds to an external 30-minute killer
 (2026-08-22, wall-clock :08:26/:38:26). Both launchers refuse it at exit 64
 and name `--detach` (recommended) or `--foreground` (tests / a deliberate
-block). `outsource-run.sh --detach` matches `grok-run.sh --detach`.
+block). `outsource-run.sh --detach` matches `grok-run.sh --detach`. A
+detached launch is only half the move — arm `bin/wait.sh` over the logs you
+just started, or the round's completion reaches nobody (see *Knowing what is
+in flight*).
 
 - grok: `references/grok.md` — flag combo, git-safety profiles, sentinel
   completion proof, vision-verdict recipe, image generation, mid-round
@@ -147,6 +150,36 @@ how long they have been running, and which one died without a report:
 <skill-dir>/bin/runs.sh          # every round: state, provider, harness, elapsed
 <skill-dir>/bin/runs.sh line     # the same, compressed to one line
 ```
+
+**Arm a waiter at launch; do not rely on remembering to poll.** `--detach`
+returns immediately and nothing afterwards wakes the orchestrator, so with
+only the commands above, noticing that a round finished depends on the lead
+choosing to look — which is a coin flip, and lands wrong exactly when the
+lead is busy with the next thing. Measured 2026-08-26: two rounds sat
+finished for nine and eleven minutes, and what surfaced them was the user
+asking, not the orchestrator.
+
+```bash
+<skill-dir>/bin/wait.sh <log.ndjson>...     # blocks until every sentinel exists, prints each
+```
+
+In an agent harness a **blocked wait is the notification**: run it as a
+background command and the harness re-invokes you when it exits, which turns
+"remember to check" into "get told". Launch, then arm it in the same breath —
+one waiter over every log you just started, so one wake-up covers the whole
+fan-out:
+
+```bash
+<skill-dir>/bin/grok-run.sh --detach --label a … --log <A>
+<skill-dir>/bin/grok-run.sh --detach --label b … --log <B>
+<skill-dir>/bin/wait.sh <A> <B>             # background this; it returns when both are done
+```
+
+`--timeout N` bounds it (exit 124, remaining rounds named) for a lane you are
+willing to stop waiting on. The waiter only saves you the polling loop — it
+does not interpret the sentinel, so **completion evidence is still the `.rc`
+content**, and a returned waiter is the cue to read the report, not proof the
+round succeeded.
 
 `running` and `done` are the states you expect; `orphan` — started, pid
 gone, no exit code — is the one worth acting on, because nothing else on

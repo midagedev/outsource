@@ -51,6 +51,7 @@ SHIMS=(
   "runs.sh:runs"
   "spec-lint.sh:spec-lint"
   "statusline.sh:statusline"
+  "wait.sh:wait"
 )
 
 write_shims() {  # <dir>

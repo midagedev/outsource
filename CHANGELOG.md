@@ -30,6 +30,38 @@
   toolchain difference wearing the costume of a tampered artifact. Measured on
   go1.26.1: fails before, byte-identical after.
 
+## 0.11.2 — 2026-08-26 — completion reaches the orchestrator
+
+- **`bin/wait.sh`.** `outsource wait` has existed and been tested since
+  0.11.0, but it had no shim and no line in SKILL.md, and every instruction
+  in this skill speaks in `<skill-dir>/bin/<tool>.sh` — so a tool without
+  that name is invisible in the only vocabulary the reader has. Measured
+  2026-08-26: two rounds sat finished for nine and eleven minutes in a live
+  session, and what surfaced them was the user asking, not the orchestrator.
+  `--detach` returns immediately and nothing afterwards wakes the caller, so
+  with only `runs.sh` to poll, noticing a finished round depends on choosing
+  to look — which lands wrong exactly when the lead is busy with the next
+  thing.
+- **The skill now teaches arming a waiter at launch**, in both places the
+  reader arrives from: beside `--detach` in the launch step, and in
+  *Knowing what is in flight*, which previously taught polling and nothing
+  else. The point it makes is the harness one — a blocked wait *is* the
+  notification, because backgrounding it means the orchestrator is
+  re-invoked when it exits.
+- **`--detach` creates the log before it returns.** The recipe above was
+  racy against the code that ships it: the parent printed `detached` the
+  instant after `Start()`, the child created the log, and `wait` refuses a
+  log that is not there yet — deliberately, so a typo'd path cannot poll
+  forever. FAIL-first: with the fix reverted,
+  `TestDetachCreatesLogBeforeReturning` fails with the log absent at the
+  moment `--detach` returned. Both launchers share the re-exec, so both get
+  it.
+- **An unwritable `--log` path is now a usage error on the caller's
+  terminal** (exit 64, naming the path) instead of `rc=0` and a round that
+  appears to start and vanishes — the detached child has no terminal to
+  report it on. FAIL-first:
+  `TestDetachRefusesUnwritableLogPath` returned 0 before the fix.
+
 ## 0.11.1 — 2026-08-23 — non-TTY foreground refusal, outsource-run --detach
 
 - **A foreground launch whose stdin is not a TTY is refused (exit 64)** on
