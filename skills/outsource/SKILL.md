@@ -197,6 +197,16 @@ gone, no exit code — is the one worth acting on, because nothing else on
 the machine still remembers that round existed. `ps` cannot report it: a
 killed round leaves no process at all.
 
+The one-line view shows LIVE rounds machine-wide, not just yours: a `⇄`
+prefix marks a round another session owns. That is deliberate — live rounds
+spend the shared plan quota, and one measured incident had a round running
+in the lead's own worktree that the lead's scoped line could not see.
+Finished rounds stay scoped to your session, and orphans age off the line
+after a day (`OUTSOURCE_RUN_ORPHAN_LINE`; the full listing keeps them).
+Delegates cannot launch rounds of their own: every harness child carries
+`OUTSOURCE_ROUND=1` and both launchers refuse under it (exit 64), so a
+`⇄` round is another lead's window, never your delegate re-delegating.
+
 **A long round is not a stuck round — never cut one to find out.** Measured
 across ten delivered rounds: 13 minutes to 1h50m, with duration tracking
 message count almost linearly. Long rounds were long because there was a

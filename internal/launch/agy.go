@@ -100,6 +100,7 @@ func (r *round) runAgy() int {
 	} else {
 		cmd.Stderr = r.stderr
 	}
+	cmd.Env = nestedEnv(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	rc := r.runChild(cmd, logf, errf)

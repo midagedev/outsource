@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.1 — 2026-08-27 — the delegate stays a delegate, and the line shows every live round
+
+- **Nested launches are refused (exit 64).** Measured the same day agy
+  shipped: a GLM delegate read the lead-side launch procedure that rode into
+  its spec via overlay assembly, decided it was the lead, and launched a
+  nested round into the same worktree — clean exit, zero implementation.
+  Every harness child now carries `OUTSOURCE_ROUND=1`, and both launchers
+  refuse to start under it (`OUTSOURCE_ALLOW_NESTED=1` for deliberate
+  nesting). The preamble gains a "you are the executor, not the lead"
+  section saying the same thing in words, so the round is not wasted before
+  the guard fires.
+- **`runs line` shows LIVE rounds machine-wide.** The nested round above ran
+  in the lead's own worktree and the lead's scoped status line showed
+  nothing — ownership scoping hid exactly the thing a status line exists to
+  surface. Live (running/orphan) rounds now always show, with a `⇄` prefix
+  when they are another session's; finished rounds stay scoped to yours.
+- **Orphans age off the one-line view** after a day
+  (`OUTSOURCE_RUN_ORPHAN_LINE`) — one was measured squatting on the status
+  line for 9 days. The full `runs` listing keeps every orphan; `prune`
+  remains the cleanup.
+
 ## 0.13.0 — 2026-08-27 — the Google plan joins the pool: agy as a fourth backend
 
 - **`--provider agy` runs rounds on the Antigravity CLI** (Gemini via the

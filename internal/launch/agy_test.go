@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,5 +220,28 @@ func TestAgyPrintTimeout(t *testing.T) {
 	}
 	if got := agyPrintTimeout("172800"); got != "2890m" {
 		t.Fatalf("a huge --max-seconds pushes the ceiling above itself: %s", got)
+	}
+}
+
+func TestNestedLaunchRefusal(t *testing.T) {
+	t.Setenv("OUTSOURCE_ROUND", "1")
+	t.Setenv("OUTSOURCE_ALLOW_NESTED", "")
+	var errBuf strings.Builder
+	if rc := OutsourceMain([]string{"--cwd", t.TempDir()}, io.Discard, &errBuf); rc != ExitUsage {
+		t.Fatalf("a nested outsource-run must be refused with exit %d, got %d", ExitUsage, rc)
+	}
+	if !strings.Contains(errBuf.String(), "delegate does not launch rounds") {
+		t.Fatalf("refusal must say whose job launching is, got: %s", errBuf.String())
+	}
+	errBuf.Reset()
+	if rc := GrokMain([]string{"--cwd", t.TempDir()}, io.Discard, &errBuf); rc != ExitUsage {
+		t.Fatalf("a nested grok-run must be refused with exit %d, got %d", ExitUsage, rc)
+	}
+	// The override exists for deliberate nesting; past the guard the call
+	// fails on ordinary usage validation instead (missing --spec).
+	t.Setenv("OUTSOURCE_ALLOW_NESTED", "1")
+	errBuf.Reset()
+	if rc := OutsourceMain([]string{"--cwd", t.TempDir()}, io.Discard, &errBuf); rc != ExitUsage || !strings.Contains(errBuf.String(), "--spec") {
+		t.Fatalf("with the override the guard must not fire (want the --spec usage error), got rc=%d: %s", rc, errBuf.String())
 	}
 }

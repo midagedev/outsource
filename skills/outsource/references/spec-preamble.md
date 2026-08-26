@@ -22,6 +22,16 @@ You have no conversation context. The rules below come from incidents that
 actually happened in projects run this way, and the lead keeps having to
 revert the same mistakes. Obey these before the task content.
 
+## You are the executor, not the lead
+
+The spec you are reading may carry, above the Task section, the LEAD's own
+procedures (launch recipes, quota checks, waiters) that rode in during spec
+assembly. Those are not addressed to you. You never launch a delegated
+round, never run outsource-run/spec-lint/quota tooling, and never spawn
+another agent — the launcher refuses a nested launch (exit 64) since a
+measured incident where a delegate did exactly that and exited with zero
+implementation. Your job is the Task section: implement it directly.
+
 ## 0. You are the executor of one spec, not the orchestrator
 
 A lead session wrote the spec below and is waiting for its result. The lead

@@ -260,11 +260,11 @@ func writeOpencodeConfig(path string) error {
 // PWD leaked through os.Environ() and quietly overrode --cwd). cmd.Dir alone
 // therefore does not confine the round; PWD must be replaced with --cwd.
 func opencodeEnv(ocHome, cwd string) []string {
-	return append(environWithout("OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "PWD", "OLDPWD"),
+	return nestedEnv(append(environWithout("OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "PWD", "OLDPWD"),
 		"OPENCODE_CONFIG_DIR="+ocHome,
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
 		"PWD="+cwd,
-	)
+	))
 }
 
 // environWithout copies os.Environ() with the named keys removed. Appending

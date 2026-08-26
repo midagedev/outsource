@@ -194,6 +194,30 @@ func defaultHarness(provider, harness string) string {
 // extension must end the token so a word like "gifted" does not trip it.
 var imageRef = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)([^[:alnum:]]|$)`)
 
+// nestedEnvKey marks every harness child's environment, so a delegate that
+// tries to launch a round of its own is refused at the door. Measured
+// 2026-08-27 (GDK-1034 round): a GLM delegate read the lead-side launch
+// procedure in its assembled spec, decided it WAS the lead, and launched a
+// nested round into the same worktree — clean exit, zero implementation,
+// and a round running that no lead had launched. The delegate is an
+// executor; only the lead launches. OUTSOURCE_ALLOW_NESTED=1 overrides, for
+// a lead who deliberately runs a launcher-inside-a-launcher experiment.
+const nestedEnvKey = "OUTSOURCE_ROUND"
+
+func nestedLaunchRefusal(tool string, stderr io.Writer) bool {
+	if os.Getenv(nestedEnvKey) != "1" || os.Getenv("OUTSOURCE_ALLOW_NESTED") == "1" {
+		return false
+	}
+	fmt.Fprintf(stderr, "%s: this process is already inside a delegated round (%s=1), and a delegate does not launch rounds — implement the spec directly; launching is the lead's job. If a lead is deliberately nesting launchers, set OUTSOURCE_ALLOW_NESTED=1.\n", tool, nestedEnvKey)
+	telemetry.Note("why", "nested launch refused: a delegate tried to spawn a round")
+	return true
+}
+
+// nestedEnv appends the marker to a harness child's environment.
+func nestedEnv(env []string) []string {
+	return append(env, nestedEnvKey+"=1")
+}
+
 type opts struct {
 	cwd, spec, log, session, model, harness, providerName  string
 	configDir, label, doneMarker, requireQuota, maxSeconds string
@@ -207,6 +231,9 @@ type opts struct {
 //
 // The model is the point; the harness is only how it is driven headlessly.
 func OutsourceMain(args []string, stdout, stderr io.Writer) int {
+	if nestedLaunchRefusal("outsource-run", stderr) {
+		return ExitUsage
+	}
 	o := opts{
 		harness:      os.Getenv("OUTSOURCE_HARNESS"),
 		providerName: envOr("OUTSOURCE_PROVIDER", "zai"),

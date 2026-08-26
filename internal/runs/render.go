@@ -100,7 +100,16 @@ func (d disambiguator) next(label string) string {
 }
 
 // cmdLine renders one line, no colour: whatever displays it owns the styling.
-// Running and orphaned runs always show; finished ones only while still news.
+//
+// LIVE work shows machine-wide, ownership or not: a running round spends the
+// same plan quota whichever window launched it, and a round another session
+// left editing a tree of yours is exactly the thing a status line exists to
+// surface (measured 2026-08-27: a delegate launched a nested round in the
+// lead's worktree, and the lead's scoped line showed nothing). A live round
+// that is not yours carries a ⇄ prefix so the line never claims foreign work
+// as your own. Finished rounds stay scoped — an outcome is only news to the
+// window that launched it — and orphans age off this view after
+// OrphanLineSeconds (the full `runs` listing keeps them all).
 func cmdLine(f filter, stdout io.Writer) int {
 	recs, _ := List()
 	now := nowUnix()
@@ -108,14 +117,23 @@ func cmdLine(f filter, stdout io.Writer) int {
 	var live, past []string
 
 	for _, r := range recs {
-		if !f.mine(r) {
-			continue
-		}
 		st := r.State()
-		if st != Running && st != Orphan {
+		mine := f.mine(r)
+		foreign := ""
+		if st == Running || st == Orphan {
+			if !mine {
+				foreign = "⇄"
+			}
+		} else {
+			if !mine {
+				continue
+			}
 			if now-atoi(r.FinishedAt) > RecentSeconds {
 				continue
 			}
+		}
+		if st == Orphan && r.Elapsed(now) > OrphanLineSeconds() {
+			continue
 		}
 		el := human.Secs(r.Elapsed(now))
 		lbl := seen.next(r.Label)
@@ -128,9 +146,9 @@ func cmdLine(f filter, stdout io.Writer) int {
 			if idle, ok := r.Idle(now); ok && idle >= StallSeconds() {
 				mark, extra = "⏳", " "+dimIdle+human.Secs(idle)
 			}
-			live = append(live, fmt.Sprintf("%s%s %s·%s %s%s", mark, lbl, r.Provider, HarnessShort(r.Harness), el, extra))
+			live = append(live, fmt.Sprintf("%s%s%s %s·%s %s%s", foreign, mark, lbl, r.Provider, HarnessShort(r.Harness), el, extra))
 		case Orphan:
-			live = append(live, fmt.Sprintf("⚠%s %s·%s %s", lbl, r.Provider, HarnessShort(r.Harness), el))
+			live = append(live, fmt.Sprintf("%s⚠%s %s·%s %s", foreign, lbl, r.Provider, HarnessShort(r.Harness), el))
 		case Done:
 			past = append(past, fmt.Sprintf("✅%s %s", lbl, el))
 		case Failed:

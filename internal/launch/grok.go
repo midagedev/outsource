@@ -72,6 +72,9 @@ const detachedEnvKey = "OUTSOURCE_DETACHED"
 // hand-assembling one with nohup/& — the foreground form dies with the
 // caller's process group, e.g. an orchestrator's command timeout.
 func GrokMain(args []string, stdout, stderr io.Writer) int {
+	if nestedLaunchRefusal("grok-run", stderr) {
+		return ExitUsage
+	}
 	o := grokOpts{profile: "strict", model: "grok-4.6", effort: "xhigh", maxTurns: "1200"}
 	for i := 0; i < len(args); i++ {
 		need := func() (string, bool) {
@@ -299,6 +302,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	}, append(gitFlags, o.extra...)...)...)
 	cmd.Dir = o.cwd
 	cmd.Stdout, cmd.Stderr = logf, errf
+	cmd.Env = nestedEnv(os.Environ())
 	if err := cmd.Start(); err != nil {
 		logf.Close()
 		if errf != nil {

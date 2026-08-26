@@ -106,7 +106,7 @@ func (r *round) runCrush() int {
 	// crush's diagnostics belong with its output here: unlike the claude-code
 	// harness there is no JSON document to corrupt.
 	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.Env = append(os.Environ(), "CRUSH_GLOBAL_CONFIG="+r.o.configDir)
+	cmd.Env = nestedEnv(append(os.Environ(), "CRUSH_GLOBAL_CONFIG="+r.o.configDir))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	rc := r.runChild(cmd, logf)

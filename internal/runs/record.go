@@ -42,6 +42,12 @@ const (
 	// rounds that must not be disturbed while a round stuck in a loop at
 	// minute three goes unnoticed. Progress separates them.
 	DefaultStallSeconds int64 = 600
+	// How long an orphan stays on the ONE-LINE view. An orphan is a real
+	// finding — but a day later nobody is going to act on it from a status
+	// line, and one was measured squatting there for 9 days (2026-08-27),
+	// noise in every render. The full `runs` listing still shows every
+	// orphan; `prune` is the actual cleanup.
+	DefaultOrphanLineSeconds int64 = 86400
 )
 
 // Dir is where records live: $OUTSOURCE_RUNS_DIR, else
@@ -73,6 +79,17 @@ func StallSeconds() int64 {
 		}
 	}
 	return DefaultStallSeconds
+}
+
+// OrphanLineSeconds honours OUTSOURCE_RUN_ORPHAN_LINE, with the same
+// typo-must-not-disable rule as StallSeconds.
+func OrphanLineSeconds() int64 {
+	if v := os.Getenv("OUTSOURCE_RUN_ORPHAN_LINE"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return DefaultOrphanLineSeconds
 }
 
 // State is what a run can be in, and each is decided from the record plus the

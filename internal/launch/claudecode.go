@@ -101,12 +101,12 @@ func (r *round) runClaudeCode() int {
 	} else {
 		cmd.Stderr = r.stderr
 	}
-	cmd.Env = append(os.Environ(),
+	cmd.Env = nestedEnv(append(os.Environ(),
 		"ANTHROPIC_BASE_URL="+base,
 		"ANTHROPIC_AUTH_TOKEN="+key,
 		"ANTHROPIC_MODEL="+r.o.model,
 		"CLAUDE_CONFIG_DIR="+ccHome,
-	)
+	))
 	// Its own process group, so the watchdog can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
