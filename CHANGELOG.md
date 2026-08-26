@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.1 — 2026-08-27 — the zai model table gets a second seeing model, and loses a phantom
+
+- **glm-5.3-flash is wired and measured.** The officially unveiled identity
+  of ox-alpha. Verified end to end on both harnesses (claude-code asserts
+  `model_actual=glm-5.3-flash`; crush accepts `zai/glm-5.3-flash`), and it
+  **sees pixels**: "7" on a white-glyph shape probe where glm-5.3 answered
+  "Y", and through the claude-code harness's Read tool it named a solid
+  `#1E50DC` fill as `#2244DD` (~5% per channel). Vendor-stated 3× plan quota
+  at the same tier. `references/glm.md` carries the model table and routing.
+- **The vision guard is per-model now** (`modelVision`): a spec that names an
+  image launches on `--model glm-5.3-flash` with no `--no-vision-check`, and
+  is still refused (exit 65) on the blind default — the refusal names the
+  model instead of the provider.
+- **glm-5.2 is refused at launch (exit 70).** Measured twice: the z.ai
+  Anthropic endpoint accepts the id but answers with glm-5.3 — the response
+  `model` field differs from the request, so it is not an echo. On
+  claude-code the identity assertion would burn the whole round before
+  failing; on crush there is no assertion and the misassignment would be
+  silent forever. `zaiSilentMappings` closes both at the only point that
+  covers them; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists to re-measure, not to
+  route. Nonexistent ids (e.g. glm-5.2-flash) still error loudly at the API
+  (code 1214) and need no guard.
+
 ## 0.12.0 — 2026-08-26 — declared project overlays, pinned toolchain
 
 - **A project overlay can now be *declared* instead of committed.** A file in

@@ -1,9 +1,27 @@
-# GLM-5.3 backend — z.ai coding plan, on either harness
+# GLM backend — z.ai coding plan, on either harness
 
 The model is the point; **the harness is just how it is driven headlessly**,
 and `bin/outsource-run.sh --harness` picks one. Division of labor is unchanged:
-the lead writes specs, reviews diffs, runs gates, commits; GLM-5.3 burns the
+the lead writes specs, reviews diffs, runs gates, commits; GLM burns the
 implementation tokens, which are close to free on a z.ai coding plan.
+
+## Which model (measured 2026-08-27 against api.z.ai/api/anthropic)
+
+| Model | Endpoint behavior | Vision | Route to it |
+|---|---|---|---|
+| **glm-5.3** (default) | honoured verbatim | **blind** (shape probe: answered "Y" to a white 7) | implementation, gate authoring, investigation, reports — every spec-able round where per-round intelligence matters |
+| **glm-5.3-flash** | honoured verbatim | **sees pixels** — "7" on the shape probe; through the claude-code harness's Read tool it named a solid `#1E50DC` fill as `#2244DD` (~5%/channel). This is the officially unveiled ox-alpha | mechanical edits, format conversions, large fan-out where 5.3 quota is the constraint (**3× the usable plan quota** at the same tier, vendor-stated), and **capture self-verification inside an implementation round** — the delegate can finally open its own screenshot. Precise color/luminance and aesthetic verdicts stay with a frontier vision judge until A/B-measured |
+| glm-4.6 | honoured verbatim | not probed | legacy pin only |
+| glm-5.2 | **silently answered by glm-5.3** (response `model` field differs from the request — measured twice) | — | never — the launcher refuses it at launch (exit 70; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists only to re-measure) |
+| anything else | nonexistent ids error loudly (code 1214); unqualified `claude-*` maps to the plan default | — | — |
+
+The vision guard is per-model: a spec that names an image launches on
+`--model glm-5.3-flash` without `--no-vision-check`, and is still refused on
+the blind default. Identity assertion covers flash like any other id
+(claude-code harness; measured: `model_actual=glm-5.3-flash`). Vendor
+benchmark framing: flash's published deltas (DeepSWE 63.4, Terminal Bench
+84.3) are vs **glm-5.2**, not vs 5.3 — treat 5.3 as the stronger coder until
+an A/B on our own specs says otherwise.
 
 | Harness | How | Pick it when |
 |---|---|---|
@@ -46,11 +64,15 @@ The shared implementer preamble (`references/spec-preamble.md`) carries the
 backend-agnostic rules; `references/glm-preamble.md` is the GLM-runtime
 delta. Assemble both in front of every task spec.
 
-**Hard limit (measured):** GLM-5.3 has `supports_attachments: false` — it
-cannot see images. Every visual verdict — and style/look/UI-interaction
-authoring (A/B-measured, below) — goes to a vision-capable frontier agent
-(we use an Opus subagent). GLM-5.3 can still do the numeric half of visual
-work: pixel-decoding scripts, capture harness wiring, gate authoring.
+**Hard limit (measured, per model):** the default **glm-5.3 cannot see
+images** (shape probe failed; the old `supports_attachments: false` reading
+holds for it). **glm-5.3-flash can** — see the model table above — which
+restores the implementer's capture self-verification when a visual round
+runs on flash. The judgment bar is unchanged: aesthetic/style verdicts and
+precise color calls still go to a vision-capable frontier agent (we use an
+Opus subagent) until flash is A/B-measured on verdict quality. GLM-5.3 keeps
+doing the numeric half of visual work: pixel-decoding scripts, capture
+harness wiring, gate authoring.
 
 ## Invocation
 

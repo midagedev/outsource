@@ -62,6 +62,32 @@ var providerTable = []provider{
 	{"openrouter", "", "stealth/ox-alpha", true},
 }
 
+// zaiVisionModels lists the zai model ids measured to see pixels. The
+// provider row above stays vision=false because the DEFAULT (glm-5.3) is
+// blind — measured 2026-08-27: on a white-7-on-black probe glm-5.3 answered
+// "Y" while glm-5.3-flash answered "7", and through the claude-code
+// harness's Read tool flash also named a solid #1E50DC fill as #2244DD
+// (per-channel error ~5%). flash is the officially unveiled ox-alpha, whose
+// vision this skill had already measured on OpenRouter. Color fidelity on
+// the raw API (no harness) was weaker in one probe — treat flash as reliable
+// for shape/layout/presence and usable-but-verify for exact color.
+var zaiVisionModels = map[string]bool{
+	"glm-5.3-flash": true,
+}
+
+// modelVision answers "can THIS round see pixels" — the per-model refinement
+// of the provider table's vision column, and the single owner the vision
+// guard asks. model may be provider-qualified (crush's zai/…).
+func modelVision(p provider, model string) bool {
+	if p.vision {
+		return true
+	}
+	if p.name == "zai" && model != "" {
+		return zaiVisionModels[strings.TrimPrefix(model, p.name+"/")]
+	}
+	return false
+}
+
 func findProvider(name string) (provider, bool) {
 	for _, p := range providerTable {
 		if p.name == name {
@@ -94,6 +120,37 @@ func pairingRefusal(harness, provider string) string {
 		}
 	}
 	return ""
+}
+
+// zaiSilentMappings records model ids the z.ai Anthropic endpoint accepts
+// without error but answers with a DIFFERENT model. Measured 2026-08-27
+// (two probes each): the response's `model` field came back "glm-5.3" for a
+// "glm-5.2" request — the field is not an echo, because it differs from the
+// request — while glm-5.3, glm-5.3-flash and glm-4.6 were honoured verbatim
+// and a nonexistent id (glm-5.2-flash) errored loudly (code 1214). So a
+// glm-5.2 round can never be a glm-5.2 round: on claude-code the identity
+// assertion would burn the whole round and then exit 70; on crush there is
+// no assertion at all and the misassignment would be permanent and silent.
+// Refusing at launch is the only guard that covers both harnesses.
+var zaiSilentMappings = map[string]string{
+	"glm-5.2": "glm-5.3",
+}
+
+// zaiMappedModelError refuses, at launch, a zai model id that is measured to
+// be silently answered by a different model. model may be bare (claude-code)
+// or provider-qualified (crush's zai/…). OUTSOURCE_ALLOW_MAPPED_MODEL=1
+// overrides — that exists for re-measuring the mapping, not for routing.
+func zaiMappedModelError(provider, model string) (string, bool) {
+	if provider != "zai" || model == "" {
+		return "", true
+	}
+	bare := strings.TrimPrefix(model, provider+"/")
+	answered, mapped := zaiSilentMappings[bare]
+	if !mapped || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
+		return "", true
+	}
+	return fmt.Sprintf("--model %s is silently answered by %s on the z.ai endpoint (measured 2026-08-27: the response model field differs from the request). The round could never run the model you asked for — request %s explicitly, or set OUTSOURCE_ALLOW_MAPPED_MODEL=1 to re-measure the mapping.",
+		model, answered, answered), false
 }
 
 func seedModel(provider, model string) string {
@@ -220,6 +277,15 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	// must be openrouter/…). Scoped here, after the provider is known and
 	// after --model, so an explicit --model still wins.
 	o.model = seedModel(p.name, o.model)
+	// Checked here — after the seed, before the registry and before the
+	// --detach re-exec — for the same reason as crushModelFormError below:
+	// past the re-exec there is no caller left to tell. Exit 70 because this
+	// is the model-identity failure known before spending the round.
+	if msg, ok := zaiMappedModelError(p.name, o.model); !ok {
+		fmt.Fprintln(stderr, msg)
+		telemetry.Note("why", "zai mapped model: request would be answered by a different model")
+		return ExitModelIdentity
+	}
 	o.harness = defaultHarness(p.name, o.harness)
 	// Validated here, not only at the dispatch below, so a usage error is caught
 	// before the run registry records a round that was never going to launch.
@@ -259,12 +325,12 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 
-	// The vision capability comes from the table — never a provider-name test at
-	// the call site.
-	if !o.noVisionCheck && !p.vision && imageRef.Match(specBody) {
-		fmt.Fprintf(stderr, "outsource: spec %s references an image file, but provider '%s' cannot see images (vision=%s in the provider table). This guard refuses a pixel verdict — a spec that only names an image as an artifact (capture harness, pixel-decoding script; see references/glm.md) wants --no-vision-check; a spec that asks the model to look at pixels wants a vision-capable backend (references/grok.md).\n",
-			o.spec, o.providerName, yesNo(p.vision))
-		telemetry.Note("why", "vision guard: spec names an image, provider is blind")
+	// The vision capability comes from the table plus the per-model
+	// refinement (modelVision) — never a provider-name test at the call site.
+	if !o.noVisionCheck && !modelVision(p, o.model) && imageRef.Match(specBody) {
+		fmt.Fprintf(stderr, "outsource: spec %s references an image file, but model '%s' on provider '%s' cannot see images. This guard refuses a pixel verdict — a spec that only names an image as an artifact (capture harness, pixel-decoding script; see references/glm.md) wants --no-vision-check; a spec that asks the model to look at pixels wants a vision-capable model (on zai: --model glm-5.3-flash; see references/glm.md).\n",
+			o.spec, orDefault(o.model, p.defaultModel), o.providerName)
+		telemetry.Note("why", "vision guard: spec names an image, model is blind")
 		return ExitVisionRefused
 	}
 
@@ -571,6 +637,13 @@ func defaultLabel(spec string) string {
 		}
 	}
 	return base
+}
+
+func orDefault(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
 }
 
 func envOr(k, def string) string {
