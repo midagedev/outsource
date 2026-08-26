@@ -290,11 +290,22 @@ Two layers, most specific last so it wins on conflict:
    Holds only what is true for this user on every repo: default backend,
    model/effort flags, provider headroom notes. The installer preserves it
    on upgrade; this repository never ships one.
-2. **Project overlay** — `<repo>/.outsource/overlay.md`, checked into the
-   target repo. Holds what is true only there: base branch and repo
-   coordinates, house gate recipes, incident history, files-to-read lists.
-   A repo-specific fact in the user overlay is a bug — move it here, where
-   it versions with the code it describes.
+2. **Project overlay** — `<repo>/.outsource/overlay.md`. Holds what is true
+   only there: base branch and repo coordinates, house gate recipes,
+   incident history, files-to-read lists. A repo-specific fact in the user
+   overlay is a bug — move it here, next to the code it describes.
+
+   Checking it in is the default, and it is the wrong default once one repo
+   has **several checkouts on one machine** — clones plus worktrees, each on
+   a different branch. Then a committed overlay is N copies that drift with
+   whatever branch each checkout sits on, and a fix to one is invisible to
+   the rest; a lead who edits the overlay in the clone they happen to be in
+   silently forks the rules. Measured: 16 checkouts of one repo, two overlays
+   already written months apart, neither aware of the other. Keep one file
+   outside the checkouts, symlink `.outsource` into each, and ignore it per
+   checkout via `.git/info/exclude` (worktrees share the main checkout's
+   exclude file, so one line covers them all). Detection reads the symlink
+   like a real file, so nothing else changes.
 
 Read both when they exist and apply them on top of these instructions.
 Include both in spec assembly, user overlay first, project overlay second,

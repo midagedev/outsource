@@ -375,9 +375,11 @@ What closed the measured quality gap, each device with an effect behind it:
 Two layers, most specific last:
 
 - **User overlay** — `references/local-overlay.md` next to the installed skill. Only what is true for you on every repo (default backend, model flags). Preserved by `install.sh` across upgrades, never shipped by this repo.
-- **Project overlay** — `<repo>/.outsource/overlay.md`, checked into the target repo. Base branch, house gate recipes, incident history — the facts that version with the code they describe.
+- **Project overlay** — `<repo>/.outsource/overlay.md`. Base branch, house gate recipes, incident history — the facts that belong next to the code they describe.
 
 Both are applied automatically and included in spec assembly, user first, project second.
+
+Committing the project overlay is the default. It stops being the right default once one repo has **several checkouts on one machine** — clones plus worktrees, each parked on a different branch. A committed overlay is then N copies drifting with N branches, and the lead who edits it in whichever checkout they are standing in silently forks the rules for everyone else. Measured on a repo with 16 checkouts: two overlays written months apart, neither aware of the other. Keep one file outside the checkouts, symlink `.outsource` into each, and ignore it per checkout with `.git/info/exclude` — worktrees share the main checkout's exclude file, so one line covers all of them. Overlay detection follows the symlink, so nothing else changes.
 
 ## Known limits
 
