@@ -114,6 +114,7 @@ func (r *round) runOpencode() int {
 		assertCode = ExitModelIdentity
 	default:
 		actual, src, verdict := assertOpencodeIdentity(r.sid, r.o.model, r.o.cwd, cmd.Env)
+		r.modelVerdict, r.modelSource = verdict, src
 		switch verdict {
 		case "ok":
 			r.modelActual = actual

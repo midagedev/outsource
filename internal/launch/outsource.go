@@ -359,9 +359,18 @@ type round struct {
 	// through finish().
 	bailed      bool
 	modelActual string
-	hold        *signalHold
-	runID       string
-	timedOut    bool
+	// modelVerdict/modelSource record WHY the identity assertion landed where
+	// it did. They exist because the assertion runs at the END of a round, so
+	// a --detach failure cannot be moved earlier the way a usage error can,
+	// and the launcher's own stderr has nowhere to go there: <log>.err carries
+	// the harness's stderr, not ours. Measured 2026-08-26 — an ox-alpha round
+	// finished its work, exited 70, and left model_actual= empty with no
+	// recoverable reason anywhere on disk.
+	modelVerdict string
+	modelSource  string
+	hold         *signalHold
+	runID        string
+	timedOut     bool
 }
 
 func (r *round) run() int {
@@ -449,16 +458,8 @@ func (r *round) finish(rc int) int {
 		return rc
 	}
 	if r.o.log != "" {
-		var b strings.Builder
-		fmt.Fprintf(&b, "rc=%d\n", rc)
-		fmt.Fprintf(&b, "finished=%s\n", time.Now().UTC().Format("2006-01-02T15:04:05Z"))
-		fmt.Fprintf(&b, "harness=%s\nprovider=%s\n", r.o.harness, r.p.name)
-		fmt.Fprintf(&b, "model_requested=%s\nmodel_actual=%s\nsession=%s\n", r.o.model, r.modelActual, r.sid)
-		b.WriteString(markerLines)
-		if s := r.hold.name(); s != "" {
-			fmt.Fprintf(&b, "wrapper_signal=%s\n", s)
-		}
-		if err := os.WriteFile(r.o.log+".rc", []byte(b.String()), 0o644); err != nil {
+		body := r.sentinelBody(rc, markerLines, time.Now().UTC())
+		if err := os.WriteFile(r.o.log+".rc", []byte(body), 0o644); err != nil {
 			fmt.Fprintf(r.stderr, "outsource: warning: could not write sentinel %s.rc\n", r.o.log)
 		}
 	}
@@ -589,3 +590,26 @@ func yesNo(b bool) string {
 }
 
 var _ = cred.Base // used by the harness files
+
+// sentinelBody renders the completion evidence. Pulled out of finish so it can
+// be read back in a test: the sentinel is the only thing a --detach caller has
+// after the round ends, and every field here exists because something was once
+// unrecoverable without it.
+func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "rc=%d\n", rc)
+	fmt.Fprintf(&b, "finished=%s\n", now.Format("2006-01-02T15:04:05Z"))
+	fmt.Fprintf(&b, "harness=%s\nprovider=%s\n", r.o.harness, r.p.name)
+	fmt.Fprintf(&b, "model_requested=%s\nmodel_actual=%s\nsession=%s\n", r.o.model, r.modelActual, r.sid)
+	if r.modelVerdict != "" {
+		fmt.Fprintf(&b, "model_verdict=%s\n", r.modelVerdict)
+	}
+	if r.modelSource != "" {
+		fmt.Fprintf(&b, "model_source=%s\n", r.modelSource)
+	}
+	b.WriteString(markerLines)
+	if s := r.hold.name(); s != "" {
+		fmt.Fprintf(&b, "wrapper_signal=%s\n", s)
+	}
+	return b.String()
+}

@@ -53,8 +53,13 @@ func holdSignals() *signalHold {
 	return h
 }
 
-// name is "" when nothing was survived.
+// name is "" when nothing was survived — and also when there is no hold at
+// all, so a caller that only wants to render the answer does not have to own
+// one. A run always installs a hold; a test rendering the sentinel does not.
 func (h *signalHold) name() string {
+	if h == nil {
+		return ""
+	}
 	if v := h.got.Load(); v != nil {
 		return v.(string)
 	}

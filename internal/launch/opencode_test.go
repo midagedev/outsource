@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQualifyOpencodeModel(t *testing.T) {
@@ -297,5 +298,38 @@ func TestParseOpencodeExportWrongDirectory(t *testing.T) {
 	noDir := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"stealth/ox-alpha","providerID":"openrouter"}}]}`)
 	if _, _, v := parseOpencodeExport(noDir, "openrouter/stealth/ox-alpha", "/round/cwd"); v != "ok" {
 		t.Fatalf("missing directory field must fail open, got %q", v)
+	}
+}
+
+// An identity assertion that fails at the END of a --detach round has no
+// terminal to explain itself to: <log>.err carries the harness's stderr, not
+// the launcher's. Measured 2026-08-26 — an ox-alpha round finished its work,
+// exited 70, and left model_actual= empty with the reason nowhere on disk.
+// The sentinel is the completion evidence, so the verdict belongs in it.
+func TestSentinelCarriesTheIdentityVerdict(t *testing.T) {
+	r := &round{
+		o:            opts{model: "openrouter/stealth/ox-alpha", harness: "opencode"},
+		p:            provider{name: "openrouter"},
+		modelVerdict: "absent",
+		modelSource:  "no assistant message in opencode export",
+	}
+	got := r.sentinelBody(ExitModelIdentity, "", time.Time{})
+	for _, want := range []string{
+		"model_verdict=absent",
+		"model_source=no assistant message in opencode export",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sentinel is missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+// A verified round says so too: an empty verdict would leave the reader
+// guessing whether the check ran at all.
+func TestSentinelOmitsVerdictLinesWhenUnset(t *testing.T) {
+	r := &round{o: opts{model: "m", harness: "opencode"}, p: provider{name: "openrouter"}}
+	got := r.sentinelBody(0, "", time.Time{})
+	if strings.Contains(got, "model_verdict=") || strings.Contains(got, "model_source=") {
+		t.Fatalf("unset verdict must not render a line; got:\n%s", got)
 	}
 }
