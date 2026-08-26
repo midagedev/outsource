@@ -270,6 +270,25 @@ func TestMainEndToEnd(t *testing.T) {
 		t.Errorf("already-exists: rc=%d out=%s", rc, out)
 	}
 
+	// The hint fires exactly when the exemption was available and unused: a
+	// spec whose new file is introduced by a heading rather than a marker
+	// gets a finding per mention and no clue that the marker exists.
+	out, rc = run("### `pkg/brandnew.go`\n\nNew file. Also `pkg/brandnew.go` in the criteria.\n")
+	if rc != ExitFindings || !strings.Contains(out, "hint — if any of those are files this round CREATES") {
+		t.Errorf("undeclared creation must carry the hint: rc=%d out=%s", rc, out)
+	}
+	// A spec that already declares creations does not get lectured, even
+	// when some OTHER path is genuinely missing.
+	out, rc = run("Create:\n- `pkg/brandnew.go`\n\nSee `pkg/absent.go`.\n")
+	if rc != ExitFindings || strings.Contains(out, "hint —") {
+		t.Errorf("a spec using the marker must not get the hint: rc=%d out=%s", rc, out)
+	}
+	// Nor does a clean run.
+	out, rc = run("See `pkg/exists.go`.\n")
+	if rc != ExitClean || strings.Contains(out, "hint —") {
+		t.Errorf("clean run must not hint: rc=%d out=%s", rc, out)
+	}
+
 	out, rc = run("See `pkg/exists.go`.\n", "--quiet")
 	if rc != ExitClean || out != "" {
 		t.Errorf("quiet clean run must print nothing: rc=%d out=%q", rc, out)

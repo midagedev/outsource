@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.2 — 2026-08-27 — spec-lint says the exemption exists
+
+- **A missing path that was never declared as a creation now gets one hint
+  line.** The to-be-created exemption has been there since 2026-08-18, but it
+  only recognises marker language (`Create: <path>`, a colon-terminated line
+  opening a list, the Korean forms). A spec that introduces its new file with
+  a section heading and the words "New file." on the next line matches none of
+  it, so every mention of the file the round exists to write is a finding —
+  measured 2026-08-27 at ten findings on one spec, whose author had read this
+  linter's source and still could not tell why. The hint prints only when the
+  shape matches: at least one missing path and not a single declared creation.
+  A spec already using the marker, and a clean run, hear nothing.
+
 ## 0.13.1 — 2026-08-27 — the delegate stays a delegate, and the line shows every live round
 
 - **Nested launches are refused (exit 64).** Measured the same day agy

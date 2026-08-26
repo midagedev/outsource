@@ -135,6 +135,23 @@ parse:
 	telemetry.Note("exempt", strconv.Itoa(total.exempt))
 	telemetry.Note("missing", strconv.Itoa(total.missing))
 	telemetry.Note("already-exists", strconv.Itoa(total.already))
+	// The to-be-created exemption only fires for paths the spec declares in
+	// the marker language creationLines knows ("Create: <path>", a
+	// colon-terminated line opening a list, the Korean forms). A spec that
+	// introduces its new file some other way — a section heading naming the
+	// path, with "New file." as the next sentence — gets one missing finding
+	// per mention of a file the round exists to write, and nothing on the
+	// screen says the exemption was even available (measured 2026-08-27: ten
+	// findings, all one to-be-created tool, on a spec whose author had read
+	// this linter's source). Say it once, and only when the shape matches: a
+	// spec that already declares creations, or one with no missing findings,
+	// hears nothing.
+	if total.missing > 0 && total.exempt == 0 {
+		fmt.Fprintln(stdout, "spec-lint: hint — if any of those are files this round CREATES, "+
+			"declare them so: a line `Create: <path>` (or `New file: <path>`, `신규 파일: <path>`), "+
+			"or `Create:` on its own line opening a list of them. Declared paths are exempt "+
+			"everywhere else they are named, and are checked the other way instead: already-exists.")
+	}
 	if total.findings > 0 {
 		return ExitFindings
 	}
