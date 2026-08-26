@@ -17,6 +17,13 @@
   which overlays apply does not depend on what the lead remembered to `cat`.
   A declaration whose `paths:` could never match is named on stderr rather than
   being quietly absent — the failure this mode exists to prevent is a silent one.
+- **`install.sh` preserves `references/overlays/`.** The install is a clean one
+  (`rm -rf` the destination so files dropped upstream do not linger), and the
+  declared-overlay directory is user content living inside it — so the mode
+  above would have shipped pointing users at a directory the next upgrade
+  deleted. Preserved like `local-overlay.md`, kept out of the checksum manifest
+  (else the user's own edit reads as tampering), and pinned by
+  `tests/install-preserve.test.sh`, which fails 3/6 against the old installer.
 - **`go.mod` pins `toolchain go1.26.4`.** The committed binary was built with
   go1.26.4 and `reproducible-build.test.sh` compares bytes, so any other patch
   release failed the suite with "the build is no longer reproducible" — a
