@@ -16,6 +16,10 @@
 //	  A final step_finish with part.reason=="stop" marks the end of that
 //	  turn but is not required — a died-mid-run log with trailing text is
 //	  still a report.
+//	agy CLI (`agy -p --output-format stream-json`, measured 2026-08-27):
+//	  events are keyed "event", not "type". The final {"event":"result"}
+//	  carries the whole response verbatim in result.response — an explicit
+//	  result, same trust rank as claude-code's.
 //
 // The shape is detected per line, so a log that mixes them — or a future
 // harness that adopts any — still yields the report.
@@ -74,6 +78,23 @@ func Extract(r io.Reader) (string, bool) {
 		var typ string
 		if raw, ok := obj["type"]; ok {
 			_ = json.Unmarshal(raw, &typ)
+		}
+		// agy keys its events "event" and nests the answer: the result
+		// event's result.response is the model's full final text.
+		if typ == "" {
+			var evName string
+			if raw, ok := obj["event"]; ok {
+				_ = json.Unmarshal(raw, &evName)
+			}
+			if evName == "result" {
+				var res struct {
+					Response string `json:"response"`
+				}
+				if raw, ok := obj["result"]; ok && json.Unmarshal(raw, &res) == nil && res.Response != "" {
+					result, haveResult = res.Response, true
+				}
+				continue
+			}
 		}
 		switch typ {
 		case "result":

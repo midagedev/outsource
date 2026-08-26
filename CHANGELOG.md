@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.13.0 — 2026-08-27 — the Google plan joins the pool: agy as a fourth backend
+
+- **`--provider agy` runs rounds on the Antigravity CLI** (Gemini via the
+  signed-in Google plan; default model `gemini-3.7-flash-high` — flash runs
+  on high only, by user decision). The CLI is provider and harness in one:
+  no cred row, no base URL, harness `agy` implied. `references/agy.md` is
+  the field guide; every measured clause below is from 2026-08-27 probes on
+  agy 1.1.21.
+- **The launcher closes agy's three headless traps.** Relative paths resolve
+  into agy's own scratch, not the process cwd — the launcher passes
+  `--add-dir <cwd>` + `--dangerously-skip-permissions` and the reference
+  makes absolute paths a spec contract. Exit 0 is a lifecycle signal only —
+  a permission-denied round exits 0 as `CANCELED`, a soft-denied write exits
+  0 as `SUCCESS` with no file — so the launcher reads the final result
+  event's `status` and fails anything that is not SUCCESS. And
+  `--print-timeout` defaults to 5 minutes, which would truncate most real
+  rounds — pinned to 24h (above `--max-seconds` when set, so the watchdog's
+  kill stays exit 124).
+- **Git guard in agy's own permission store, one rule per subcommand.**
+  `permissions.deny` beats `--dangerously-skip-permissions` (measured), so
+  the launcher installs the opencode deny list into the shared
+  `~/.gemini/antigravity-cli/settings.json` before each round — per
+  subcommand, because the matcher is a substring match, not a regex: a
+  combined `command(git (commit|push|…))` alternation denied nothing and an
+  E2E commit went through; `command(git commit)` as its own rule held. No
+  per-track isolation exists (a HOME-isolated `~/.gemini` copy fails auth —
+  credentials are sidecar/keychain-bound), so the rules are global to agy
+  and documented as such, removal path included.
+- **Identity from the trajectory, not the echo.** `model_actual` is read
+  from `conversations/<id>.db{,-wal}` (records the exact requested slug);
+  the stream `init.model` is a request echo and serves only as the labelled
+  fallback. `last-report.sh` learns the agy shape (the result event's
+  `response`), and `SESSION` maps to `--conversation` for resume.
+- Vision measured best-in-pool: a solid `#1E50DC` PNG named exactly
+  (`#1e50dc`) plus the white-7 shape probe — routed accordingly in the
+  SKILL selection rules.
+
 ## 0.12.1 — 2026-08-27 — the zai model table gets a second seeing model, and loses a phantom
 
 - **glm-5.3-flash is wired and measured.** The officially unveiled identity

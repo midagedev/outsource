@@ -33,6 +33,7 @@ only numeric contracts.
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | **cannot see images at all**; style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** — the exception | `grok` CLI, headless (`references/grok.md`) | what GLM structurally cannot do: **vision verdicts** and image reading, image/video generation, and web research when GLM's harness lacks the tool | verdicts contradicting instrumentation escalate to a Claude agent |
 | **ox-alpha** — OpenRouter stealth | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | spec-able rounds when z.ai/xAI headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | stealth: model identity and limits can change without notice; free while listed as stealth (`step_finish.cost` was 0) |
+| **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (named a solid `#1E50DC` PNG's hex exactly) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 
 Selection rules:
 
@@ -42,14 +43,19 @@ Selection rules:
   OpenRouter round with vision, or another process family besides GLM's two
   harnesses. "It feels exploratory" is not a reason — narrow the
   cause first, then delegate (see *When NOT to outsource*).
-- Anything that must **look at pixels** → grok, ox-alpha, or a Claude agent;
-  never GLM-5.3. This is a capability fact, not a preference: GLM reports
-  `supports_attachments: false`. ox-alpha sees pixels through opencode's
-  `read` tool when the launcher passes `--auto` (without it, a path outside
-  cwd is `external_directory` default-ask and is rejected headless).
-- All three backends parallelize: disjoint file whitelists, one worktree and one
+- Anything that must **look at pixels** → agy (gemini-3.7-flash-high — the
+  best measured color fidelity of the set), grok, ox-alpha, or a Claude
+  agent; never GLM-5.3. This is a capability fact, not a preference: GLM
+  reports `supports_attachments: false`. ox-alpha sees pixels through
+  opencode's `read` tool when the launcher passes `--auto` (without it, a
+  path outside cwd is `external_directory` default-ask and is rejected
+  headless).
+- The backends parallelize: disjoint file whitelists, one worktree and one
   config/session scope per track. Spreading tracks across providers —
-  and, for GLM, across its two harnesses — multiplies headroom.
+  and, for GLM, across its two harnesses — multiplies headroom. agy is the
+  one backend with NO per-track config scope (shared `~/.gemini`); its
+  rounds still parallelize (sessions are separate conversations), but the
+  settings file is one for all of them.
 - **Model vs harness are separate choices.** The harness is only how a model
   is driven headlessly; the same spec, preamble and review checklist apply
   whichever one runs. GLM-5.3 ships with two (`--harness claude-code|crush`);
@@ -139,6 +145,11 @@ in flight*).
   openrouter` (harness `opencode` is the default for that provider), isolated
   `OPENCODE_CONFIG_DIR`, git-write permission deny, `SESSION <id>` resume via
   `-s`, model-identity via `opencode export`.
+- gemini via agy: `references/agy.md` — `bin/outsource-run.sh --provider agy`
+  (the Antigravity CLI is provider and harness in one), absolute-paths-only
+  contract, git deny rules installed into the shared `~/.gemini` settings,
+  result-event `status` as the real success signal, model-identity via the
+  conversation trajectory db.
 
 ## Knowing what is in flight
 

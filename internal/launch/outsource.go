@@ -60,6 +60,13 @@ var providerTable = []provider{
 	{"zai", "https://api.z.ai/api/anthropic", "glm-5.3", false},
 	{"xai", "https://api.x.ai", "grok-4.6", true},
 	{"openrouter", "", "stealth/ox-alpha", true},
+	// agy: the Google Antigravity CLI is provider and harness in one — auth
+	// and quota live in the Google plan, no cred row and no URL. vision=true
+	// is measured (2026-08-27, gemini-3.7-flash-low): a solid #1E50DC PNG was
+	// named "#1e50dc" exactly and a white-7 shape probe answered "7". The
+	// default is the high effort tier by user decision 2026-08-27 ("flash는
+	// high만 써") — medium/low exist but are not routed.
+	{"agy", "", "gemini-3.7-flash-high", true},
 }
 
 // zaiVisionModels lists the zai model ids measured to see pixels. The
@@ -114,9 +121,16 @@ func pairingRefusal(harness, provider string) string {
 		if provider != "openrouter" {
 			return "opencode harness requires provider openrouter (provider '" + provider + "' is not wired)"
 		}
+	case "agy":
+		if provider != "agy" {
+			return "agy harness requires provider agy (the Antigravity CLI is provider and harness in one)"
+		}
 	case "claude-code", "crush":
 		if provider == "openrouter" {
 			return "provider openrouter is not wired on the " + harness + " harness (no Anthropic-compatible URL / no cred row)"
+		}
+		if provider == "agy" {
+			return "provider agy only runs on its own harness (the Antigravity CLI drives itself; there is no Anthropic-compatible URL)"
 		}
 	}
 	return ""
@@ -169,6 +183,9 @@ func defaultHarness(provider, harness string) string {
 	}
 	if provider == "openrouter" {
 		return "opencode"
+	}
+	if provider == "agy" {
+		return "agy"
 	}
 	return "claude-code"
 }
@@ -238,7 +255,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "--foreground":
 			o.foreground, ok = true, true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground]")
+			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode|agy] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground]")
 			return 0
 		default:
 			fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
@@ -289,8 +306,8 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	o.harness = defaultHarness(p.name, o.harness)
 	// Validated here, not only at the dispatch below, so a usage error is caught
 	// before the run registry records a round that was never going to launch.
-	if o.harness != "claude-code" && o.harness != "crush" && o.harness != "opencode" {
-		fmt.Fprintf(stderr, "--harness must be claude-code, crush, or opencode, got: %s\n", o.harness)
+	if o.harness != "claude-code" && o.harness != "crush" && o.harness != "opencode" && o.harness != "agy" {
+		fmt.Fprintf(stderr, "--harness must be claude-code, crush, opencode, or agy, got: %s\n", o.harness)
 		return ExitUsage
 	}
 	if msg := pairingRefusal(o.harness, p.name); msg != "" {
@@ -392,6 +409,8 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			bin = "crush"
 		case "opencode":
 			bin = "opencode"
+		case "agy":
+			bin = "agy"
 		}
 		if _, err := exec.LookPath(bin); err != nil {
 			fmt.Fprintf(stderr, "harness %s needs the '%s' CLI on PATH\n", o.harness, bin)
@@ -459,6 +478,10 @@ func (r *round) run() int {
 		progressDir = filepath.Join(r.o.configDir, "data")
 	case "opencode":
 		progressDir = r.o.log
+	case "agy":
+		// stream-json events land on --log as the round progresses, so the
+		// log file itself is the live trail, same as opencode.
+		progressDir = r.o.log
 	}
 
 	// The model recorded in the REGISTRY is the bare table default when --model was
@@ -491,8 +514,10 @@ func (r *round) run() int {
 		rc = r.runCrush()
 	case "opencode":
 		rc = r.runOpencode()
+	case "agy":
+		rc = r.runAgy()
 	default:
-		fmt.Fprintf(r.stderr, "--harness must be claude-code, crush, or opencode, got: %s\n", r.o.harness)
+		fmt.Fprintf(r.stderr, "--harness must be claude-code, crush, opencode, or agy, got: %s\n", r.o.harness)
 		r.bailed = true
 		rc = ExitUsage
 	}
