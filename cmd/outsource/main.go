@@ -24,6 +24,7 @@ import (
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/guard"
 	"github.com/midagedev/outsource/internal/launch"
+	"github.com/midagedev/outsource/internal/overlays"
 	"github.com/midagedev/outsource/internal/quota"
 	"github.com/midagedev/outsource/internal/report"
 	"github.com/midagedev/outsource/internal/runs"
@@ -53,6 +54,7 @@ var tools = []tool{
 	{"grok-run", noStdin(launch.GrokMain)},
 	{"wait", noStdin(launch.WaitMain)},
 	{"outsource-run", noStdin(launch.OutsourceMain)},
+	{"overlays", noStdin(overlays.Main)},
 	{"last-report", noStdin(report.Main)},
 	{"quota", noStdin(quota.Main)},
 	{"runs", noStdin(runs.Main)},
