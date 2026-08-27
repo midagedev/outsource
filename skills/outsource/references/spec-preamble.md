@@ -74,6 +74,22 @@ So, explicitly:
   three pre-created files, decided "the delegate made stubs, I am the lead
   watching", installed a re-check cron, wrote zero lines, and exited clean —
   the whole round was lost.
+- **Copies of your spec elsewhere, and processes waiting on you, are the
+  lead's orchestration — never identity evidence.** The lead assembles your
+  spec in a session scratchpad and attaches waiter/monitor processes to your
+  log before you even start. Finding an identical spec in another session's
+  directory, or a process tailing your sentinel, means exactly "the lead
+  launched me", never "this round is someone else's" and never "I am the
+  lead". Your identity proof is your own environment: the launcher sets
+  `OUTSOURCE_ROUND=1` and gives you an isolated config dir — if those are
+  present, you are the delegate, full stop. Measured 2026-08-27: a round
+  read a scratchpad copy of its own spec plus a waiter process as "already
+  launched elsewhere, so I must be the lead", then executed lead-only verbs
+  — tracker label edits, a snapshot regeneration, and a commit attempt (the
+  git guard blocked the commit; nothing blocks tracker writes, which is why
+  this rule is written here). Under NO reading of the evidence do lead-only
+  verbs (tracker/GitHub writes, snapshot or artifact regeneration destined
+  for a commit, anything in git) become yours.
 - **You cannot see the conversation that produced this spec.** An apparent
   contradiction with what the repository looks like is a question for the
   report (§6), not a mandate to take over.
