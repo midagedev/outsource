@@ -85,6 +85,43 @@ func TestExtractOpencodeToollessText(t *testing.T) {
 	}
 }
 
+func TestExtractCrushPlainText(t *testing.T) {
+	// A crush log is not JSONL at all: narration and report run together as
+	// prose. Shape taken verbatim from the GDK-962 round (2026-08-27), whose
+	// sentinel said done_marker=found while last-report exited 65.
+	log := `I'll start by reading the key files.Now the resolver:Now the tests:
+
+# GDK-962: the final report
+
+## 1. Files changed
+- edit.go
+
+## 6. Deliberately left untouched
+- the changelog
+
+DONE-p962
+`
+	got, ok := Extract(strings.NewReader(log))
+	if !ok {
+		t.Fatal("a plain-text crush log must yield its report")
+	}
+	if !strings.HasPrefix(got, "# GDK-962: the final report") {
+		t.Fatalf("must cut at the H1, not inside the report; got: %.60q", got)
+	}
+	if strings.Contains(got, "I'll start by reading") {
+		t.Fatalf("narration before the heading must not be included; got: %.60q", got)
+	}
+	if !EndsWithMarker(got, "DONE-p962") {
+		t.Fatalf("the marker must survive to the last line; got tail: %.40q", got[len(got)-40:])
+	}
+
+	// The arm is gated on the whole file being non-JSON: a JSONL log that
+	// simply held no report must still be "no report", never scavenged.
+	if _, ok := Extract(strings.NewReader(`{"type":"system","subtype":"init"}` + "\n")); ok {
+		t.Fatal("a JSONL log with no report must stay empty, not fall through to the plain-text arm")
+	}
+}
+
 func TestLastReportNamesKilledSentinel(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "run.ndjson")

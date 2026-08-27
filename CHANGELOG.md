@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.13.3 — 2026-08-27 — last-report can read a crush log
+
+- **A crush round's report is no longer invisible.** crush writes no JSONL:
+  its log is the assistant's prose, turns run together, no envelope of any
+  kind. Every shape `last-report` knew was JSON-keyed, so a finished round
+  whose sentinel said `done_marker=found` came back exit 65, "no
+  report-shaped content" — with the report sitting in the file (measured
+  2026-08-27, GDK-962 round on the gadak repo). For a log where not one line
+  parsed as JSON, the report is now the text from the last heading of the
+  strongest level present — an H1 when there is one, else H2, else H3.
+  Cutting at the last heading of *any* level was the first draft and it cut
+  inside the report, at its own final section. The arm is gated on the whole
+  file being non-JSON, so it can never scavenge from a JSONL log that simply
+  held no report.
+
 ## 0.13.2 — 2026-08-27 — spec-lint says the exemption exists
 
 - **A missing path that was never declared as a creation now gets one hint

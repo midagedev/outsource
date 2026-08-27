@@ -20,6 +20,14 @@
 //	  events are keyed "event", not "type". The final {"event":"result"}
 //	  carries the whole response verbatim in result.response — an explicit
 //	  result, same trust rank as claude-code's.
+//	crush CLI: not JSONL at all. The log is the assistant's prose, with
+//	  turns run together and no envelope of any kind (measured 2026-08-27:
+//	  a finished round whose sentinel said done_marker=found returned exit
+//	  65, "no report-shaped content" — the report was sitting in the file).
+//	  For a log where NOT ONE line parsed as JSON, the report is the text
+//	  from the last markdown heading onward; with no heading, the trailing
+//	  text. Lowest trust rank, and gated on the whole file being non-JSON so
+//	  it can never scavenge from a JSONL log that simply held no report.
 //
 // The shape is detected per line, so a log that mixes them — or a future
 // harness that adopts any — still yields the report.
@@ -35,6 +43,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -59,6 +68,8 @@ func Extract(r io.Reader) (string, bool) {
 		result       string
 		haveResult   bool
 		lastLongText string
+		plainLines   []string
+		sawJSON      bool
 		grokParts    []string
 		sawGrokTool  bool
 	)
@@ -73,8 +84,13 @@ func Extract(r io.Reader) (string, bool) {
 		}
 		var obj map[string]json.RawMessage
 		if json.Unmarshal([]byte(line), &obj) != nil {
-			continue // non-JSON and truncated lines are skipped, never fatal
+			// Non-JSON and truncated lines are skipped, never fatal — but
+			// kept, because a crush log is nothing else. The plain-text arm
+			// below only fires when no line in the whole file was JSON.
+			plainLines = append(plainLines, sc.Text())
+			continue
 		}
+		sawJSON = true
 		var typ string
 		if raw, ok := obj["type"]; ok {
 			_ = json.Unmarshal(raw, &typ)
@@ -165,13 +181,46 @@ func Extract(r io.Reader) (string, bool) {
 		out = strings.Join(grokParts, "")
 	case !sawGrokTool && len(grokParts) > 0:
 		out = strings.Join(grokParts, "")
-	default:
+	case lastLongText != "":
 		out = lastLongText
+	case !sawJSON:
+		out = plainTail(plainLines)
 	}
 	if strings.TrimSpace(out) == "" {
 		return "", false
 	}
 	return strings.TrimSpace(out), true
+}
+
+// headingRe matches a markdown ATX heading at the start of a line, capturing
+// its level. A crush report opens with one ("# GDK-962: … — final report"),
+// which is the only boundary such a log offers: the prose before it is the
+// round's narration, and the turns are run together with no separator at all.
+var headingRe = regexp.MustCompile(`^(#{1,3}) \S`)
+
+// plainTail is the last resort, for a log that is not JSON anywhere. It cuts
+// at the last heading of the STRONGEST level the log contains — an H1 when
+// there is one, else an H2, else an H3. Taking the last heading of any level
+// was the first draft and it cut inside the report, at its final "## 6"
+// section (measured on the round that prompted this). With no heading at all
+// the whole text is the report: the caller has already established the file
+// holds no structured event to prefer.
+func plainTail(lines []string) string {
+	best := 4 // stronger than any level we match
+	start := 0
+	for i, l := range lines {
+		m := headingRe.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		switch level := len(m[1]); {
+		case level < best:
+			best, start = level, i
+		case level == best:
+			start = i
+		}
+	}
+	return strings.Join(lines[start:], "\n")
 }
 
 // EndsWithMarker reports whether the report's LAST non-empty line is the
