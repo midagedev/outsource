@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.4 — 2026-08-27 — the image refusal that reads like success
+
+- **The GLM preamble now names the tell.** On the `claude-code` harness
+  `Read` on a PNG answers with a line saying the file was uploaded to a CDN,
+  plus a URL — no pixels. That sentence reads like success. A round the same
+  day reported "the preamble is wrong, I opened all four captures" and issued
+  per-axis SHIP calls on screenshots it had never seen; its calls were
+  plausible because it already held the DOM numbers and reasoned from them.
+  A solid-colour probe settled it (`Read` on a 240×240 `#7A3D1D` PNG,
+  byte-level decoding forbidden by the spec): the answer was the upload
+  confirmation and the perceived colour was `none`. The rule was right; what
+  was missing was the shape of the refusal. The section now says that a URL
+  or an upload confirmation means the picture was not seen, and that a
+  confabulated verdict is worse than none — no verdict routes the question to
+  a judge that can see, a confident one ends the audit.
+
 ## 0.13.3 — 2026-08-27 — last-report can read a crush log
 
 - **A crush round's report is no longer invisible.** crush writes no JSONL:

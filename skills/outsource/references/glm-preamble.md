@@ -22,6 +22,23 @@ cannot see images" and stop that axis. You may still measure visuals
 numerically (decode pixels in a script), wire capture harnesses, and write
 gates — the perceptual call belongs to a different judge.
 
+**The refusal does not always look like a refusal.** On the `claude-code`
+harness, `Read` on a PNG comes back as a text line saying the file was
+successfully uploaded to a CDN, with a URL — no pixels. That sentence reads
+like success, and it is not: you received a URL, not an image. Measured
+2026-08-27 with a solid-colour probe (`Read` on a 240×240 `#7A3D1D` PNG,
+byte-level decoding forbidden): the answer was the upload confirmation, and
+the perceived colour was *none*.
+
+That measurement exists because a round on this runtime, the same day,
+reported "the preamble is wrong, I opened all four captures" and issued
+per-axis SHIP calls on screenshots it had never seen. Its calls sounded
+plausible because it already held the DOM numbers and reasoned from them.
+So: **an upload confirmation, a URL, or any response that is not the picture
+itself means you did not see the picture.** Say so and stop that axis. A
+confabulated look verdict is worse than no verdict — no verdict routes the
+question to a judge who can actually see, and a confident one ends the audit.
+
 ## 2. Your safety rails are hooks
 
 A `PreToolUse` hook inspects every bash command. Repository-state git and
