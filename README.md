@@ -94,6 +94,27 @@ So the registry measures **output, not duration**. The GLM harnesses write conti
 
 Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness. opencode is the exception: `--format json` flushes one event at a time onto `--log` while the process is still running, so that file *is* the trail.
 
+**Reading the log is step one, not the verdict.** Measured 2026-08-28: a
+round sat at `⏳ ⋯57m`, and its transcript's last line read
+"Adding the Core-level quarantine gates" — indistinguishable from a delegate
+mid-edit. It was not. The round had shelled out to a test runner that
+deadlocked, and the harness was blocked on a child that would never return;
+the round had been dead for an hour while looking busy. What separated the
+two was the **descendant process tree**, which the log cannot show:
+
+```
+pgrep -P <round-pid>                   # what the round is actually blocked on
+ps -o pid,%cpu,etime -p <child-pid>    # 0.0% CPU for minutes = wedged, not working
+sample <child-pid> 2 -file /tmp/s.txt  # macOS: where it is parked
+```
+
+A working child burns CPU. A child at 0.0% for minutes, with the round's
+IDLE past the stall threshold, is a hang — and the frame it is parked in
+usually names the cause outright (here: `XCTWaiter` inside a test whose two
+awaits were ordered so it waited on work its own held lock blocked). Kill
+the *child*, not the round: the harness notices the runner died, reports,
+and the round's completed edits survive on disk.
+
 A stall is a reason to read the log, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume) — it has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
 
 `--label` is what the track is **for**, and it is worth typing on every launch, because the listing only earns its keep in parallel and that is exactly when the derived default fails: this skill's documented layout writes every track's spec to `<scratch>/spec.md`, one dir per track, so a basename-derived label would read `spec` three times. The default therefore falls back to the directory holding the spec — usually the track's own scratch dir — and a label that still collides renders as `name`, `name#2`: a warning that the round you are looking at cannot be identified, not a naming scheme.

@@ -225,9 +225,18 @@ only when a *running* round has written nothing for ten minutes
 ```
 
 A stall is a reason to read the log, not to kill anything; a round often
-recovers. `--max-seconds N` on the launcher does hard-kill at N (exit 124)
-and exists only for rounds whose loss you accept in advance — it is not the
-answer to "this is taking a while".
+recovers. But the log is step one, not the verdict — measured 2026-08-28, a
+round idle for 57 minutes had a transcript whose last line ("Adding the
+Core-level quarantine gates") read exactly like a delegate mid-edit, while
+in fact it was blocked forever on a test runner it had shelled out to. Check
+the descendant process tree, which the log cannot show: `pgrep -P <round-pid>`,
+then `ps -o pid,%cpu,etime -p <child>`. A working child burns CPU; 0.0% for
+minutes is a hang, and on macOS `sample <child> 2 -file /tmp/s.txt` usually
+names the parked frame outright. Kill the *child*, not the round: the harness
+notices its runner died and reports, and the completed edits survive on disk.
+`--max-seconds N` on the launcher does hard-kill at N (exit 124) and exists
+only for rounds whose loss you accept in advance — it is not the answer to
+"this is taking a while".
 
 **Label every launch with what the track is for.** `--label api-migration`,
 not `--label track-a` and not nothing: the listing is only useful in
