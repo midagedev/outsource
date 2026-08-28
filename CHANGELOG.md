@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.13.5 — 2026-08-28 — the marker contract 0.13.3 silently strengthened, and the tests a stale binary let lie
+
+- **A plain-text crush round's done-marker verdict greps the whole log
+  again.** 0.13.3 made report extraction succeed on every non-JSON crush log
+  (the heading-bounded tail, or the whole text when no heading exists) —
+  which silently orphaned the crush whole-log grep arm and turned the marker
+  contract for that harness into "the report's last line", a strengthening
+  nobody chose. `ExtractSource` now says which arm produced the report, and
+  only a **plainTail** crush report falls through to the grep; a structured
+  (JSON-evented) log keeps the strict last-line verdict, so a marker quoted
+  in a plan still counts for nothing.
+- **The committed binary was two commits behind its source**, and the test
+  suite runs the committed binary — so the regression above shipped green
+  and was only caught when the binary was rebuilt. `reproducible-build`
+  already fails on this; it just was not run. Rebuilt and recommitted.
+- **runs-owner now pins the 0.13.1 line contract** instead of the one 0.13.1
+  replaced: live rounds show machine-wide with `⇄` on foreign ones, finished
+  rounds stay scoped. The old assertion ("line applies the same filter as
+  list") had been failing against HEAD source since 0.13.1 — masked by the
+  same stale binary.
+- **Context files are now a per-harness fact in the docs.** The claude-code
+  harness injects the target repo's root CLAUDE.md and `.claude/rules/*` by
+  itself — a glm round there does not need them pasted into the spec, and
+  the lead's private `~/.claude` memory does not ride along (the round runs
+  on an isolated `CLAUDE_CONFIG_DIR`). Nested per-directory CLAUDE.md files
+  inject zero times on any claude-shaped CLI; on crush/opencode/agy assume
+  nothing is injected. glm.md, spec-template and spec-authoring say so where
+  spec authors look.
+- `plugin.json` catches up: version was parked at 0.12.0 while the changelog
+  moved to 0.13.4, and the description still called ox-alpha an unknown
+  stealth and did not know agy exists.
+
 ## 0.13.4 — 2026-08-27 — the image refusal that reads like success
 
 - **The GLM preamble now names the tell.** On the `claude-code` harness

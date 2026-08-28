@@ -50,8 +50,8 @@ expect() {  # <description> <expected-labels> <filter args...>
   --spec /s/a.md --owner SESS-A --owner-claude-pid 9001 >/dev/null
 "$RUNS_SH" start --pid $$ --label b-teammate --provider zai --harness crush \
   --spec /s/b.md --owner SESS-SUB --owner-claude-pid 9001 >/dev/null
-"$RUNS_SH" start --pid $$ --label c-stranger --provider zai --harness crush \
-  --spec /s/c.md --owner SESS-Z --owner-claude-pid 9999 >/dev/null
+ID_STRANGER="$("$RUNS_SH" start --pid $$ --label c-stranger --provider zai --harness crush \
+  --spec /s/c.md --owner SESS-Z --owner-claude-pid 9999)"
 # No owner fields at all: a record written by a launcher older than this
 # feature, or one launched outside Claude Code.
 "$RUNS_SH" start --pid $$ --label d-legacy --provider zai --harness crush \
@@ -85,11 +85,25 @@ n_json=$("$RUNS_SH" json --owner-claude-pid 9001 2>/dev/null \
 if [ "$n_json" = 2 ]; then pass=$(( pass + 1 )); else
   fail=$(( fail + 1 )); echo "FAIL  json must apply the same filter as list; want 2, got ${n_json:-<none>}"
 fi
-if "$RUNS_SH" line --owner-claude-pid 9001 2>/dev/null | grep -q 'a-session' &&
-   ! "$RUNS_SH" line --owner-claude-pid 9001 2>/dev/null | grep -q 'c-stranger'; then
+# `line` is the one deliberate divergence (0.13.1): LIVE rounds show
+# machine-wide — a running round spends the same plan quota whichever window
+# launched it, and a nested round in the lead's own worktree was exactly what
+# the scoped line hid — but a foreign live round carries ⇄ so the line never
+# claims it as yours. Finished rounds stay scoped: an outcome is only news to
+# the window that launched it.
+line_out="$("$RUNS_SH" line --owner-claude-pid 9001 2>/dev/null)"
+if printf '%s' "$line_out" | grep -q '▶a-session' &&
+   printf '%s' "$line_out" | grep -q '⇄▶c-stranger' &&
+   ! printf '%s' "$line_out" | grep -q '⇄▶a-session'; then
   pass=$(( pass + 1 ))
 else
-  fail=$(( fail + 1 )); echo "FAIL  line must apply the same filter as list"
+  fail=$(( fail + 1 )); echo "FAIL  line: live rounds show machine-wide, foreign ones marked ⇄; got: $line_out"
+fi
+"$RUNS_SH" finish "$ID_STRANGER" --rc 0 >/dev/null
+if ! "$RUNS_SH" line --owner-claude-pid 9001 2>/dev/null | grep -q 'c-stranger'; then
+  pass=$(( pass + 1 ))
+else
+  fail=$(( fail + 1 )); echo "FAIL  a finished foreign round must leave the scoped line"
 fi
 
 printf '\nruns-owner: %d passed, %d failed\n' "$pass" "$fail"

@@ -597,14 +597,24 @@ func (r *round) markerVerdict() (verdict, scope string) {
 	if err == nil {
 		defer f.Close()
 		if fi, err := f.Stat(); err == nil && fi.Size() > 0 {
-			if rep, ok := report.Extract(f); ok {
+			if rep, src, ok := report.ExtractSource(f); ok {
 				// Last-line identity, not Contains: a report that merely QUOTES
 				// the marker ("…will end with `DONE-X`") is a promise, not a
 				// completion (field false-positive 2026-08-22).
 				if report.EndsWithMarker(rep, r.o.doneMarker) {
 					return "found", "report"
 				}
-				return "absent", "report"
+				if r.o.harness != "crush" || src != report.SourcePlainTail {
+					return "absent", "report"
+				}
+				// A plain-text crush log has no plan-vs-report boundary: the
+				// "report" above is plainTail's heading guess (0.13.3), and
+				// scoring its absence as the round's absence silently
+				// strengthened the marker contract for the one harness whose
+				// log offers no such boundary — 0.13.3 orphaned the whole-log
+				// arm below by making Extract succeed on every non-JSON log.
+				// A structured (JSON-evented) log keeps the strict verdict:
+				// that is what keeps a marker quoted in a plan from counting.
 			}
 		}
 	}

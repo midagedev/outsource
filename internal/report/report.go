@@ -62,8 +62,28 @@ const (
 // one-line acknowledgement does not.
 const minLongText = 200
 
+// Source says which arm produced the report. Structured means a JSON event
+// boundary vouched for it — an explicit result, grok/opencode trailing text,
+// or a long assistant text. PlainTail is the last resort for a log with no
+// JSON anywhere: a boundary guessed from headings, or the whole text when
+// there is none. Callers deciding how much to trust the report's *edges*
+// (the done-marker verdict does) need the difference; callers printing the
+// report do not.
+type Source int
+
+const (
+	SourceStructured Source = iota
+	SourcePlainTail
+)
+
 // Extract returns the report found in a log stream.
 func Extract(r io.Reader) (string, bool) {
+	rep, _, ok := ExtractSource(r)
+	return rep, ok
+}
+
+// ExtractSource is Extract plus which arm produced the report.
+func ExtractSource(r io.Reader) (string, Source, bool) {
 	var (
 		result       string
 		haveResult   bool
@@ -174,6 +194,7 @@ func Extract(r io.Reader) (string, bool) {
 	// tool event confirmed, one for a final turn that called no tools at all —
 	// because collapsing them would accept trailing text from any log shape.
 	var out string
+	src := SourceStructured
 	switch {
 	case haveResult:
 		out = result
@@ -185,11 +206,12 @@ func Extract(r io.Reader) (string, bool) {
 		out = lastLongText
 	case !sawJSON:
 		out = plainTail(plainLines)
+		src = SourcePlainTail
 	}
 	if strings.TrimSpace(out) == "" {
-		return "", false
+		return "", src, false
 	}
-	return strings.TrimSpace(out), true
+	return strings.TrimSpace(out), src, true
 }
 
 // headingRe matches a markdown ATX heading at the start of a line, capturing
