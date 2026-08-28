@@ -6,15 +6,16 @@
 
 A Claude Code skill that runs **third-party model CLIs as headless implementation sub-agents**. The lead Claude session keeps the work where judgment matters — specs, diff review, gates, commits — and outsources implementation, mechanical edits, investigation, and screenshot verdicts to models whose tokens are effectively free on a subscription.
 
-It is not a wrapper. It is an operating manual with receipts: every rule in it came from a measured round, and the [comparison below](#the-three-models) is how the rules were found.
+It is not a wrapper. It is an operating manual with receipts: every rule in it came from a measured round, and the [comparison below](#the-models) is how the rules were found.
 
 | Backend | Runs via | Use it for | Hard limit |
 |---|---|---|---|
-| **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on **either harness** — headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | **cannot see images**; does not flag a contract it cannot satisfy |
-| **grok-4.6** — the exception | `grok` CLI | what GLM structurally can't do: **vision verdicts**, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
-| **ox-alpha** — OpenRouter stealth | opencode CLI, via `bin/outsource-run.sh --provider openrouter` | spec-able rounds plus **vision through the read tool** (measured: named a solid-red PNG, answered "Red"); `step_finish.cost` was 0 while stealth | stealth identity/limits can change without notice |
+| **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on **either harness** — headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | the default model is **blind**; does not flag a contract it cannot satisfy |
+| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of OpenRouter's stealth **ox-alpha**, still reachable as such via `--provider openrouter` (opencode CLI) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
+| **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
+| **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool** — the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly) | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
 
-A provider that talks Anthropic-compat (zai, xai) is a table row — base URL, default model, vision — plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode) is a table row with an empty URL, a dedicated harness, and no cred row — opencode already logged the user in.
+A provider that talks Anthropic-compat (zai, xai) is a table row — base URL, default model, vision — plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode, agy) is a table row with an empty URL, a dedicated harness, and no cred row — its CLI already logged the user in.
 
 It also ships the [status line](#status-line) that makes delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 
@@ -39,7 +40,7 @@ cd outsource
 ./install.sh --project  # project scope: ./.claude/skills/outsource/
 ```
 
-You need [Claude Code](https://claude.com/claude-code) plus at least one backend: an authenticated `grok` CLI, a z.ai coding-plan key, and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter).
+You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter).
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -57,7 +58,7 @@ You need [Claude Code](https://claude.com/claude-code) plus at least one backend
 
 ## Use
 
-Say **"run this via glm"** or **"run this via grok"** in any Claude Code session, or invoke `/outsource`. Claude then:
+Say **"run this via glm"** — or grok, or agy — in any Claude Code session, or invoke `/outsource`. Claude then:
 
 1. writes a **self-contained spec** — file paths, numeric contracts, verification commands,
 2. **lints the spec and checks the plan's quota** before spending anything,
@@ -83,16 +84,16 @@ orphan   docs-sweep       xai    crush     1h07m   /tmp/sp/spec-docs.md
 
 ### A long round is not a stuck round
 
-Neither harness can stop itself — `crush run` exposes no turn or time limit in its flag set at all, and this `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. The tempting fix is a time limit. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
+Neither GLM harness can stop itself — `crush run` exposes no turn or time limit in its flag set at all, and this `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. The tempting fix is a time limit. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
 
-So the registry measures **output, not duration**. The GLM harnesses write continuously into their own data directory; opencode flushes JSONL into `--log` per event. `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
+So the registry measures **output, not duration**. The GLM harnesses write continuously into their own data directory; opencode and agy flush JSONL into `--log` per event. `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
 
 ```
 ▶refshot zai·crush 1h41m        # 101 minutes in, wrote a second ago — leave it alone
 ⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of its 22 minutes — go read the log
 ```
 
-Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness. opencode is the exception: `--format json` flushes one event at a time onto `--log` while the process is still running, so that file *is* the trail.
+Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness. opencode and agy are the exceptions: their stream-JSON logs flush one event at a time onto `--log` while the process is still running, so there that file *is* the trail.
 
 **Reading the log is step one, not the verdict.** Measured 2026-08-28: a
 round sat at `⏳ ⋯57m`, and its transcript's last line read
@@ -143,7 +144,7 @@ It costs about 120 ms per render because it never calls a quota API on the rende
 
 **Silence means exactly one thing: this backend is not set up here.** Everything else has its own mark, so an absent segment is never ambiguous — a number not measured yet shows `…`, and a measurement that can no longer be refreshed is carried forward prefixed `~` rather than erased. That last rule was written after shipping without it: an expired `grok` sign-in made the whole segment vanish, reporting a backend that had just stopped working exactly like one that was never configured. Nothing is ever silently rendered as `0%`.
 
-**The rounds shown are this session's.** The registry is machine-wide on purpose — an orphan has to be findable from wherever you are — but a status line reports on *your* window, and two Claude Code windows open on two repos would otherwise narrate each other's work as if it were yours. So the store stays global and the filter lives at the reading end: each launch records the session that owns it, and each status line asks only for its own. Ownership is matched on both the session id and the Claude Code process, so a round an in-process teammate launched still counts as yours. `runs.sh` unfiltered still shows the whole machine with an `OWNER` column, which is where you look when something is missing; `OUTSOURCE_STATUSLINE_SCOPE=all` puts that view back in the status line.
+**The rounds shown are this session's.** The registry is machine-wide on purpose — an orphan has to be findable from wherever you are — but a status line reports on *your* window, and two Claude Code windows open on two repos would otherwise narrate each other's work as if it were yours. So the store stays global and the filter lives at the reading end: each launch records the session that owns it, and each status line asks only for its own. Ownership is matched on both the session id and the Claude Code process, so a round an in-process teammate launched still counts as yours. `runs.sh` unfiltered still shows the whole machine with an `OWNER` column, which is where you look when something is missing; `OUTSOURCE_STATUSLINE_SCOPE=all` puts that view back in the status line. One exception was measured into place: **live** rounds (running or orphaned) always show, prefixed `⇄` when another session owns them — a nested round once ran in the lead's own worktree and the scoped line hid exactly the thing it exists to surface. Finished rounds stay scoped to yours, and an orphan ages off the one-line view after a day (`OUTSOURCE_RUN_ORPHAN_LINE`; one was measured squatting there for 9 days).
 
 Set `OUTSOURCE_STATUSLINE_PROVIDERS=""` to drop the quota row entirely, or e.g. `"zai"` to keep one. No runtime dependencies: the tools are one static Go binary.
 
@@ -204,7 +205,7 @@ a source edit that forgot `./build.sh` cannot ship. `./build.sh --all`
 cross-compiles every shipped platform from one machine; Go's linker ad-hoc signs
 darwin/arm64, which is what lets a cross-compiled macOS build execute at all.
 
-## The three models
+## The models
 
 Fourteen rounds, five real tickets from a Go + Svelte product, each ticket sent to every arm as the **same task spec** in its own git worktree.
 
@@ -220,7 +221,21 @@ Fourteen rounds, five real tickets from a Go + Svelte product, each ticket sent 
 | Self-verification / disclosure | unprompted | with the preamble | **only with the preamble** |
 | Relative cost | highest | subscription | **lowest** |
 
-Two of those cells decide the routing. **GLM cannot see pixels**, so vision verdicts and image generation go to grok. **Neither cheap arm reliably stops at an impossible contract**, so that judgment stays with the lead — or with a Claude agent when the round is design-weight.
+Two of those cells decide the routing. **The default GLM cannot see pixels**, so anything that must look at an image goes to an arm with eyes — agy, glm-5.3-flash, or grok. **No cheap arm reliably stops at an impossible contract**, so that judgment stays with the lead — or with a Claude agent when the round is design-weight.
+
+### The cheap arms, re-benched (2026-08-27)
+
+When glm-5.3-flash shipped and agy joined the pool, the same method ran again: three tasks × three models, nine rounds, byte-identical specs. A Go implementation against lead-authored tests seeded with adjacent-mutation traps; a mechanical `%v`→`%w` conversion seeded with six non-error `%v` traps; a codebase investigation answering five questions with `file:line` citations the lead then verified by hand.
+
+**All nine came back perfect on the objective gates.** 3/3 test suites green, all 8 conversions with all 6 traps preserved and zero extra edits (three 16-line diffs, identical), 5/5 answers with citations that held. The gates, again, did not separate the models. What differed was speed:
+
+| seconds per round | glm-5.3 | glm-5.3-flash | gemini-3.7-flash-high |
+|---|---|---|---|
+| Go implementation | 74 | 80 | **30** |
+| mechanical conversion | **45** | 166 | 62 |
+| investigation | 159 | 191 | **73** |
+
+agy finished 2–3× fastest on two of three; **flash was slower than 5.3 on every task** — its value is the 3× plan quota and the eyes, not speed. The vision ladder came from separate probes: agy named a solid `#1E50DC` PNG's hex **exactly**; flash read it as `#2244DD` (~5% per channel); glm-5.3 failed a white-glyph shape probe outright. Precise-color and aesthetic verdicts stay with a frontier vision judge until the cheap arms are A/B-measured on verdict quality.
 
 ### How we found out
 
@@ -308,6 +323,10 @@ Every row is a mechanism with an exit code, not advice in a document.
 | A delegate reports "done" that isn't | **Completion sentinel `<log>.rc`** with `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. The harness's own lifecycle is not completion proof. |
 | A clean exit without the spec's completion marker | **`--done-marker`, exit 72** on both launchers. Was 70 on grok (colliding with model-identity) and a silent rc=0 on GLM, so the same fact read as failed or completed depending on the sister. 72 names the missing marker; the tree is still the verdict. |
 | Repository-state git from a delegate | **`bin/git-guard.sh`**, a `PreToolUse` hook parsing the real command string — `git -C … commit`, `env … git push`, `sudo git …`, chained mutations all blocked; read-only git deliberately open. One file, both harnesses' calling conventions. |
+| z.ai silently answers a `glm-5.2` request with glm-5.3 (measured twice — the response `model` field differs from the request, so it is not an echo) | **Refused at launch, exit 70.** On crush there is no identity assertion, so the misassignment would otherwise stay silent forever; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists to re-measure, not to route. |
+| A delegate reads the lead-side launch procedure that rode into its spec, decides it *is* the lead, and launches a nested round into the same worktree — clean exit, zero implementation | **Nested launches refused, exit 64** — every harness child carries `OUTSOURCE_ROUND=1` and both launchers refuse to start under it (`OUTSOURCE_ALLOW_NESTED=1` for deliberate nesting). |
+| agy exits 0 for a permission-denied round, and for a soft-denied write that produced no file | **The launcher reads the final result event's `status`** and fails anything that is not SUCCESS — agy's exit code is a lifecycle signal, never the verdict. |
+| A blind harness answers `Read` on a PNG with "uploaded to a CDN" plus a URL — which reads like success, so a delegate issued per-axis SHIP calls on captures it never saw | **The GLM preamble names the tell**: a URL or an upload confirmation means the picture was not seen, and a confabulated verdict is worse than none — no verdict routes the question to a judge with eyes; a confident one ends the audit. |
 
 <details>
 <summary><b>Earlier series</b> — 9 blind-judged grok rounds, and three shipped GLM rounds + an A/B</summary>
@@ -343,7 +362,7 @@ bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 clean · 1 findings
 bin/outsource-run.sh --require-quota 15 …            # 66 if the plan is too low
 ```
 
-**After the round** — the model-identity assertion (exit 70), the done-marker check (exit 72 when a clean exit lacks the marker), the completion sentinel, and a cost line carrying the round's token counts from the log's `usage`. The `total_cost_usd` beside them is Anthropic-priced and wrong for every provider here.
+**After the round** — the model-identity assertion (exit 70), the done-marker check (exit 72 when a clean exit lacks the marker), the completion sentinel, and a cost line carrying the round's token counts from the log's `usage`. The `total_cost_usd` beside them is Anthropic-priced and wrong for every provider here. And `bin/wait.sh <log>` blocks until the sentinel lands — armed at launch and backgrounded, completion becomes a notification instead of a thing to poll.
 
 Plan credits are deliberately **not** reported per round: a plan quota is a plan-wide counter that concurrent rounds and other sessions move too, so a before/after delta around one round measures the machine, not the round. Quota is a pre-flight signal — which provider this session should use, and whether to start at all.
 
@@ -362,7 +381,7 @@ $ bin/quota.sh --provider grok
 | File | Purpose |
 |---|---|
 | `skills/outsource/SKILL.md` | The router: backend table, spec assembly, lead review checklist |
-| `references/grok.md` · `references/glm.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
+| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
 | `references/spec-preamble.md` | Shared rules prepended to every spec — every clause from a real incident |
 | `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
 | `references/glm-preamble.md` | GLM runtime delta (no images, hooks not flags, evidence rules) |
@@ -375,6 +394,7 @@ $ bin/quota.sh --provider grok
 | `verify-key` | Checks a key before it is stored; the key arrives on stdin, never in argv |
 | `spec-lint` · `quota` | Pre-launch spec check; plan quota with `--require-window` as a gate |
 | `runs` | The run registry: which rounds are alive, on what, for how long — and which started and never finished |
+| `wait` | Blocks until a round's sentinel appears — armed at launch and backgrounded, a finished round becomes a notification instead of something you remember to poll |
 | `last-report` | The round's final report out of either log shape, exit 65 when there is none |
 | `statusline` | A Claude Code status line: session budgets, plan quotas, live rounds — 7ms per render |
 | `telemetry` | A local record of tool calls, exit codes and reasons, and a summary of them. Local only, never uploaded, `OUTSOURCE_TELEMETRY=0` to disable |
@@ -416,9 +436,9 @@ Reach for **declared** when one repo has several checkouts on one machine — cl
 
 - Exploratory problems that can't be specced aren't delegation material — the lead narrows first.
 - Design-weight logic didn't fully close even with bundle v3; write those with Claude, review with a backend.
-- GLM-5.3 cannot read images, full stop — and, measured, it says so instead of guessing.
-- Neither cheap arm reliably stops at a contract it cannot satisfy. That check is the lead's.
-- Plan quota is readable for the two subscription backends only; pay-per-token API keys expose no window to gate on.
+- The default glm-5.3 cannot read images — and, measured, it says so instead of guessing. flash and agy can; precise-color and aesthetic verdicts still go to a frontier vision judge until A/B-measured.
+- No cheap arm reliably stops at a contract it cannot satisfy. That check is the lead's.
+- Plan quota is readable for z.ai and xAI only; the Google plan behind agy exposes no quota API, and pay-per-token keys expose no window to gate on.
 - Claude Code only for now. The SKILL.md format is portable, but we publish only what we've verified end to end.
 
 ## License
