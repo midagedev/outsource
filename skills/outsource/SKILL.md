@@ -3,13 +3,14 @@ name: outsource
 description: >
   Outsource implementation, investigation/research, numeric harnesses and
   vision-verdict work to third-party model CLIs running as headless
-  sub-agents — the grok CLI (grok-4.6), GLM-5.3 (z.ai coding plan, run
-  through headless Claude Code or the crush CLI), and OpenRouter stealth
-  ox-alpha (opencode CLI) — while the lead Claude session stays
+  sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
+  headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
+  gemini-3.7-flash-high (agy CLI, Google plan), and ox-alpha (opencode
+  CLI — glm-5.3-flash on OpenRouter) — while the lead Claude session stays
   orchestration-only. Use when the user asks to run work via grok / glm /
-  crush / opencode / ox-alpha, to save tokens, or invokes /outsource. Pick
-  the backend by task: GLM-5.3 cannot read images, so vision verdicts go to
-  grok, ox-alpha, or a Claude agent.
+  crush / opencode / ox-alpha / agy, to save tokens, or invokes /outsource.
+  Pick the backend by task: the default glm-5.3 cannot read images, so
+  vision rounds go to agy, glm-5.3-flash, grok, or a Claude agent.
 ---
 
 # outsource — third-party models as headless implementation sub-agents
@@ -26,27 +27,32 @@ conversation context, so the spec must be self-contained (file paths,
 contracts, completion criteria) and must never ask for taste judgments —
 only numeric contracts.
 
-## Backends — GLM-5.3 by default, grok or ox-alpha when the task needs eyes
+## Backends — GLM-5.3 by default; agy, glm-5.3-flash or grok when the task needs eyes
 
 | Backend | Runs via | Use it for | Hard limits |
 |---|---|---|---|
-| **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | **cannot see images at all**; style/look/UI-interaction authoring measured weaker — route those elsewhere |
-| **grok-4.6** — the exception | `grok` CLI, headless (`references/grok.md`) | what GLM structurally cannot do: **vision verdicts** and image reading, image/video generation, and web research when GLM's harness lacks the tool | verdicts contradicting instrumentation escalate to a Claude agent |
-| **ox-alpha** — OpenRouter stealth | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | spec-able rounds when z.ai/xAI headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | stealth: model identity and limits can change without notice; free while listed as stealth (`step_finish.cost` was 0) |
+| **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | the **default glm-5.3 is blind** (`--model glm-5.3-flash` sees — model table in `references/glm.md`); style/look/UI-interaction authoring measured weaker — route those elsewhere |
+| **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
+| **ox-alpha** — glm-5.3-flash on OpenRouter | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | officially unveiled as **glm-5.3-flash** — same model, different quota pool; free-while-stealth pricing (`step_finish.cost` was 0) can end without notice |
 | **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (named a solid `#1E50DC` PNG's hex exactly) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 
 Selection rules:
 
-- **Default to GLM-5.3.** Reach for grok when the task needs eyes (pixels,
-  framing, colour), pixels generated (image/video), or a web tool the GLM
-  harness does not have. Reach for ox-alpha when you want a free-while-stealth
-  OpenRouter round with vision, or another process family besides GLM's two
-  harnesses. "It feels exploratory" is not a reason — narrow the
+- **Default to GLM-5.3.** Route `--model glm-5.3-flash` for mechanical and
+  fan-out rounds when 5.3 quota is the constraint, or when the round must
+  open its own captures. Reach for grok when pixels must be generated
+  (image/video) or a web tool the GLM harness lacks; agy for a separate
+  quota pool, the fastest benched completion, or the sharpest measured
+  vision. ox-alpha (opencode) is a third process family — glm-5.3-flash
+  under another name. "It feels exploratory" is not a reason — narrow the
   cause first, then delegate (see *When NOT to outsource*).
 - Anything that must **look at pixels** → agy (gemini-3.7-flash-high — the
   best measured color fidelity of the set), grok, ox-alpha, or a Claude
-  agent; never GLM-5.3. This is a capability fact, not a preference: GLM
-  reports `supports_attachments: false`. ox-alpha sees pixels through
+  agent; never the blind default glm-5.3 (a capability fact, not a
+  preference: it reports `supports_attachments: false`). `glm-5.3-flash`
+  sees and covers capture self-verification; precise-colour and aesthetic
+  verdicts stay with a frontier judge until the cheap arms are A/B-measured
+  on verdict quality. ox-alpha sees pixels through
   opencode's `read` tool when the launcher passes `--auto` (without it, a
   path outside cwd is `external_directory` default-ask and is rejected
   headless).
