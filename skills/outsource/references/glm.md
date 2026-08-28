@@ -32,6 +32,19 @@ Both attach the same `bin/git-guard.sh` and take the same specs; the guard
 reads the command either from `$CRUSH_TOOL_INPUT_COMMAND` (crush) or from
 hook JSON on stdin (claude-code).
 
+**Context files — what a spec must carry differs by harness.** On
+claude-code the CLI itself injects the target repo's **root CLAUDE.md,
+CLAUDE.md files on the ancestor path of `--cwd`, and `.claude/rules/*`** —
+so a glm round on this harness does NOT need those pasted into the spec;
+list only the **nested** per-directory CLAUDE.md files covering the edit
+targets, which inject zero times on any claude-shaped CLI (field-measured
+2026-08-14). The user-scope memory comes from the round's isolated
+`CLAUDE_CONFIG_DIR`, not your `~/.claude` — the lead's private CLAUDE.md
+does not ride along, by construction. On **crush** no such injection is
+established here: assume nothing is injected and keep the repo contract in
+the spec (or point the spec at the file by absolute path). The same
+assume-nothing rule goes for opencode and agy.
+
 **z.ai's model mapping is a trap, and the launcher closes it.** Measured
 2026-08-16 against `https://api.z.ai/api/anthropic`: a request for
 `claude-opus-5` comes back as **glm-4.7** (the plan default), while

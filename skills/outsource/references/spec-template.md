@@ -2,7 +2,10 @@
 
 ## Files to read before starting (all of them — confirm in the report)
 1. <every CLAUDE.md covering the edit-target directories, by absolute path —
-   nested apps/*/libs/* CLAUDE.md files are NOT auto-injected into grok>
+   nested apps/*/libs/* CLAUDE.md files are NOT auto-injected by any
+   claude-shaped CLI (grok included). On the claude-code harness the ROOT
+   CLAUDE.md and .claude/rules/* ARE already injected — skip those there;
+   on crush/opencode/agy assume nothing is injected>
 2. <project contract doc, e.g. root CLAUDE.md sections that govern this task>
 3. <the module(s) being touched or imitated — mark read-only ones>
 4. <known-trap files worth quoting, e.g. a module whose header documents a footgun>

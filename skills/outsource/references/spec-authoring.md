@@ -42,7 +42,9 @@ contains only what is unique to this task:
 
 ## Files to read before starting (all of them — confirm in the report)
 - <every CLAUDE.md covering the edit-target directories, by absolute path —
-  nested ones are NOT auto-injected (see the warning above)>
+  nested ones are NOT auto-injected (see the warning above). Root CLAUDE.md
+  and .claude/rules/* are already injected on the claude-code harness only;
+  on crush/opencode/agy assume nothing is>
 - <the project's contract docs / the modules being touched / prior-art files>
 
 ## Background (self-contained — the spec alone must be enough)
