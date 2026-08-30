@@ -311,13 +311,21 @@ func collectRefs(lines []string, spans [][2]int) []ref {
 	base := 0
 	for i, line := range lines {
 		lineno := i + 1
+		prev := ""
 		for _, t := range tokens(line) {
 			lo := base + t.pos
+			raw := stripEdges(t.text)
+			wasRepoFlag := isRepoFlag(prev)
+			prev = raw
 			if isTemplate(t.text) {
 				continue
 			}
-			tok := stripEdges(t.text)
+			tok := raw
 			if tok == "" || isTemplate(tok) {
+				continue
+			}
+			if wasRepoFlag {
+				// `gh ... --repo owner/name`: a forge slug, not a path.
 				continue
 			}
 			inSpan := false
@@ -555,6 +563,8 @@ func isTemplate(tok string) bool {
 	switch {
 	case strings.Contains(tok, "://") || strings.HasPrefix(tok, "www."):
 		return true
+	case isForgeSlug(tok):
+		return true
 	case strings.Contains(tok, "<") || strings.Contains(tok, ">"):
 		return true
 	case strings.Contains(tok, "*") || strings.Contains(tok, "?"):
@@ -565,6 +575,32 @@ func isTemplate(tok string) bool {
 		return true
 	}
 	return false
+}
+
+// forgeHosts are the hosts a repository slug is named under when the spec
+// writes one without a scheme. "github.com/xtermjs/xterm.js" ends in a known
+// extension and carries a slash, so without this it resolves against the
+// repo root and is reported missing — which is what a spec citing an
+// upstream project always looks like.
+var forgeHosts = []string{"github.com/", "gitlab.com/", "bitbucket.org/", "codeberg.org/", "git.sr.ht/"}
+
+// isForgeSlug reports a scheme-less forge URL.
+func isForgeSlug(tok string) bool {
+	for _, h := range forgeHosts {
+		if strings.HasPrefix(tok, h) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRepoFlag reports the flags whose argument is an owner/name slug rather
+// than a path. `gh issue view 4323 --repo xtermjs/xterm.js` reads as a
+// reference to a file named xterm.js inside a directory named xtermjs
+// otherwise, and a linter that fails on every upstream citation is one the
+// lead stops reading.
+func isRepoFlag(tok string) bool {
+	return tok == "--repo" || tok == "-R"
 }
 
 // exts is the set a dotted token must end in to count as a file reference.

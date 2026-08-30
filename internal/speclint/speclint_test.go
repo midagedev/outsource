@@ -308,3 +308,35 @@ func TestMainEndToEnd(t *testing.T) {
 		t.Errorf("--root value: code=%d out=%q", code, buf.String())
 	}
 }
+
+// A repository slug is not a path. Measured 2026-08-30: a spec that told the
+// delegate to read an upstream issue with
+// `gh issue view 4323 --repo xtermjs/xterm.js` failed the lint with
+// "missing: xtermjs/xterm.js (resolved: <root>/xtermjs/xterm.js)" — the token
+// carries a slash and ends in a known extension, so it looks exactly like a
+// relative path. Every spec citing an upstream project hits this, and a
+// linter that always exits 1 is one the lead stops reading, which is the
+// failure mode this whole file exists to avoid.
+func TestForgeSlugsAreNotPaths(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		line string
+	}{
+		{"gh --repo flag", "run `gh issue view 4323 --repo xtermjs/xterm.js --comments`"},
+		{"gh -R flag", "run `gh pr view 4298 -R xtermjs/xterm.js`"},
+		{"scheme-less forge host", "see github.com/xtermjs/xterm.js for the sibling"},
+		{"gitlab host", "mirrored at gitlab.com/owner/thing.js"},
+	} {
+		if got := collectRefs([]string{c.line}, nil); len(got) != 0 {
+			t.Errorf("%s: %q yielded refs %+v, want none", c.name, c.line, got)
+		}
+	}
+
+	// The flag must not blind the rest of the line: a real path after the
+	// slug is still a claim about the tree.
+	line := "`gh issue view 4323 --repo xtermjs/xterm.js` then patch src/browser/Linkifier.ts"
+	got := collectRefs([]string{line}, nil)
+	if len(got) != 1 || got[0].path != "src/browser/Linkifier.ts" {
+		t.Fatalf("refs = %+v, want just src/browser/Linkifier.ts", got)
+	}
+}
