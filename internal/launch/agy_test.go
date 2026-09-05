@@ -41,8 +41,8 @@ func TestAgyProviderVision(t *testing.T) {
 	if !modelVision(p, "gemini-3.7-flash-high") {
 		t.Fatal("agy is measured to see pixels; provider vision must be true")
 	}
-	if p.defaultModel != "gemini-3.7-flash-high" {
-		t.Fatalf("default model must be the high effort tier (user decision 2026-08-27), got %s", p.defaultModel)
+	if p.defaultModel != "gemini-3.8-flash-high" {
+		t.Fatalf("default model must be the 3.8 high effort tier (user decisions 2026-08-27 high-only, 2026-09-05 3.8), got %s", p.defaultModel)
 	}
 }
 

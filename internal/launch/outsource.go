@@ -65,8 +65,11 @@ var providerTable = []provider{
 	// is measured (2026-08-27, gemini-3.7-flash-low): a solid #1E50DC PNG was
 	// named "#1e50dc" exactly and a white-7 shape probe answered "7". The
 	// default is the high effort tier by user decision 2026-08-27 ("flash는
-	// high만 써") — medium/low exist but are not routed.
-	{"agy", "", "gemini-3.7-flash-high", true},
+	// high만 써") — medium/low exist but are not routed. The family moved to
+	// 3.8 by user decision 2026-09-05 ("agy 최근 버전이 3.8로 올라왔는데 앞으로
+	// 그거 쓰도록") the day `agy models` started listing it; the vision and
+	// speed measurements above are 3.7's and have not been re-run on 3.8.
+	{"agy", "", "gemini-3.8-flash-high", true},
 }
 
 // zaiVisionModels lists the zai model ids measured to see pixels. The

@@ -3,7 +3,7 @@
 `agy` (the Antigravity CLI, Gemini CLI's successor) is **provider and harness
 in one**: auth and quota live in the signed-in Google plan, so there is no
 cred row, no base URL, and no `--harness` choice — `--provider agy` implies
-harness `agy`. Everything below is field-measured 2026-08-27 on agy 1.1.21.
+harness `agy`. Everything below is field-measured 2026-08-27 on agy 1.1.21 (default model bumped to gemini-3.8-flash-high on agy 1.1.27, 2026-09-05).
 
 ## Invocation
 
@@ -26,8 +26,9 @@ event, so the `--log` file is the live trail (same as opencode).
 
 | Model | Route it | Why (measured) |
 |---|---|---|
-| `gemini-3.7-flash-high` | **default** — implementation, reports, and vision verdicts | user decision 2026-08-27: flash runs on high only. Vision is the standout: a solid `#1E50DC` PNG was named `#1e50dc` **exactly**, and the white-7 shape probe answered "7" — better color fidelity than any other wired backend |
-| `gemini-3.7-flash-medium` / `-low` | not routed | same decision; low exists for cheap probes only |
+| `gemini-3.8-flash-high` | **default** — implementation, reports, and vision verdicts | user decision 2026-09-05: route the newest flash family the day `agy models` lists it ("agy 최근 버전이 3.8로 올라왔는데 앞으로 그거 쓰도록"), on high only (2026-08-27). **Not yet re-measured** — the vision and speed numbers below are 3.7's; re-run the `#1E50DC` and white-7 probes on 3.8 before citing them as 3.8 facts |
+| `gemini-3.7-flash-high` | previous default (2026-08-27 → 2026-09-05); still valid as an explicit `--model` for an A/B against 3.8 | the measured one: a solid `#1E50DC` PNG was named `#1e50dc` **exactly**, and the white-7 shape probe answered "7" — better color fidelity than any other wired backend |
+| `gemini-3.8-flash-medium` / `-low`, `gemini-3.7-flash-medium` / `-low` | not routed | user decision 2026-08-27 "flash는 high만 써"; low exists for cheap probes only |
 | `gemini-3.1-pro-*` | worth an A/B before routing | untested here |
 | `claude-*`, `gpt-oss-*` via agy | do not route | untested pass-throughs; the identity assertion covers them but nothing else is measured |
 

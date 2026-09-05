@@ -5,7 +5,7 @@ description: >
   vision-verdict work to third-party model CLIs running as headless
   sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
   headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
-  gemini-3.7-flash-high (agy CLI, Google plan), and ox-alpha (opencode
+  gemini-3.8-flash-high (agy CLI, Google plan), and ox-alpha (opencode
   CLI — glm-5.3-flash on OpenRouter) — while the lead Claude session stays
   orchestration-only. Use when the user asks to run work via grok / glm /
   crush / opencode / ox-alpha / agy, to save tokens, or invokes /outsource.
@@ -34,7 +34,7 @@ only numeric contracts.
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | the **default glm-5.3 is blind** (`--model glm-5.3-flash` sees — model table in `references/glm.md`); style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
 | **ox-alpha** — glm-5.3-flash on OpenRouter | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | officially unveiled as **glm-5.3-flash** — same model, different quota pool; free-while-stealth pricing (`step_finish.cost` was 0) can end without notice |
-| **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (named a solid `#1E50DC` PNG's hex exactly) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
+| **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8 is the routed default since 2026-09-05, not yet re-measured) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 
 Selection rules:
 
@@ -46,7 +46,7 @@ Selection rules:
   vision. ox-alpha (opencode) is a third process family — glm-5.3-flash
   under another name. "It feels exploratory" is not a reason — narrow the
   cause first, then delegate (see *When NOT to outsource*).
-- Anything that must **look at pixels** → agy (gemini-3.7-flash-high — the
+- Anything that must **look at pixels** → agy (gemini-3.8-flash-high — the
   best measured color fidelity of the set), grok, ox-alpha, or a Claude
   agent; never the blind default glm-5.3 (a capability fact, not a
   preference: it reports `supports_attachments: false`). `glm-5.3-flash`

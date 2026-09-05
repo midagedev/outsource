@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.13.6 — 2026-09-05 — agy default moves to gemini-3.8-flash-high
+
+- **`--provider agy` now defaults to `gemini-3.8-flash-high`.** agy 1.1.27
+  lists the 3.8 flash family and the user asked for it to be the routed
+  default the same day ("agy 최근 버전이 3.8로 올라왔는데 앞으로 그거 쓰도록").
+  The high-only rule from 2026-08-27 carries over unchanged. Nothing about
+  3.8 is measured yet: the `#1E50DC` colour probe, the white-7 shape probe
+  and the round-time benchmarks in the README were all run on 3.7, and the
+  docs now say so next to each number instead of letting the new id inherit
+  them silently. 3.7-high stays routable as an explicit `--model` for the
+  A/B that should follow.
+- The identity assertion needs no change: it compares the requested slug
+  against the conversation-db trajectory, and 3.8 records its own slug the
+  same way (family-prefix logic unchanged).
+
 ## 0.13.5 — 2026-08-28 — the marker contract 0.13.3 silently strengthened, and the tests a stale binary let lie
 
 - **A plain-text crush round's done-marker verdict greps the whole log
