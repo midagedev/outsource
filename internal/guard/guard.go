@@ -54,8 +54,11 @@ const gitFlags = `([[:space:]]+(-[A-Za-z-]+([[:space:]]+[^[:space:]]+)?|--[a-z-]
 
 // Listing forms of otherwise-mutating subcommands. Delegation specs routinely
 // open with `git worktree list` to prove which tree the agent is in, so these
-// must survive the deny pass.
-const allowRO = `(worktree[[:space:]]+list|branch[[:space:]]+(-[alvr]+|--list)|remote[[:space:]]+(-v|--verbose|show)|config[[:space:]]+(--get|--get-all|--list|-l))`
+// must survive the deny pass. `branch --show-current` joined the list 2026-09-05:
+// two worktree rounds were told to prove their branch with it and both were
+// blocked (the paired `worktree list` was erased, the branch half tripped the
+// deny pass), so they fell back to weaker evidence.
+const allowRO = `(worktree[[:space:]]+list|branch[[:space:]]+(-[alvr]+|--list|--show-current)|remote[[:space:]]+(-v|--verbose|show)|config[[:space:]]+(--get|--get-all|--list|-l))`
 
 var (
 	// Erase the read-only forms, then run the deny pass on what is left. A line

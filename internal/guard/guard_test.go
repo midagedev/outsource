@@ -110,7 +110,9 @@ func TestReadOnlyGitStaysOpenAndPairedMutationsDoNot(t *testing.T) {
 	for _, allowed := range []string{
 		"git log --oneline", "git show HEAD", "git diff", "git status",
 		"git worktree list", "git -C /tmp worktree list",
-		"git branch -a", "git remote -v", "git config --get user.name",
+		"git branch -a", "git branch --show-current", "git -C /tmp branch --show-current",
+		"git -C /tmp worktree list; git -C /tmp branch --show-current",
+		"git remote -v", "git config --get user.name",
 		"gh pr list", "gh pr view 1", "gh api /repos/x/y",
 	} {
 		if blocked, _ := Verdict(allowed); blocked {
