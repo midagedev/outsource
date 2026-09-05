@@ -101,12 +101,21 @@ func (r *round) runClaudeCode() int {
 	} else {
 		cmd.Stderr = r.stderr
 	}
-	cmd.Env = nestedEnv(append(os.Environ(),
+	env := append(os.Environ(),
 		"ANTHROPIC_BASE_URL="+base,
 		"ANTHROPIC_AUTH_TOKEN="+key,
 		"ANTHROPIC_MODEL="+r.o.model,
 		"CLAUDE_CONFIG_DIR="+ccHome,
-	))
+	)
+	// The CLI caps one assistant turn at 32k output tokens by default, and GLM
+	// likes to write a whole file plus its tests in one turn: two implementation
+	// rounds died on "response exceeded the 32000 output token maximum" with zero
+	// files on disk (2026-09-05, even after the spec asked for split writes).
+	// Raise the cap unless the caller pinned one.
+	if os.Getenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS") == "" {
+		env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
+	}
+	cmd.Env = nestedEnv(env)
 	// Its own process group, so the watchdog can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
