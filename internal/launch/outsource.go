@@ -490,6 +490,10 @@ type round struct {
 
 func (r *round) run() int {
 	r.hold = holdSignals()
+	// A sentinel from an earlier round on this --log path would read as this
+	// round's completion (see clearStaleSentinel). --detach already cleared
+	// it in the parent; the foreground path starts here.
+	clearStaleSentinel(r.o.log)
 
 	// Where this round leaves a live trail, so the registry can tell a round that
 	// is working from one that is stuck without ever interrupting either. crush

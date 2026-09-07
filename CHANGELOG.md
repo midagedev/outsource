@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.7 — 2026-09-07 — a sentinel can no longer predate the round it is evidence for
+
+- **Every launch removes a stale `<log>.rc` first.** Measured 2026-09-07: a
+  lead reused a scratch log path from a feature two days earlier; the
+  launcher truncated the log but left the old sentinel beside it, and
+  `outsource wait` returned "done" with the previous round's marker
+  (`DONE-041-C`) while the new round was two minutes old. The waiter cannot
+  tell a stale sentinel from a fresh one — same path, same shape — so the
+  launch is where it closes: the `--detach` parent clears it beside the log
+  it creates, and both foreground paths (`outsource-run`, `grok-run`) clear
+  it before the harness starts. `TestLaunchClearsStaleSentinel` fails on
+  the previous binary (stale sentinel survives; wait returns 0) and passes
+  now (wait returns 124 until the round finishes).
+- Lead-side note that goes with it: run the Go tests through
+  `tests/go-unit.test.sh`, never bare `go test` — the bare form registers
+  the tests' fake rounds in your real runs registry (`runs dismiss` cleans
+  them up, one id at a time).
+
 ## 0.13.6 — 2026-09-05 — agy default moves to gemini-3.8-flash-high
 
 - **`--provider agy` now defaults to `gemini-3.8-flash-high`.** agy 1.1.27

@@ -181,3 +181,43 @@ func TestDetachRefusesUnwritableLogPath(t *testing.T) {
 		t.Fatalf("the refusal must name the log path; got %q", errBuf.String())
 	}
 }
+
+// A sentinel left by an earlier round on the same --log path must not survive
+// the next launch: `outsource wait` cannot tell it from a fresh one.
+//
+// Measured 2026-09-07: a lead reused glm-C.log two days after a previous
+// feature's Round C; the launcher truncated the log, the old .rc stayed, the
+// waiter returned "done" with DONE-041-C two minutes into the new round.
+func TestLaunchClearsStaleSentinel(t *testing.T) {
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	if err := os.WriteFile(spec, []byte("do the thing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A fake grok that outlives the assertions, so the only sentinel that
+	// could exist right after launch is the stale one.
+	fake := filepath.Join(dir, "grok")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	log := filepath.Join(dir, "run.ndjson")
+	stale := "rc=0 finished=2026-09-05T14:05:38Z done_marker=found (DONE-OLD)\n"
+	if err := os.WriteFile(log+".rc", []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rc := GrokMain([]string{
+		"--detach", "--cwd", dir, "--spec", spec, "--log", log,
+	}, io.Discard, io.Discard)
+	if rc != 0 {
+		t.Fatalf("detach should have started, got rc=%d", rc)
+	}
+	if _, err := os.Stat(log + ".rc"); err == nil {
+		t.Fatal("stale sentinel survived the launch — a waiter armed now reports the OLD round as done")
+	}
+	// The waiter must now block (timeout), not return the stale completion.
+	if rc := WaitMain([]string{"--timeout", "1", log}, io.Discard, io.Discard); rc != 124 {
+		t.Fatalf("wait returned %d on a round that has not finished; want 124 (timeout)", rc)
+	}
+}

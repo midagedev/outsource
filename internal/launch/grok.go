@@ -248,6 +248,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "grok-run: %v\n", err)
 		return ExitUsage
 	}
+	clearStaleSentinel(o.log)
 	base := strings.TrimSuffix(o.log, ".ndjson")
 	_ = os.WriteFile(base+".sid", []byte(sid+"\n"), 0o644)
 
@@ -539,6 +540,7 @@ func reexecDetached(tool string, args []string, label, logPath string, stdout, s
 	} else {
 		_ = f.Close()
 	}
+	clearStaleSentinel(logPath)
 	cmd := exec.Command(self, child...)
 	cmd.SysProcAttr = detachAttr()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
@@ -551,6 +553,26 @@ func reexecDetached(tool string, args []string, label, logPath string, stdout, s
 		tool, cmd.Process.Pid, label, logPath, logPath)
 	_ = cmd.Process.Release()
 	return 0
+}
+
+// clearStaleSentinel removes a <log>.rc left by an EARLIER round that used the
+// same --log path, so the sentinel on disk can only ever describe this round.
+//
+// Measured 2026-09-07: a lead reused a scratch path from a previous feature
+// (glm-C.log) two days later. The launcher truncated the log but left the old
+// .rc beside it, `outsource wait` saw a sentinel and returned "done" with the
+// old round's marker (DONE-041-C) while the new round was two minutes old,
+// and the lead read a stale completion as the current one. The waiter cannot
+// tell a stale sentinel from a fresh one — same path, same shape — so the
+// launch is the one place this can be closed: no sentinel may predate the
+// round it is evidence for. Called wherever a round starts: the --detach
+// parent (beside the log it creates) and both foreground paths.
+func clearStaleSentinel(logPath string) {
+	if err := os.Remove(logPath + ".rc"); err != nil && !os.IsNotExist(err) {
+		// Bookkeeping must not fail a round; an unremovable stale sentinel
+		// will be overwritten by finish() anyway.
+		telemetry.Note("stale_sentinel_unremoved", err.Error())
+	}
 }
 
 // envWithDetached is the re-exec child's environment: the caller's env plus
