@@ -9,8 +9,9 @@
   OpenAI default and the user's sandbox/plugin config is untouched. Key from
   `CHEAPER_INFERENCE_API_KEY`, falling back to `~/.codex/cheaperinference.key`;
   model from `CI_MODEL` (default **`gpt-5.6-sol`**), reasoning effort from
-  `CI_EFFORT` (`minimal`…`xhigh`; unset adds no override, so `config.toml`
-  still wins). `references/codex.md` carries the priced catalog table —
+  `CI_EFFORT` (`minimal`…`xhigh`, **default `medium`** — always passed, so a
+  machine whose `config.toml` says `xhigh` does not silently spend it here;
+  this endpoint is metered per token and `xhigh` is a subscription habit). `references/codex.md` carries the priced catalog table —
   `gpt-6-astra` is 7× sol per token in both directions and `gpt-5.6-luna`
   ~1/12, which is the whole point of picking the arm per round.
 - **It is documented as a sidecar, not a backend.** `references/codex.md` and
