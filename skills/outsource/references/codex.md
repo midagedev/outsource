@@ -30,15 +30,17 @@ ci_live_…`, which is Codex quoting your config back, not a 401. There is no
 codex-ci                                          # interactive, gpt-5.6-sol
 codex-ci exec --sandbox read-only "<prompt>"      # headless
 CI_MODEL=gpt-6-astra codex-ci                     # another model
-CI_EFFORT=low CI_MODEL=gpt-6-astra codex-ci exec "<prompt>"
+CI_EFFORT=xhigh CI_MODEL=gpt-6-astra codex-ci exec "<prompt>"  # medium by default
 ```
 
-`CI_MODEL` defaults to **`gpt-5.6-sol`**. `CI_EFFORT` is Codex's
-`model_reasoning_effort` — `minimal|low|medium|high|xhigh`; **unset means the
-wrapper adds no override at all**, so your `~/.codex/config.toml` value wins
-(this user's is `xhigh`, which is why an unset run prints
-`reasoning effort: xhigh`). The session header echoes both, so read it rather
-than assuming.
+`CI_MODEL` defaults to **`gpt-5.6-sol`**, `CI_EFFORT` to **`medium`**.
+`CI_EFFORT` is Codex's `model_reasoning_effort`
+(`minimal|low|medium|high|xhigh`) and the wrapper always passes it, so
+**`~/.codex/config.toml` does not apply here** — a machine set to `xhigh`
+still gets `medium` under `codex-ci` unless you say otherwise. That is the
+point: this endpoint is metered per token, and `xhigh` is a subscription
+habit. The session header echoes model and effort, so read it rather than
+assuming.
 
 ## Models (catalog read 2026-09-08, prices USD per 1M tokens, all 128k output)
 
@@ -73,10 +75,10 @@ round truncates — the wrapper does not guess a window.
   `provider: cheaper-inference`, so the override reached the client. The
   same round is green on Codex **0.147.0** — the `-c` override shape is not
   new-version-only.
-- Four-way probe (`gpt-5.6-sol` and `gpt-6-astra`, each at the config's
-  `xhigh` and at an explicit `CI_EFFORT`): all four answered, and the header
-  echoed the requested model and effort every time — `CI_EFFORT=minimal` and
-  `=low` both took.
+- Four-way probe (`gpt-5.6-sol` and `gpt-6-astra`, each at `xhigh` and at an
+  explicit `CI_EFFORT`): all four answered, and the header echoed the
+  requested model and effort every time — `minimal`, `low`, `medium` and
+  `xhigh` all took, on both Codex versions.
 - Harmless noise on every run: `failed to refresh available models: …
   missing field 'models'`. Codex's model-list refresh expects OpenAI's
   envelope and Cheaper Inference serves `{"object":"list","data":[…]}`. It
