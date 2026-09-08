@@ -35,7 +35,7 @@ only numeric contracts.
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
 | **ox-alpha** — glm-5.3-flash on OpenRouter | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | officially unveiled as **glm-5.3-flash** — same model, different quota pool; free-while-stealth pricing (`step_finish.cost` was 0) can end without notice |
 | **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8 is the routed default since 2026-09-05, not yet re-measured) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
-| **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |
+| **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds. `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (`minimal`…`xhigh`, unset = config.toml) pick the arm | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |
 
 Selection rules:
 
@@ -154,7 +154,8 @@ in flight*).
   `-s`, model-identity via `opencode export`.
 - Codex on Cheaper Inference: `references/codex.md` — `bin/codex-ci`, the
   `-c` provider override (nothing written to `~/.codex/config.toml`),
-  `CHEAPER_INFERENCE_API_KEY`, `CI_MODEL`, and what is *not* wrapped.
+  `CHEAPER_INFERENCE_API_KEY`, the priced model table (`CI_MODEL`), the
+  reasoning-effort knob (`CI_EFFORT`), and what is *not* wrapped.
 - gemini via agy: `references/agy.md` — `bin/outsource-run.sh --provider agy`
   (the Antigravity CLI is provider and harness in one), absolute-paths-only
   contract, git deny rules installed into the shared `~/.gemini` settings,

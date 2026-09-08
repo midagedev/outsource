@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Codex against Cheaper Inference. Key: CHEAPER_INFERENCE_API_KEY (or ~/.codex/cheaperinference.key)
+# Codex against Cheaper Inference.
+#   CHEAPER_INFERENCE_API_KEY  key (falls back to ~/.codex/cheaperinference.key)
+#   CI_MODEL   catalog id, default gpt-5.6-sol   (GET /v1/models for the list)
+#   CI_EFFORT  minimal|low|medium|high|xhigh; unset = whatever config.toml says
 set -euo pipefail
 : "${CHEAPER_INFERENCE_API_KEY:=$(cat ~/.codex/cheaperinference.key 2>/dev/null || true)}"
 [ -n "$CHEAPER_INFERENCE_API_KEY" ] || { echo "CHEAPER_INFERENCE_API_KEY is unset and ~/.codex/cheaperinference.key does not exist" >&2; exit 1; }
 export CHEAPER_INFERENCE_API_KEY
 exec codex \
-  -c model="${CI_MODEL:-gpt-5.6-terra}" \
+  -c model="${CI_MODEL:-gpt-5.6-sol}" \
+  ${CI_EFFORT:+-c model_reasoning_effort="$CI_EFFORT"} \
   -c model_provider=cheaper-inference \
   -c model_providers.cheaper-inference.name="Cheaper Inference" \
   -c model_providers.cheaper-inference.base_url="https://api.cheaperinference.com/v1" \
