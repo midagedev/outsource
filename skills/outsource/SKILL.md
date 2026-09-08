@@ -35,6 +35,7 @@ only numeric contracts.
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
 | **ox-alpha** — glm-5.3-flash on OpenRouter | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | officially unveiled as **glm-5.3-flash** — same model, different quota pool; free-while-stealth pricing (`step_finish.cost` was 0) can end without notice |
 | **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (named a solid `#1E50DC` PNG's hex exactly) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
+| **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |
 
 Selection rules:
 
@@ -151,6 +152,9 @@ in flight*).
   openrouter` (harness `opencode` is the default for that provider), isolated
   `OPENCODE_CONFIG_DIR`, git-write permission deny, `SESSION <id>` resume via
   `-s`, model-identity via `opencode export`.
+- Codex on Cheaper Inference: `references/codex.md` — `bin/codex-ci`, the
+  `-c` provider override (nothing written to `~/.codex/config.toml`),
+  `CHEAPER_INFERENCE_API_KEY`, `CI_MODEL`, and what is *not* wrapped.
 - gemini via agy: `references/agy.md` — `bin/outsource-run.sh --provider agy`
   (the Antigravity CLI is provider and harness in one), absolute-paths-only
   contract, git deny rules installed into the shared `~/.gemini` settings,
