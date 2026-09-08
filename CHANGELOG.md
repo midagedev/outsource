@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.13.8 — 2026-09-08 — Codex, redirected at Cheaper Inference
+
+- **`bin/codex-ci` runs the Codex CLI against Cheaper Inference's Responses
+  endpoint by `-c` override**, the same shape the GLM claude-code arm uses
+  against z.ai: the vendor's own harness pointed at a cheaper endpoint.
+  Nothing is written to `~/.codex/config.toml`, so plain `codex` keeps its
+  OpenAI default and the user's sandbox/plugin config is untouched. Key from
+  `CHEAPER_INFERENCE_API_KEY`, falling back to `~/.codex/cheaperinference.key`;
+  model from `CI_MODEL` (default `gpt-5.6-terra`).
+- **It is documented as a sidecar, not a backend.** `references/codex.md` and
+  the SKILL.md row both lead with what is absent — no run registry, no git
+  guard, no done-marker sentinel, no identity assertion, no quota gate — so a
+  spec-able delegation round does not drift onto an unsupervised arm.
+  Measured 2026-09-08 on Codex v0.153.4: a read-only `pwd` round completed on
+  `gpt-5.6-terra` for 15,302 tokens, and a wrong key 401s at
+  `/v1/responses`, which is what proves the redirect actually took.
+
 ## 0.13.7 — 2026-09-07 — a sentinel can no longer predate the round it is evidence for
 
 - **Every launch removes a stale `<log>.rc` first.** Measured 2026-09-07: a
