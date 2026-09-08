@@ -90,5 +90,14 @@ round truncates — the wrapper does not guess a window.
 - `wire_api = "responses"` is required; the endpoint serves `/v1/responses`
   and Codex's local tools (`apply_patch`) ride on it.
 
+- **Plain `codex exec -m gpt-6-astra` on a ChatGPT-account login is refused**
+  (measured 2026-09-08, Codex 0.147.0): `400 invalid_request_error — The
+  'gpt-6-astra' model is not supported when using Codex with a ChatGPT
+  account.` The session header still prints `model: gpt-6-astra / provider:
+  openai` before the request fails, so read the log, not the header. astra
+  reaches a round only through an API-key auth or this wrapper's Cheaper
+  Inference route — and the wrapper needs `~/.codex/cheaperinference.key`,
+  which the launcher does not create.
+
 Not measured: vision, long-context behavior, `--resume` across a provider
 switch, cost per round against the dashboard's settled charge.
