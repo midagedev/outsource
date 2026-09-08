@@ -14,6 +14,7 @@ It is not a wrapper. It is an operating manual with receipts: every rule in it c
 | **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of OpenRouter's stealth **ox-alpha**, still reachable as such via `--provider openrouter` (opencode CLI) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
 | **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
 | **gemini-3.7-flash-high** — Google plan | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool** — the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly) | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
+| **Codex on Cheaper Inference** — a sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` at [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) | ad-hoc, hand-supervised rounds in Codex's own harness, paid per token instead of per subscription — `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (default `medium`) pick the arm | **outside the launcher**: no run registry, no git guard, no done-marker, no identity assertion, no quota gate |
 
 A provider that talks Anthropic-compat (zai, xai) is a table row — base URL, default model, vision — plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode, agy) is a table row with an empty URL, a dedicated harness, and no cred row — its CLI already logged the user in.
 
@@ -40,7 +41,7 @@ cd outsource
 ./install.sh --project  # project scope: ./.claude/skills/outsource/
 ```
 
-You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter).
+You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter). The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -381,7 +382,7 @@ $ bin/quota.sh --provider grok
 | File | Purpose |
 |---|---|
 | `skills/outsource/SKILL.md` | The router: backend table, spec assembly, lead review checklist |
-| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
+| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` · `codex.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
 | `references/spec-preamble.md` | Shared rules prepended to every spec — every clause from a real incident |
 | `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
 | `references/glm-preamble.md` | GLM runtime delta (no images, hooks not flags, evidence rules) |
