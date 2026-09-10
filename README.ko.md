@@ -14,9 +14,10 @@
 | **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니, 이제는 여기 플랜으로 부르십시오 | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
 | **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
 | **gemini-3.8-flash-high** — Google 플랜 (2026-09-05까지의 실측 기본값은 3.7) | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드 — 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC`의 hex를 정확히 명명) | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
+| **OpenRouter** — id는 직접 고릅니다 | `opencode` CLI, `--provider openrouter --model openrouter/<vendor>/<id>` | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 — 어떤 id를 쓸지는 당신이 정하고, 그 선택도 당신 몫입니다 | **기본 모델 없음**: 여기 라우팅되던 유일한 id가 `stealth/ox-alpha`였고 2026-09-10에 제공이 끊겼습니다. 토큰당 과금이라 플랜 쿼터가 없고, 이 스킬이 프로브해 본 적 없는 id에 대해서는 아무것도 보증하지 않습니다 |
 | **Codex on Cheaper Inference** — 런처 백엔드가 아닌 사이드카 | `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회 | Codex 자체 하네스로 돌리는 임시·수동 감독 라운드. 구독이 아니라 토큰당 과금 — `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 선택 | **런처 밖**: 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트 없음 |
 
-**백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 테이블이 둘 있고, 나머지는 전부 거기서 파생됩니다 — 플래그 검증, `--detach`의 PATH 조회, 실시간 흔적의 위치, 디스패치, 페어링 행렬, 도움말 문구까지. Anthropic 호환 프로바이더(zai, xai)는 base URL·기본 모델·비전 칼럼을 가진 한 줄과 `bin/credential.sh`의 키 해석이고, 자체 CLI와 인증 저장소를 가져오는 프로바이더(opencode의 openrouter, agy)는 URL이 빈 한 줄에 전용 하네스, cred 행 없음 — 로그인은 그 CLI가 이미 갖고 있습니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
+**백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 프로바이더 테이블과 하네스 테이블이 하나씩 있고, 나머지는 전부 거기서 파생됩니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
 
 ```
 PROVIDER     HARNESS        DEFAULT MODEL            NOTES
@@ -27,8 +28,6 @@ xai          crush          grok-4.6                 --model form provider/id
 openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
 agy          agy            gemini-3.8-flash-high    default harness
 ```
-
-기본 모델이 비어 있는 줄은 `openrouter` 하나입니다. 이 arm이 라우팅하던 유일한 id가 `stealth/ox-alpha`였고 2026-09-10에 제공이 끊겼으니, 런처가 임의로 하나를 골라 주는 대신 이름을 요구합니다(`--model openrouter/<vendor>/<id>`). 반쯤 배선된 줄 — 기본 하네스가 정작 그 프로바이더를 구동하지 않는다든가, 디스패치나 PATH 바이너리가 비어 있다든가 — 은 일관성 테스트가 막습니다.
 
 위임이 벌어지는 동안 그걸 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)도 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
 
@@ -53,7 +52,7 @@ cd outsource
 ./install.sh --project  # 프로젝트 스코프: ./.claude/skills/outsource/
 ```
 
-[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
+[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter — 이 arm은 기본 모델이 없어서 쓸 id도 직접 정해야 합니다). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 
@@ -107,6 +106,16 @@ GLM의 두 하네스 모두 스스로를 멈추지 못합니다 — `crush run`�
 ```
 
 이 둘이 실제 판별점입니다. 경과시간 규칙이었다면 **멀쩡한 101분짜리를 경고하고 갇힌 쪽은 침묵**했을 조합입니다. `--log` 파일은 claude-code에게는 신호가 아닙니다 — 그 하네스는 맨 끝에 한 번만 쓰므로 정상 라운드도 평생 빈 로그로 보입니다. 흔적은 crush면 `data/crush.db-wal`·`data/logs/crush.log`, claude-code면 `claude/projects/**.jsonl`입니다. opencode와 agy는 예외: 스트림 JSON 로그가 프로세스가 도는 동안 `--log`에 이벤트를 한 줄씩 플러시하므로, 거기서는 그 파일이 곧 흔적입니다.
+
+**로그를 읽는 것은 1단계이지 판정이 아닙니다.** 2026-08-28 실측: 한 라운드가 `⏳ ⋯57m`에 앉아 있었고, 트랜스크립트의 마지막 줄은 "Core 레벨 격리 게이트를 추가하는 중"이었습니다 — 편집 중인 델리게이트와 구분이 되지 않는 문장입니다. 아니었습니다. 그 라운드는 테스트 러너를 셸로 띄웠다가 데드락에 걸렸고, 하네스는 영영 돌아오지 않을 자식을 기다리며 막혀 있었습니다. 한 시간째 죽어 있으면서 바빠 보였던 겁니다. 둘을 가른 것은 로그가 보여줄 수 없는 **자손 프로세스 트리**였습니다:
+
+```
+pgrep -P <round-pid>                   # 이 라운드가 실제로 무엇에 막혀 있나
+ps -o pid,%cpu,etime -p <child-pid>    # 몇 분째 CPU 0.0% = 일하는 게 아니라 갇힌 것
+sample <child-pid> 2 -file /tmp/s.txt  # macOS: 어느 지점에 주차돼 있나
+```
+
+일하는 자식은 CPU를 태웁니다. 몇 분째 0.0%인 자식에 라운드의 IDLE이 정체 임계를 넘겼다면 그건 행(hang)이고, 주차된 프레임이 대개 원인을 그대로 이름 붙여 줍니다(이 사례에서는 두 await의 순서 때문에 자기가 쥔 락이 막고 있는 일을 기다리던 테스트 안의 `XCTWaiter`). 죽일 것은 라운드가 아니라 **자식**입니다 — 러너가 죽으면 하네스가 알아채고 보고하며, 그때까지 끝낸 편집은 디스크에 남습니다.
 
 멈춤은 로그를 읽을 이유이지 무언가를 죽일 이유가 아닙니다. `bin/outsource-run.sh --max-seconds N`은 N초에 하드 킬합니다(프로세스 그룹 전체에 SIGTERM 후 SIGKILL, 센티넬·레지스트리 양쪽에 exit 124, 후속 라운드가 이어받을 수 있게 세션 id는 회수). 기본값은 없고 앞으로도 두지 않습니다 — kill은 편집 도중에 떨어지니까요. 그 라운드를 잃어도 된다고 미리 판단한 경우에만 쓰십시오.
 
@@ -299,7 +308,7 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 | 발견된 약점 | 지금 무엇이 막는가 |
 |---|---|
-| GLM은 이미지를 못 보는데 스펙이 스크린샷을 건넬 수 있음 | **비전 가드, exit 65** — 프로바이더 테이블의 능력 컬럼이 판단하지, 호출 지점의 이름 비교가 아닙니다. `--no-vision-check`로 무시 가능. |
+| GLM은 이미지를 못 보는데 스펙이 스크린샷을 건넬 수 있음 | **비전 가드, exit 65** — 프로바이더 행의 비전 칼럼이 판단하고, 그 판단은 **모델 단위**입니다(zai 기본값은 못 보고 `glm-5.3-flash`는 봅니다). 호출 지점의 이름 비교가 아닙니다. `--no-vision-check`로 무시 가능. |
 | z.ai가 모델명 없는 `claude-*` 요청에 플랜 기본값으로 조용히 답함 | **모델 정체성 단언, exit 70** — 세션 트랜스크립트의 턴별 `message.model`에서 읽습니다. `modelUsage`가 **아닙니다**. 그건 실측 결과 **요청한 id를 되비추기만** 해서 일치를 증명할 수 없습니다. 트랜스크립트가 없으면 "검증 불가"이고 그것도 실패입니다. |
 | 싼 팔이 만족 불가능한 계약 앞에서 멈추지 않음 | **발사 전 리드 체크리스트 항목.** 이에 해당하는 위임자 측 규칙은 preamble에 **이미 있었고 발동하지 않았습니다.** 그래서 문장을 더 쓰는 대신 검사를 리드 쪽으로 옮겼습니다. |
 | preamble이 없으면 공개가 사라짐 | **`references/spec-preamble-core.md`** — 사라진 그 절반만 정확히 되가져오는 짧은 대체본. |
@@ -340,6 +349,25 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 </details>
 
+## arm은 어떻게 배선되나
+
+`internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 둘입니다.
+
+**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 그 프로바이더의 어느 모델이 픽셀을 보는지, 어떤 환경변수가 모델을 핀할 수 있는지, 그리고 엔드포인트가 **다른 모델로 조용히 대답해 버리는** id가 무엇인지. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter, agy)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있으니까요.
+
+**하네스**는 그 모델을 헤드리스로 어떻게 몰 것인가입니다 — PATH에 있어야 할 바이너리, 구동하는 프로바이더 목록, 라운드가 살아있는 흔적을 남기는 위치, 디스패치, 그리고 거기서 `--model`이 가져야 할 형태.
+
+그 아래는 전부 이 둘에서 파생됩니다 — `--harness` 검증, `--detach`의 PATH 조회, `runs`가 들여다보는 progress 디렉터리, 디스패치, 페어링 거부, `--help` 문구까지. 반쯤 배선된 줄은 일관성 테스트가 막습니다 — 자기 프로바이더를 구동하지 않는 기본 하네스, 디스패치나 PATH 바이너리가 빈 하네스, 규칙 없이 힌트만 있는 `--model` 형태.
+
+거부 메시지도 같은 테이블에서 나옵니다. 그래서 "여기서는 안 된다"만이 아니라 **어디로 가야 하는지**까지 말합니다:
+
+```
+$ outsource-run --provider openrouter --harness claude-code …
+harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
+provider openrouter runs on: opencode (opencode owns its own auth store and resolves
+endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+```
+
 ## 가드레일
 
 **발사 전**
@@ -374,7 +402,7 @@ $ bin/quota.sh --provider grok
 | `references/glm-preamble.md` | GLM 런타임 델타 (어느 모델이 픽셀을 보고 어느 모델이 못 보는지, 플래그 아닌 훅, 증거 규칙) |
 | `references/spec-authoring.md` · `references/spec-template.md` | 품질 번들, 그리고 태스크별 스펙 골격 |
 | `bin/outsource` | **하나의 Go 바이너리가 아래 도구 전부입니다.** 아래 `bin/*.sh` 이름들은 3줄짜리 호환 shim이고, 각각 이 바이너리로 exec합니다 — 문서·훅·설치본·테스트가 전부 경로로 호출하기 때문에 이름을 유지합니다. `outsource <도구>` 로 직접 부르면 fork 하나를 아낍니다 |
-| `outsource-run` | 런처: 프로바이더 테이블, 하네스 선택, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--detach` / non-TTY 포그라운드 거절 |
+| `outsource-run` | 런처: 프로바이더·하네스 배선 테이블, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--detach` / non-TTY 포그라운드 거절 |
 | `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명, `--detach` / `--foreground` |
 | `guard` | git 금지 `PreToolUse` 훅. 두 하네스 공용 (54 회귀 케이스 + 670건 판정 골든) |
 | `credential` · `setup-key.sh` | 키 **와 호스트** 해석의 단일 소유자, 그리고 그 대화형 절반. `setup-key.sh` 는 의도적으로 셸로 남았습니다(TTY 상호작용 전용, `tests/shell-boundary.test.sh` 가 경계를 강제) |

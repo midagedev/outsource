@@ -14,9 +14,10 @@ It is not a wrapper. It is an operating manual with receipts: every rule in it c
 | **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of what OpenRouter listed as the stealth **ox-alpha**, which stopped serving on 2026-09-10 — route it here, on the plan | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
 | **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
 | **gemini-3.8-flash-high** — Google plan (3.7 was the measured default until 2026-09-05) | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool** — the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly) | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
+| **OpenRouter** — bring your own id | `opencode` CLI, via `--provider openrouter --model openrouter/<vendor>/<id>` | a third process family for when both plans are out of headroom — you name the id and own the choice | **no default model**: `stealth/ox-alpha` was the only one routed here and it stopped serving on 2026-09-10. Pay-per-token, no plan quota, and nothing is certified about an id this skill has not probed |
 | **Codex on Cheaper Inference** — a sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` at [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) | ad-hoc, hand-supervised rounds in Codex's own harness, paid per token instead of per subscription — `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (default `medium`) pick the arm | **outside the launcher**: no run registry, no git guard, no done-marker, no identity assertion, no quota gate |
 
-Adding or withdrawing an arm is a row, not a refactor. `internal/launch/wiring.go` holds two tables and everything derives from them — the flag validation, the `--detach` PATH lookup, the live-trail location, the dispatch, the pairing matrix, the help text. A provider that talks Anthropic-compat (zai, xai) is a row with a base URL, a default model and a vision column, plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode, agy) is a row with an empty URL, a dedicated harness and no cred row — its CLI already logged the user in. `outsource-run --list-wiring` prints the matrix:
+Adding or withdrawing an arm is a row, not a refactor: `internal/launch/wiring.go` holds one table of providers and one of harnesses, and everything else derives from them. `outsource-run --list-wiring` prints what that currently routes:
 
 ```
 PROVIDER     HARNESS        DEFAULT MODEL            NOTES
@@ -27,8 +28,6 @@ xai          crush          grok-4.6                 --model form provider/id
 openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
 agy          agy            gemini-3.8-flash-high    default harness
 ```
-
-`openrouter` is the row with no default: `stealth/ox-alpha` was its only routed id and it stopped serving on 2026-09-10, so the arm asks you to name one (`--model openrouter/<vendor>/<id>`) rather than inventing one. A consistency test refuses a half-wired row — a provider whose default harness does not drive it, a harness with no dispatch or no PATH binary.
 
 It also ships the [status line](#status-line) that makes delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 
@@ -44,7 +43,7 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 /plugin install outsource@outsource
 ```
 
-Or with the install script (preferred if you'll use a [local overlay](#local-overlay)):
+Or with the install script (preferred if you'll use a [local overlay](#local-overlays)):
 
 ```bash
 git clone https://github.com/midagedev/outsource
@@ -53,7 +52,7 @@ cd outsource
 ./install.sh --project  # project scope: ./.claude/skills/outsource/
 ```
 
-You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter). The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
+You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter — that arm also needs a model id of your own, since it has no default). The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -325,7 +324,7 @@ Every row is a mechanism with an exit code, not advice in a document.
 
 | Weakness found | What now stops it |
 |---|---|
-| GLM cannot see images, but a spec might hand it a screenshot | **Vision guard, exit 65** — driven by the provider table's capability column, never a provider-name test at the call site. `--no-vision-check` overrides. |
+| GLM cannot see images, but a spec might hand it a screenshot | **Vision guard, exit 65** — driven by the provider row's vision column, which is per *model* (the zai default is blind, `glm-5.3-flash` is not), never a provider-name test at the call site. `--no-vision-check` overrides. |
 | z.ai silently answers an unqualified `claude-*` request as its plan default | **Model-identity assertion, exit 70** — read from the per-turn `message.model` in the session transcript. *Not* from `modelUsage`, which was measured to echo the **requested** id and so can never prove a match. No transcript means "unverifiable", which also fails. |
 | A cheap arm doesn't stop at an unsatisfiable contract | **A lead checklist item, before launch.** The delegate-side rule for this already existed in the preamble and did **not** fire, so it moved to the lead rather than becoming more prose. |
 | Without the preamble, disclosure vanishes | **`references/spec-preamble-core.md`** — the short substitute carrying back exactly the half that vanished, and nothing else. |
@@ -366,6 +365,25 @@ Every row is a mechanism with an exit code, not advice in a document.
 
 </details>
 
+## How an arm is wired
+
+`internal/launch/wiring.go` is the single owner of "what can run where", and it is two tables.
+
+A **provider** is an account and an endpoint: base URL, default model, default harness, which of its models see pixels, which environment variable may pin a model, and which ids the endpoint answers with a *different* model. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter via opencode, agy) carries an empty URL and no credential row — its CLI already logged the user in.
+
+A **harness** is how a model is driven headlessly: the binary that must be on PATH, the providers it drives, where the round leaves a live trail, the dispatch, and the shape `--model` must take there.
+
+Everything downstream derives from those two — the `--harness` validation, the `--detach` PATH lookup, the progress directory `runs` watches, the dispatch, the pairing refusal, and the `--help` line. A consistency test refuses a half-wired row: a default harness that does not drive its own provider, a harness with no dispatch or no PATH binary, a `--model` form hint with no rule behind it.
+
+The refusal messages come from the same tables, so they say where the round *should* go rather than only where it cannot:
+
+```
+$ outsource-run --provider openrouter --harness claude-code …
+harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
+provider openrouter runs on: opencode (opencode owns its own auth store and resolves
+endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+```
+
 ## Guardrails
 
 **Before launch**
@@ -400,7 +418,7 @@ $ bin/quota.sh --provider grok
 | `references/glm-preamble.md` | GLM runtime delta (which model sees pixels and which does not, hooks not flags, evidence rules) |
 | `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
 | `bin/outsource` | **One Go binary is every tool below.** The `bin/*.sh` names beside it are three-line compatibility shims that exec into it — kept because docs, hooks, installed copies and tests all call these tools by path. Invoke `outsource <tool>` directly to save a fork |
-| `outsource-run` | The launcher: provider table, harness picker, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
+| `outsource-run` | The launcher: the provider/harness wiring tables, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
 | `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, a startup proof, `--detach` / `--foreground` |
 | `guard` | The git-ban `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden) |
 | `credential` · `setup-key.sh` | The single owner of key *and* host resolution, and its interactive half. `setup-key.sh` stays shell on purpose — its whole job is TTY interaction, and `tests/shell-boundary.test.sh` enforces that boundary |
