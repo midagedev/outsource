@@ -206,6 +206,18 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "outsource: %v\n", err)
 		return ExitUsage
 	}
+	// The config dir must be absolute: it reaches the harness as
+	// CLAUDE_CONFIG_DIR (or its crush/opencode equivalent) and the harness
+	// resolves a relative value against ITS cwd — the --cwd worktree — while
+	// the launcher resolved the same string against the caller's cwd. Measured
+	// 2026-09-11: `--config-dir sc-w11-go/glm-cfg` launched from the scratchpad
+	// put settings.json under the scratchpad and the session transcript under
+	// <worktree>/sc-w11-go/glm-cfg/claude/projects; analyzeRun looked in the
+	// former, found no transcript, and failed the model-identity assertion
+	// (exit 70) on seven rounds that had all finished and printed their marker.
+	if abs, err := filepath.Abs(o.configDir); err == nil {
+		o.configDir = abs
+	}
 
 	// --done-marker is a contract the spec must be able to satisfy. Nothing
 	// injects the string into the prompt, so a marker the spec never mentions is
