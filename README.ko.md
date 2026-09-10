@@ -14,6 +14,7 @@
 | **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니, 이제는 여기 플랜으로 부르십시오 | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
 | **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
 | **gemini-3.8-flash-high** — Google 플랜 (2026-09-05까지의 실측 기본값은 3.7) | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드 — 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC`의 hex를 정확히 명명) | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
+| **Codex on Cheaper Inference** — 런처 백엔드가 아닌 사이드카 | `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회 | Codex 자체 하네스로 돌리는 임시·수동 감독 라운드. 구독이 아니라 토큰당 과금 — `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 선택 | **런처 밖**: 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트 없음 |
 
 **백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 테이블이 둘 있고, 나머지는 전부 거기서 파생됩니다 — 플래그 검증, `--detach`의 PATH 조회, 실시간 흔적의 위치, 디스패치, 페어링 행렬, 도움말 문구까지. Anthropic 호환 프로바이더(zai, xai)는 base URL·기본 모델·비전 칼럼을 가진 한 줄과 `bin/credential.sh`의 키 해석이고, 자체 CLI와 인증 저장소를 가져오는 프로바이더(opencode의 openrouter, agy)는 URL이 빈 한 줄에 전용 하네스, cred 행 없음 — 로그인은 그 CLI가 이미 갖고 있습니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
 
@@ -52,7 +53,7 @@ cd outsource
 ./install.sh --project  # 프로젝트 스코프: ./.claude/skills/outsource/
 ```
 
-[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter).
+[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 
@@ -367,7 +368,7 @@ $ bin/quota.sh --provider grok
 | 파일 | 용도 |
 |---|---|
 | `skills/outsource/SKILL.md` | 라우터: 백엔드 표, 스펙 조립, 리드 검수 체크리스트 |
-| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` | 백엔드별 운영 매뉴얼: 플래그, git 안전 프로파일, 하네스 특이점, 실측된 행동 프로필 |
+| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` · `codex.md` | 백엔드별 운영 매뉴얼: 플래그, git 안전 프로파일, 하네스 특이점, 실측된 행동 프로필 |
 | `references/spec-preamble.md` | 모든 스펙 앞에 붙는 공유 규칙 — 조항 하나하나가 실제 사고에서 나옴 |
 | `references/spec-preamble-core.md` | 짧은 대체본: 없으면 사라진다고 실측된 공개(disclosure) 부분만 |
 | `references/glm-preamble.md` | GLM 런타임 델타 (이미지 없음, 플래그 아닌 훅, 증거 규칙) |
