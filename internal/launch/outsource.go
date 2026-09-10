@@ -29,170 +29,6 @@ const (
 	ExitNoCredential   = 1
 )
 
-// provider is one row of the table that used to be a pipe-delimited string.
-// This is the one place a provider is defined, and the harnesses read it.
-//
-// Credentials for zai/xai live in internal/cred (env var first, then this
-// skill's 0600 store, then discovery of files another tool already wrote).
-// openrouter does not: opencode owns its own auth store
-// (~/.local/share/opencode/auth.json), and a cred row would be a second
-// owner of a secret this launcher never touches.
-//
-// URL is the provider's DEFAULT; cred.Base may point it at the same account's
-// other region (z.ai's coding plan ships on api.z.ai globally and
-// open.bigmodel.cn in mainland China).
-//
-// The URL column is consumed by the claude-code harness (ANTHROPIC_BASE_URL);
-// the crush harness resolves endpoints through crush's own provider registry —
-// measured: crush's built-in zai points at
-// https://api.z.ai/api/coding/paas/v4, not the Anthropic-compatible URL, so
-// forcing this column into `provider add` would break the working zai path.
-// opencode likewise resolves endpoints itself, so openrouter's URL is empty
-// for the same reason.
-type provider struct {
-	name         string
-	url          string
-	defaultModel string
-	vision       bool
-}
-
-var providerTable = []provider{
-	{"zai", "https://api.z.ai/api/anthropic", "glm-5.3", false},
-	{"xai", "https://api.x.ai", "grok-4.6", true},
-	{"openrouter", "", "stealth/ox-alpha", true},
-	// agy: the Google Antigravity CLI is provider and harness in one — auth
-	// and quota live in the Google plan, no cred row and no URL. vision=true
-	// is measured (2026-08-27, gemini-3.7-flash-low): a solid #1E50DC PNG was
-	// named "#1e50dc" exactly and a white-7 shape probe answered "7". The
-	// default is the high effort tier by user decision 2026-08-27 ("flash는
-	// high만 써") — medium/low exist but are not routed. The family moved to
-	// 3.8 by user decision 2026-09-05 ("agy 최근 버전이 3.8로 올라왔는데 앞으로
-	// 그거 쓰도록") the day `agy models` started listing it; the vision and
-	// speed measurements above are 3.7's and have not been re-run on 3.8.
-	{"agy", "", "gemini-3.8-flash-high", true},
-}
-
-// zaiVisionModels lists the zai model ids measured to see pixels. The
-// provider row above stays vision=false because the DEFAULT (glm-5.3) is
-// blind — measured 2026-08-27: on a white-7-on-black probe glm-5.3 answered
-// "Y" while glm-5.3-flash answered "7", and through the claude-code
-// harness's Read tool flash also named a solid #1E50DC fill as #2244DD
-// (per-channel error ~5%). flash is the officially unveiled ox-alpha, whose
-// vision this skill had already measured on OpenRouter. Color fidelity on
-// the raw API (no harness) was weaker in one probe — treat flash as reliable
-// for shape/layout/presence and usable-but-verify for exact color.
-var zaiVisionModels = map[string]bool{
-	"glm-5.3-flash": true,
-}
-
-// modelVision answers "can THIS round see pixels" — the per-model refinement
-// of the provider table's vision column, and the single owner the vision
-// guard asks. model may be provider-qualified (crush's zai/…).
-func modelVision(p provider, model string) bool {
-	if p.vision {
-		return true
-	}
-	if p.name == "zai" && model != "" {
-		return zaiVisionModels[strings.TrimPrefix(model, p.name+"/")]
-	}
-	return false
-}
-
-func findProvider(name string) (provider, bool) {
-	for _, p := range providerTable {
-		if p.name == name {
-			return p, true
-		}
-	}
-	return provider{}, false
-}
-
-func providerNames() string {
-	out := make([]string, 0, len(providerTable))
-	for _, p := range providerTable {
-		out = append(out, p.name)
-	}
-	return strings.Join(out, " ") + " "
-}
-
-// pairingRefusal is the one-line reason a (harness, provider) pair is not
-// wired. Empty means the pair is allowed. Checked before the registry records
-// a round that was never going to launch.
-func pairingRefusal(harness, provider string) string {
-	switch harness {
-	case "opencode":
-		if provider != "openrouter" {
-			return "opencode harness requires provider openrouter (provider '" + provider + "' is not wired)"
-		}
-	case "agy":
-		if provider != "agy" {
-			return "agy harness requires provider agy (the Antigravity CLI is provider and harness in one)"
-		}
-	case "claude-code", "crush":
-		if provider == "openrouter" {
-			return "provider openrouter is not wired on the " + harness + " harness (no Anthropic-compatible URL / no cred row)"
-		}
-		if provider == "agy" {
-			return "provider agy only runs on its own harness (the Antigravity CLI drives itself; there is no Anthropic-compatible URL)"
-		}
-	}
-	return ""
-}
-
-// zaiSilentMappings records model ids the z.ai Anthropic endpoint accepts
-// without error but answers with a DIFFERENT model. Measured 2026-08-27
-// (two probes each): the response's `model` field came back "glm-5.3" for a
-// "glm-5.2" request — the field is not an echo, because it differs from the
-// request — while glm-5.3, glm-5.3-flash and glm-4.6 were honoured verbatim
-// and a nonexistent id (glm-5.2-flash) errored loudly (code 1214). So a
-// glm-5.2 round can never be a glm-5.2 round: on claude-code the identity
-// assertion would burn the whole round and then exit 70; on crush there is
-// no assertion at all and the misassignment would be permanent and silent.
-// Refusing at launch is the only guard that covers both harnesses.
-var zaiSilentMappings = map[string]string{
-	"glm-5.2": "glm-5.3",
-}
-
-// zaiMappedModelError refuses, at launch, a zai model id that is measured to
-// be silently answered by a different model. model may be bare (claude-code)
-// or provider-qualified (crush's zai/…). OUTSOURCE_ALLOW_MAPPED_MODEL=1
-// overrides — that exists for re-measuring the mapping, not for routing.
-func zaiMappedModelError(provider, model string) (string, bool) {
-	if provider != "zai" || model == "" {
-		return "", true
-	}
-	bare := strings.TrimPrefix(model, provider+"/")
-	answered, mapped := zaiSilentMappings[bare]
-	if !mapped || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
-		return "", true
-	}
-	return fmt.Sprintf("--model %s is silently answered by %s on the z.ai endpoint (measured 2026-08-27: the response model field differs from the request). The round could never run the model you asked for — request %s explicitly, or set OUTSOURCE_ALLOW_MAPPED_MODEL=1 to re-measure the mapping.",
-		model, answered, answered), false
-}
-
-func seedModel(provider, model string) string {
-	if model != "" {
-		return model
-	}
-	if provider == "zai" {
-		return os.Getenv("GLM_DELEGATE_MODEL")
-	}
-	return ""
-}
-
-func defaultHarness(provider, harness string) string {
-	if harness != "" {
-		return harness
-	}
-	if provider == "openrouter" {
-		return "opencode"
-	}
-	if provider == "agy" {
-		return "agy"
-	}
-	return "claude-code"
-}
-
 // imageRef matches a spec that names an image file. Case-insensitive, and the
 // extension must end the token so a word like "gifted" does not trip it.
 var imageRef = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)([^[:alnum:]]|$)`)
@@ -284,8 +120,17 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.detach, ok = true, true
 		case "--foreground":
 			o.foreground, ok = true, true
+		case "--list-wiring":
+			// "What can run where" as one command instead of a read of
+			// wiring.go. Printed and exited before every other flag is
+			// resolved, so it answers even when the rest of the line is wrong.
+			fmt.Fprint(stdout, wiringMatrix())
+			return 0
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness claude-code|crush|opencode|agy] [--provider P] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground]")
+			// The harness and provider lists are derived, so a new arm cannot
+			// be routable and undocumented at the same time.
+			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground] [--list-wiring]\n",
+				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
 			return 0
 		default:
 			fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
@@ -319,29 +164,39 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unknown provider: %s (known: %s)\n", o.providerName, providerNames())
 		return ExitUsage
 	}
-	// GLM_DELEGATE_MODEL is a zai pin. Applying it to every provider leaked a
-	// glm-* id into opencode's -m, which opencode then rejected (the remainder
-	// must be openrouter/…). Scoped here, after the provider is known and
-	// after --model, so an explicit --model still wins.
+	// The provider's own model env var (zai's GLM_DELEGATE_MODEL). Applying one
+	// provider's pin to every provider leaked a glm-* id into opencode's -m,
+	// which opencode then rejected (the remainder must be openrouter/…).
+	// Scoped by the table, after the provider is known and after --model, so an
+	// explicit --model still wins.
 	o.model = seedModel(p.name, o.model)
 	// Checked here — after the seed, before the registry and before the
-	// --detach re-exec — for the same reason as crushModelFormError below:
+	// --detach re-exec — for the same reason as the model-form check below:
 	// past the re-exec there is no caller left to tell. Exit 70 because this
 	// is the model-identity failure known before spending the round.
-	if msg, ok := zaiMappedModelError(p.name, o.model); !ok {
+	if msg, ok := mappedModelError(p, o.model); !ok {
 		fmt.Fprintln(stderr, msg)
-		telemetry.Note("why", "zai mapped model: request would be answered by a different model")
+		telemetry.Note("why", "mapped model: request would be answered by a different model")
 		return ExitModelIdentity
 	}
 	o.harness = defaultHarness(p.name, o.harness)
 	// Validated here, not only at the dispatch below, so a usage error is caught
 	// before the run registry records a round that was never going to launch.
-	if o.harness != "claude-code" && o.harness != "crush" && o.harness != "opencode" && o.harness != "agy" {
-		fmt.Fprintf(stderr, "--harness must be claude-code, crush, opencode, or agy, got: %s\n", o.harness)
+	h, ok := findHarness(o.harness)
+	if !ok {
+		fmt.Fprintf(stderr, "--harness must be one of: %s, got: %s\n", harnessNames(), o.harness)
 		return ExitUsage
 	}
 	if msg := pairingRefusal(o.harness, p.name); msg != "" {
 		fmt.Fprintln(stderr, msg)
+		return ExitUsage
+	}
+	// A provider whose only routed model was withdrawn has no default to fall
+	// back on, and the empty string would become a malformed id inside the
+	// harness — under --detach, where nothing can print.
+	if msg, ok := requiredModelError(p, h, o.model); !ok {
+		fmt.Fprintln(stderr, msg)
+		telemetry.Note("why", "provider has no default model and --model was absent")
 		return ExitUsage
 	}
 	if o.configDir == "" {
@@ -423,27 +278,19 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// The harness's own model-form rule, checked here and not only inside the
-	// harness: past the re-exec below there is no caller left to tell.
-	if o.harness == "crush" {
-		if msg, ok := crushModelFormError(o.model, p.name); !ok {
+	// harness: past the re-exec below there is no caller left to tell. The
+	// table owns which harnesses have such a rule.
+	if h.modelForm != nil {
+		if msg, ok := h.modelForm(o.model, p.name); !ok {
 			fmt.Fprintln(stderr, msg)
-			telemetry.Note("why", "crush --model is not provider/id")
+			telemetry.Note("why", "--model is not in the "+h.name+" harness's form")
 			return ExitUsage
 		}
 	}
 
 	if o.detach {
-		bin := "claude"
-		switch o.harness {
-		case "crush":
-			bin = "crush"
-		case "opencode":
-			bin = "opencode"
-		case "agy":
-			bin = "agy"
-		}
-		if _, err := exec.LookPath(bin); err != nil {
-			fmt.Fprintf(stderr, "harness %s needs the '%s' CLI on PATH\n", o.harness, bin)
+		if _, err := exec.LookPath(h.bin); err != nil {
+			fmt.Fprintf(stderr, "harness %s needs the '%s' CLI on PATH\n", h.name, h.bin)
 			return ExitHarnessMissing
 		}
 		label := o.label
@@ -495,27 +342,16 @@ func (r *round) run() int {
 	// it in the parent; the foreground path starts here.
 	clearStaleSentinel(r.o.log)
 
-	// Where this round leaves a live trail, so the registry can tell a round that
-	// is working from one that is stuck without ever interrupting either. crush
-	// writes into crush.db-wal and logs/crush.log every few seconds; the
-	// claude-code harness into projects/**.jsonl every turn. Those paths are
-	// not the --log file: the claude-code harness writes that only once, at
-	// the end, so a perfectly healthy round shows an empty log for its entire
-	// life. opencode is the exception — `--format json` flushes one JSONL
-	// event at a time onto --log while the process is still running
-	// (measured 2026-08-23), so the log file itself is the trail.
+	// Where this round leaves a live trail, so the registry can tell a round
+	// that is working from one that is stuck without ever interrupting either.
+	// The location is per-harness and the table owns it (harness.progress);
+	// what matters here is that it is NOT the --log file for every harness —
+	// the claude-code harness writes that only once, at the end, so a perfectly
+	// healthy round shows an empty log for its entire life.
+	h, harnessKnown := findHarness(r.o.harness)
 	progressDir := ""
-	switch r.o.harness {
-	case "claude-code":
-		progressDir = filepath.Join(r.o.configDir, "claude", "projects")
-	case "crush":
-		progressDir = filepath.Join(r.o.configDir, "data")
-	case "opencode":
-		progressDir = r.o.log
-	case "agy":
-		// stream-json events land on --log as the round progresses, so the
-		// log file itself is the live trail, same as opencode.
-		progressDir = r.o.log
+	if harnessKnown && h.progress != nil {
+		progressDir = h.progress(r.o)
 	}
 
 	// The model recorded in the REGISTRY is the bare table default when --model was
@@ -541,19 +377,12 @@ func (r *round) run() int {
 		r.o.cwd, r.o.spec, r.o.log, progressDir)
 
 	var rc int
-	switch r.o.harness {
-	case "claude-code":
-		rc = r.runClaudeCode()
-	case "crush":
-		rc = r.runCrush()
-	case "opencode":
-		rc = r.runOpencode()
-	case "agy":
-		rc = r.runAgy()
-	default:
-		fmt.Fprintf(r.stderr, "--harness must be claude-code, crush, opencode, or agy, got: %s\n", r.o.harness)
+	if !harnessKnown || h.run == nil {
+		fmt.Fprintf(r.stderr, "--harness must be one of: %s, got: %s\n", harnessNames(), r.o.harness)
 		r.bailed = true
 		rc = ExitUsage
+	} else {
+		rc = h.run(r)
 	}
 	return r.finish(rc)
 }

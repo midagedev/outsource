@@ -5,10 +5,10 @@ description: >
   vision-verdict work to third-party model CLIs running as headless
   sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
   headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
-  gemini-3.8-flash-high (agy CLI, Google plan), and ox-alpha (opencode
-  CLI — glm-5.3-flash on OpenRouter) — while the lead Claude session stays
+  gemini-3.8-flash-high (agy CLI, Google plan), and any OpenRouter id you
+  name (opencode CLI) — while the lead Claude session stays
   orchestration-only. Use when the user asks to run work via grok / glm /
-  crush / opencode / ox-alpha / agy, to save tokens, or invokes /outsource.
+  crush / opencode / openrouter / agy, to save tokens, or invokes /outsource.
   Pick the backend by task: the default glm-5.3 cannot read images, so
   vision rounds go to agy, glm-5.3-flash, grok, or a Claude agent.
 ---
@@ -33,7 +33,7 @@ only numeric contracts.
 |---|---|---|---|
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | the **default glm-5.3 is blind** (`--model glm-5.3-flash` sees — model table in `references/glm.md`); style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
-| **ox-alpha** — glm-5.3-flash on OpenRouter | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and **vision through the read tool** (measured: named a solid-red PNG, answered "Red") | officially unveiled as **glm-5.3-flash** — same model, different quota pool; free-while-stealth pricing (`step_finish.cost` was 0) can end without notice |
+| **OpenRouter** — the id is yours to name | opencode CLI, via `bin/outsource-run.sh --provider openrouter --model openrouter/<vendor>/<id>` (`references/opencode.md`) | a third process family when z.ai headroom is gone; the harness carries pixels to the model (measured: named a solid-red PNG, answered "Red") | **no default model** — `--model` is required since `stealth/ox-alpha`, its only routed id, stopped serving on 2026-09-10 (it was glm-5.3-flash, which the zai row routes directly). Pay-per-token, no plan quota, and this skill certifies nothing about an id it has not probed |
 | **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8 is the routed default since 2026-09-05, not yet re-measured) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 | **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds. `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (`minimal`…`xhigh`, default `medium` — config.toml does not apply) pick the arm | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |
 
@@ -44,19 +44,20 @@ Selection rules:
   open its own captures. Reach for grok when pixels must be generated
   (image/video) or a web tool the GLM harness lacks; agy for a separate
   quota pool, the fastest benched completion, or the sharpest measured
-  vision. ox-alpha (opencode) is a third process family — glm-5.3-flash
-  under another name. "It feels exploratory" is not a reason — narrow the
-  cause first, then delegate (see *When NOT to outsource*).
+  vision. OpenRouter (opencode) is a third process family for when the two
+  plans are both out of headroom — you name the id and own the choice.
+  "It feels exploratory" is not a reason — narrow the cause first, then
+  delegate (see *When NOT to outsource*).
 - Anything that must **look at pixels** → agy (gemini-3.8-flash-high — the
-  best measured color fidelity of the set), grok, ox-alpha, or a Claude
-  agent; never the blind default glm-5.3 (a capability fact, not a
-  preference: it reports `supports_attachments: false`). `glm-5.3-flash`
-  sees and covers capture self-verification; precise-colour and aesthetic
-  verdicts stay with a frontier judge until the cheap arms are A/B-measured
-  on verdict quality. ox-alpha sees pixels through
-  opencode's `read` tool when the launcher passes `--auto` (without it, a
-  path outside cwd is `external_directory` default-ask and is rejected
-  headless).
+  best measured color fidelity of the set), grok, or a Claude agent; never
+  the blind default glm-5.3 (a capability fact, not a preference: it reports
+  `supports_attachments: false`). `glm-5.3-flash` sees and covers capture
+  self-verification; precise-colour and aesthetic verdicts stay with a
+  frontier judge until the cheap arms are A/B-measured on verdict quality.
+  The opencode harness does carry pixels to the model when the launcher
+  passes `--auto` (without it, a path outside cwd is `external_directory`
+  default-ask and is rejected headless) — but on that arm the model is
+  whichever id you named, so the guard defers and the choice is yours.
 - The backends parallelize: disjoint file whitelists, one worktree and one
   config/session scope per track. Spreading tracks across providers —
   and, for GLM, across its two harnesses — multiplies headroom. agy is the
@@ -148,8 +149,9 @@ in flight*).
   `--require-quota` pre-flight gate, model-identity assertion, `<log>.rc`
   sentinel), `bin/git-guard.sh` PreToolUse hook (works on both harnesses),
   z.ai model-mapping trap, measured behavior profile.
-- ox-alpha: `references/opencode.md` — `bin/outsource-run.sh --provider
-  openrouter` (harness `opencode` is the default for that provider), isolated
+- OpenRouter: `references/opencode.md` — `bin/outsource-run.sh --provider
+  openrouter --model openrouter/<vendor>/<id>` (harness `opencode` is the
+  default for that provider, and `--model` has no default), isolated
   `OPENCODE_CONFIG_DIR`, git-write permission deny, `SESSION <id>` resume via
   `-s`, model-identity via `opencode export`.
 - Codex on Cheaper Inference: `references/codex.md` — `bin/codex-ci`, the

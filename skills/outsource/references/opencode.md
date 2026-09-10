@@ -1,17 +1,25 @@
-# ox-alpha backend — OpenRouter stealth, on the opencode harness
+# OpenRouter, on the opencode harness
 
 The model is the point; **the harness is just how it is driven headlessly**.
 `bin/outsource-run.sh --provider openrouter` picks this row and defaults
 the harness to `opencode`. Division of labor is unchanged: the lead writes
-specs, reviews diffs, runs gates, commits; ox-alpha burns the tokens,
-which were free while listed as stealth (`step_finish.cost` was 0,
-measured 2026-08-23).
+specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
+
+> **`--model` is required on this arm.** `stealth/ox-alpha` was its only
+> routed id and it stopped serving (2026-09-10) — it had been unveiled as
+> **glm-5.3-flash**, which the `zai` provider routes directly and cheaper.
+> The arm itself is unchanged and fully wired; what is gone is one model, so
+> the launcher asks you to name an id rather than inventing one. Omitting
+> `--model` exits 64 with `provider openrouter has no default model`.
+> OpenRouter ids are `vendor/model`, so the flag value has two slashes:
+> `--model openrouter/<vendor>/<id>`.
 
 opencode manages its own credentials (`opencode auth login`). This
 launcher does not write a key, does not add an `internal/cred` row, and
 does not set an API URL — opencode resolves OpenRouter itself.
 
-**Stealth caveat:** model identity and limits can change without notice.
+**Identity caveat:** an OpenRouter id can be re-pointed by the catalogue
+without notice (that is how the stealth slot worked, and how it ended).
 The launcher asserts identity per round via `opencode export` and fails
 the round with exit 70 on a mismatch, even when the run itself succeeded.
 
@@ -19,11 +27,13 @@ The shared implementer preamble (`references/spec-preamble.md`) is
 backend-agnostic; there is no opencode-specific preamble. Assemble the
 shared file in front of every task spec.
 
-**Vision (measured 2026-08-23):** ox-alpha **sees pixels** through
-opencode's `read` tool. A spec that named an absolute path to a solid-red
-PNG and asked the model to open it answered `Red`. The provider table
-row is therefore `vision=true`, and the vision guard lets image-naming
-specs through.
+**Vision:** the harness path works — measured 2026-08-23 on ox-alpha, a spec
+that named an absolute path to a solid-red PNG and asked the model to open it
+answered `Red` through opencode's `read` tool. What the launcher cannot do is
+speak for an arbitrary catalogue id, so the provider's vision column **defers**
+rather than deciding: image-naming specs pass the guard here and it is the
+caller who must pick a model that can actually see. Do not read that pass as
+this skill certifying the id.
 
 ## Invocation
 
@@ -33,7 +43,7 @@ cat ~/.claude/skills/outsource/references/spec-preamble.md \
     $SP/task.md > $SP/spec.md
 
 ~/.claude/skills/outsource/bin/outsource-run.sh --detach \
-  --provider openrouter \
+  --provider openrouter --model openrouter/<vendor>/<id> \
   --cwd /absolute/path/to/worktree --spec $SP/spec.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/oc-cfg-<track> --log $SP/oc-<track>.log \
@@ -45,9 +55,11 @@ harnesses — it happens before harness dispatch). A non-TTY foreground
 launch is refused at exit 64; use `--detach` or `--foreground`.
 
 `--harness opencode` is the default for this provider and can be omitted.
-`--model` is `openrouter/<id>`; the default is `openrouter/stealth/ox-alpha`.
-The model id itself may contain slashes (`stealth/ox-alpha`) — a naive
-one-slash split is wrong.
+`--model openrouter/<id>` is **required** (no default — see the note at the
+top). The id itself contains a slash (`vendor/model`), so the qualified form
+has two — a naive one-slash split is wrong. The form is checked before the
+`--detach` re-exec, so a malformed value refuses on your terminal instead of
+dying silently in the detached child.
 
 `--label` is the track's purpose, and it is worth typing every time. The
 last stdout line is `SESSION <id>` — pass it back with `--session <id>`
@@ -65,9 +77,11 @@ Read the round's report with `bin/last-report.sh <log>`.
 
 ## Harness facts — opencode (measured 2026-08-23, CLI 1.18.21)
 
-- `opencode run --format json -m openrouter/stealth/ox-alpha` with the
-  spec on **stdin** is the headless form. JSONL events on stdout:
-  `step_start`, `tool_use`, `text`, `step_finish`, each with a top-level
+- `opencode run --format json -m openrouter/<vendor>/<id>` with the
+  spec on **stdin** is the headless form (measured on `stealth/ox-alpha`,
+  since withdrawn; the harness contract is the model-independent part).
+  JSONL events on stdout: `step_start`, `tool_use`, `text`,
+  `step_finish`, each with a top-level
   `sessionID`. `part.text` holds assistant text; `part.tool` /
   `part.state` describe a tool call.
 - **Stdout is flushed per event while the process is still running.**
@@ -113,7 +127,7 @@ Read the round's report with `bin/last-report.sh <log>`.
   `opencode run -s <id>`.
 - **Model identity** is `opencode export <sessionID>`:
   `messages[].info` where `role=="assistant"` carries `modelID`
-  (`stealth/ox-alpha`) and `providerID` (`openrouter`). Every assistant
+  (the requested id) and `providerID` (`openrouter`). Every assistant
   message must match the requested id minus the `openrouter/` prefix.
   Mismatch, no assistant message, or unparseable export → exit 70.
   The same export's `info.directory` must equal `--cwd` (symlinks
@@ -126,8 +140,10 @@ Read the round's report with `bin/last-report.sh <log>`.
   round and points at `opencode auth login`. Absence of the file is
   **not** proof — newer opencode also has a credential table in
   `opencode.db`. When the launcher cannot tell, it launches (fail open).
-- Cost: `step_finish` reported `"cost":0` on stealth. No plan-quota
-  window, so `--require-quota` stays unsupported.
+- Cost: `step_finish` reports per-round cost. It read `"cost":0` while
+  ox-alpha was a free stealth listing, which is not what a priced id will
+  report. There is no plan-quota window either way, so `--require-quota`
+  stays unsupported on this arm.
 
 ## `-f` is an array flag (do not rediscover)
 
@@ -144,8 +160,8 @@ Same family as the zai launcher:
 | rc | meaning |
 |---:|---|
 | 0 | harness exited cleanly **and** identity matched **and** the done-marker was found in the final report (when one was requested) |
-| 64 | usage (unknown flag, missing `--cwd`/`--spec`, pairing refused, done-marker not in the spec) |
-| 65 | vision guard: spec names an image and the provider cannot see pixels (does not fire here; vision=true) |
+| 64 | usage (unknown flag, missing `--cwd`/`--spec`, **`--model` absent on a provider with no default**, `--model` not in `openrouter/<id>` form, pairing refused, done-marker not in the spec) |
+| 65 | vision guard: spec names an image and the model cannot see pixels (does not fire here — this provider's vision column defers to the caller) |
 | 66 | `--require-quota` is not available for this provider |
 | 69 | `opencode` CLI not on PATH |
 | 70 | model-identity mismatch or unverifiable, or the session's directory was not `--cwd` |
@@ -163,4 +179,4 @@ Same family as the zai launcher:
 |---|---|---|
 | E1 | Unattended tool round without `--auto`? | Yes, for an in-cwd `write`. Created `hello.txt` (`hi\n`). JSONL types: `step_start`, `tool_use`, `step_finish`, `text`. Log grew while pid was alive. |
 | E2 | Is the git deny needed, and does isolation hold? | Without a permission config the commit succeeded (`831c89f x`). With the generated config the commit was blocked and HEAD stayed unborn, even though the parent env still had the orca `OPENCODE_CONFIG_DIR`. Same result with `--auto`. |
-| E3 | Can an agentic round read an image named by path? | Without `--auto`: `read` of the PNG outside cwd → rejected, no colour answer. With `--auto`: `read` completed, final text `Red`. vision=true. |
+| E3 | Can an agentic round read an image named by path? | Without `--auto`: `read` of the PNG outside cwd → rejected, no colour answer. With `--auto`: `read` completed, final text `Red`. The harness path carries pixels; whether a given catalogue id uses them is the caller's pick. |

@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.14.0 — 2026-09-10 — one wiring table, and a provider that lost its only model
+
+- **`internal/launch/wiring.go` is the single owner of "what can run where".**
+  Two tables — `providerTable` (endpoint, default model, default harness,
+  vision, model-seed env, silently-mapped ids) and `harnessTable` (PATH
+  binary, the providers it drives, live-trail location, dispatch, `--model`
+  form rule) — and everything downstream derives from them: the `--harness`
+  validation, the `--detach` PATH lookup, the progress directory, the
+  dispatch, the pairing refusal, and the `--help` line. Those answers used to
+  live in **nine** separate places inside `outsource.go` (two hand-written
+  switches over harness names among them), and nothing checked that they
+  agreed. `TestWiringTablesAgree` now does: FAIL-first, dropping `zai` from
+  the claude-code row fails with *"provider zai defaults to harness
+  claude-code, but that harness does not drive it"*, and blanking a harness's
+  `bin` fails on the column `--detach` needs.
+- **`--provider openrouter` no longer has a default model.**
+  `stealth/ox-alpha` was its only routed id and it stopped serving
+  (2026-09-10, user-reported) — it had been unveiled as **glm-5.3-flash**,
+  which the `zai` row routes directly and on a plan. The arm itself is
+  untouched and fully wired; what is gone is one model, so the launcher asks
+  for an id (`--model openrouter/<vendor>/<id>`) instead of inventing one.
+  FAIL-first: without the new `requiredModelError` the empty string reached
+  `qualifyOpencodeModel` and became `"openrouter/"` — a malformed id raised
+  *inside* the `--detach` child, where nothing can print, so the caller saw
+  "detached (pid=…)" and exit 0 over a round that was already dead.
+- **The opencode `--model` form is pre-flighted like crush's.** Its
+  `openrouter/<id>` rule used to be checked only inside `runOpencode`, i.e.
+  past the re-exec, which is the same defect class 0.13.x closed for crush.
+  It is a table column now, so a harness cannot have a form rule that is not
+  checked before the round is spent — and `TestWiringTablesAgree` fails a row
+  that declares a hint without a rule.
+- **`outsource-run --list-wiring` prints the routable matrix** — provider,
+  harness, default model, and the per-cell notes (which harness is the
+  default, what `--model` must look like, which env var seeds it). "What can
+  run where" is a command now rather than a read of the source.
+- **The pairing refusal says where the round *should* go.** It is derived
+  from one column, so an allowed cell and a refused one cannot disagree, and
+  the message now names both what the harness drives and where the provider
+  runs: `harness claude-code does not drive provider openrouter — claude-code
+  drives: zai xai; provider openrouter runs on: opencode (…)`.
+- **`references/glm-preamble.md` had drifted off its own measurement.** An
+  uncommitted edit claimed `Read` delivers pixels to **glm-5.3** on the
+  claude-code harness, citing the 2026-08-27 probe — but that probe measured
+  glm-5.3 answering "Y" to a white 7 and **glm-5.3-flash** answering "7"; the
+  ~5% hex figure is flash's too. Rewritten per model, with the lane boundary
+  restated as policy: the aesthetic call belongs to a separate vision round,
+  and a spec on this runtime should not be asking a delegate to open captures
+  at all. The header no longer claims crush is the harness.
+- Docs follow the arm: `references/opencode.md` is the OpenRouter/opencode
+  manual rather than an ox-alpha page (its 2026-08-23 harness measurements
+  are kept, attributed to the model they were taken on), and the vision
+  column for that provider is documented as **deferring** — the harness
+  carries pixels, but this skill certifies nothing about a catalogue id it
+  has never probed.
+
 ## 0.13.8 — 2026-09-08 — Codex, redirected at Cheaper Inference
 
 - **`bin/codex-ci` runs the Codex CLI against Cheaper Inference's Responses

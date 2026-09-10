@@ -142,9 +142,29 @@ func (r *round) runOpencode() int {
 	return assertCode
 }
 
+// opencodeModelFormError is the single owner of opencode's openrouter/<id>
+// rule, in the shape the harness table checks BEFORE the --detach re-exec.
+// Same reason as crush's: a form error raised inside the detached child prints
+// to nothing, and the caller sees "detached (pid=…)" over a round that is
+// already dead. An empty model is not a form error here — a provider with no
+// default is refused earlier, by requiredModelError.
+func opencodeModelFormError(model, _ string) (string, bool) {
+	if model == "" {
+		return "", true
+	}
+	if _, errMsg := qualifyOpencodeModel(model, ""); errMsg != "" {
+		return errMsg, false
+	}
+	return "", true
+}
+
 // qualifyOpencodeModel returns provider/id. The model id itself may contain
-// slashes (stealth/ox-alpha); a naive one-slash split is wrong. The prefix
-// must be openrouter/ and the remainder non-empty.
+// slashes (an OpenRouter id is vendor/model); a naive one-slash split is
+// wrong. The prefix must be openrouter/ and the remainder non-empty.
+//
+// defaultID may be empty: openrouter has no routable default since ox-alpha
+// was withdrawn, and "openrouter/" then fails the remainder check below rather
+// than reaching the CLI as a malformed id.
 func qualifyOpencodeModel(model, defaultID string) (qualified string, errMsg string) {
 	if model == "" {
 		model = "openrouter/" + defaultID

@@ -11,11 +11,23 @@
 | 백엔드 | 구동 | 쓰는 자리 | 하드 제약 |
 |---|---|---|---|
 | **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 **두 하네스** 중 하나로 — 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | 기본 모델은 **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
-| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter stealth **ox-alpha**의 공식 공개된 정체이며, `--provider openrouter`(opencode CLI)로도 여전히 도달 가능 | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
+| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니, 이제는 여기 플랜으로 부르십시오 | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
 | **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
 | **gemini-3.8-flash-high** — Google 플랜 (2026-09-05까지의 실측 기본값은 3.7) | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드 — 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC`의 hex를 정확히 명명) | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
 
-Anthropic 호환 프로바이더(zai, xai)는 **테이블 한 줄**(base URL, 기본 모델, 비전)과 `bin/credential.sh`의 키 해석입니다. 자체 CLI와 인증 저장소를 가져오는 프로바이더(opencode의 openrouter, agy)는 URL이 비어 있는 테이블 한 줄, 전용 하네스, cred 행 없음 — 로그인은 그 CLI가 이미 갖고 있습니다.
+**백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 테이블이 둘 있고, 나머지는 전부 거기서 파생됩니다 — 플래그 검증, `--detach`의 PATH 조회, 실시간 흔적의 위치, 디스패치, 페어링 행렬, 도움말 문구까지. Anthropic 호환 프로바이더(zai, xai)는 base URL·기본 모델·비전 칼럼을 가진 한 줄과 `bin/credential.sh`의 키 해석이고, 자체 CLI와 인증 저장소를 가져오는 프로바이더(opencode의 openrouter, agy)는 URL이 빈 한 줄에 전용 하네스, cred 행 없음 — 로그인은 그 CLI가 이미 갖고 있습니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
+
+```
+PROVIDER     HARNESS        DEFAULT MODEL            NOTES
+zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                 default harness
+xai          crush          grok-4.6                 --model form provider/id
+openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
+agy          agy            gemini-3.8-flash-high    default harness
+```
+
+기본 모델이 비어 있는 줄은 `openrouter` 하나입니다. 이 arm이 라우팅하던 유일한 id가 `stealth/ox-alpha`였고 2026-09-10에 제공이 끊겼으니, 런처가 임의로 하나를 골라 주는 대신 이름을 요구합니다(`--model openrouter/<vendor>/<id>`). 반쯤 배선된 줄 — 기본 하네스가 정작 그 프로바이더를 구동하지 않는다든가, 디스패치나 PATH 바이너리가 비어 있다든가 — 은 일관성 테스트가 막습니다.
 
 위임이 벌어지는 동안 그걸 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)도 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
 

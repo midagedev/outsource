@@ -1,2 +1,3 @@
 local-overlay*.md
 dist/
+.DS_Store

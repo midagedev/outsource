@@ -11,11 +11,23 @@ It is not a wrapper. It is an operating manual with receipts: every rule in it c
 | Backend | Runs via | Use it for | Hard limit |
 |---|---|---|---|
 | **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on **either harness** — headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | the default model is **blind**; does not flag a contract it cannot satisfy |
-| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of OpenRouter's stealth **ox-alpha**, still reachable as such via `--provider openrouter` (opencode CLI) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
+| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of what OpenRouter listed as the stealth **ox-alpha**, which stopped serving on 2026-09-10 — route it here, on the plan | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
 | **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
 | **gemini-3.8-flash-high** — Google plan (3.7 was the measured default until 2026-09-05) | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool** — the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly) | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
 
-A provider that talks Anthropic-compat (zai, xai) is a table row — base URL, default model, vision — plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode, agy) is a table row with an empty URL, a dedicated harness, and no cred row — its CLI already logged the user in.
+Adding or withdrawing an arm is a row, not a refactor. `internal/launch/wiring.go` holds two tables and everything derives from them — the flag validation, the `--detach` PATH lookup, the live-trail location, the dispatch, the pairing matrix, the help text. A provider that talks Anthropic-compat (zai, xai) is a row with a base URL, a default model and a vision column, plus its key resolution in `bin/credential.sh`. A provider that brings its own CLI and auth store (openrouter via opencode, agy) is a row with an empty URL, a dedicated harness and no cred row — its CLI already logged the user in. `outsource-run --list-wiring` prints the matrix:
+
+```
+PROVIDER     HARNESS        DEFAULT MODEL            NOTES
+zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                 default harness
+xai          crush          grok-4.6                 --model form provider/id
+openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
+agy          agy            gemini-3.8-flash-high    default harness
+```
+
+`openrouter` is the row with no default: `stealth/ox-alpha` was its only routed id and it stopped serving on 2026-09-10, so the arm asks you to name one (`--model openrouter/<vendor>/<id>`) rather than inventing one. A consistency test refuses a half-wired row — a provider whose default harness does not drive it, a harness with no dispatch or no PATH binary.
 
 It also ships the [status line](#status-line) that makes delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 

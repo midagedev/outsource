@@ -1,7 +1,6 @@
 package launch
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,133 +10,27 @@ import (
 )
 
 func TestQualifyOpencodeModel(t *testing.T) {
-	// FAIL-first would have been a one-slash split: "openrouter/stealth/ox-alpha"
-	// → prefix "openrouter", id "stealth" and a leftover "ox-alpha".
-	got, errMsg := qualifyOpencodeModel("", "stealth/ox-alpha")
-	if errMsg != "" || got != "openrouter/stealth/ox-alpha" {
-		t.Fatalf("default: got %q err %q, want openrouter/stealth/ox-alpha", got, errMsg)
+	// An OpenRouter id is vendor/model, so the qualified form carries two
+	// slashes. FAIL-first would have been a one-slash split:
+	// "openrouter/z-ai/glm-5.3-flash" → prefix "openrouter", id "z-ai" and a
+	// leftover "glm-5.3-flash". The id here is a fixture for that shape, not a
+	// claim about what this skill routes.
+	got, errMsg := qualifyOpencodeModel("", "z-ai/glm-5.3-flash")
+	if errMsg != "" || got != "openrouter/z-ai/glm-5.3-flash" {
+		t.Fatalf("default: got %q err %q, want openrouter/z-ai/glm-5.3-flash", got, errMsg)
 	}
-	got, errMsg = qualifyOpencodeModel("openrouter/stealth/ox-alpha", "stealth/ox-alpha")
-	if errMsg != "" || got != "openrouter/stealth/ox-alpha" {
+	got, errMsg = qualifyOpencodeModel("openrouter/z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash")
+	if errMsg != "" || got != "openrouter/z-ai/glm-5.3-flash" {
 		t.Fatalf("slash-in-id: got %q err %q", got, errMsg)
 	}
-	if _, errMsg = qualifyOpencodeModel("openrouter/", "stealth/ox-alpha"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("openrouter/", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("empty remainder must be rejected")
 	}
-	if _, errMsg = qualifyOpencodeModel("zai/glm-5.3", "stealth/ox-alpha"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("zai/glm-5.3", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("non-openrouter prefix must be rejected")
 	}
-	if _, errMsg = qualifyOpencodeModel("stealth/ox-alpha", "stealth/ox-alpha"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("bare id without openrouter/ must be rejected")
-	}
-}
-
-func TestSeedModelScopesGLMEnvToZai(t *testing.T) {
-	t.Setenv("GLM_DELEGATE_MODEL", "glm-5.3")
-	if got := seedModel("openrouter", ""); got != "" {
-		t.Fatalf("openrouter must ignore GLM_DELEGATE_MODEL, got %q", got)
-	}
-	if got := seedModel("zai", ""); got != "glm-5.3" {
-		t.Fatalf("zai still reads GLM_DELEGATE_MODEL, got %q", got)
-	}
-	if got := seedModel("zai", "glm-5.2"); got != "glm-5.2" {
-		t.Fatalf("--model must win over the env, got %q", got)
-	}
-}
-
-func TestDefaultHarnessOpenrouter(t *testing.T) {
-	if got := defaultHarness("openrouter", ""); got != "opencode" {
-		t.Fatalf("openrouter default harness = %q, want opencode", got)
-	}
-	if got := defaultHarness("zai", ""); got != "claude-code" {
-		t.Fatalf("zai default harness = %q, want claude-code", got)
-	}
-	if got := defaultHarness("openrouter", "crush"); got != "crush" {
-		t.Fatalf("explicit harness must win, got %q", got)
-	}
-}
-
-func TestPairingAllowedCells(t *testing.T) {
-	// The five cells that must keep working: GLM/xAI on the two existing
-	// harnesses, and openrouter on opencode.
-	for _, c := range []struct{ harness, provider string }{
-		{"claude-code", "zai"},
-		{"crush", "zai"},
-		{"claude-code", "xai"},
-		{"crush", "xai"},
-		{"opencode", "openrouter"},
-	} {
-		if msg := pairingRefusal(c.harness, c.provider); msg != "" {
-			t.Errorf("%s+%s refused: %s", c.provider, c.harness, msg)
-		}
-	}
-}
-
-func TestPairingMatrixRefusals(t *testing.T) {
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "spec.md")
-	if err := os.WriteFile(spec, []byte("do a thing\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
-	t.Setenv("OUTSOURCE_HARNESS", "")
-	t.Setenv("OUTSOURCE_PROVIDER", "")
-	t.Setenv("GLM_DELEGATE_MODEL", "glm-5.3")
-
-	cases := []struct {
-		provider, harness, want string
-	}{
-		{"zai", "opencode", "opencode harness requires provider openrouter"},
-		{"xai", "opencode", "opencode harness requires provider openrouter"},
-		{"openrouter", "claude-code", "provider openrouter is not wired on the claude-code harness"},
-		{"openrouter", "crush", "provider openrouter is not wired on the crush harness"},
-	}
-	for _, c := range cases {
-		var stderr bytes.Buffer
-		args := []string{
-			"--cwd", dir, "--spec", spec, "--log", filepath.Join(dir, "x.log"),
-			"--provider", c.provider, "--harness", c.harness, "--label", "pair-test",
-		}
-		rc := OutsourceMain(args, &bytes.Buffer{}, &stderr)
-		if rc != ExitUsage {
-			t.Errorf("%s+%s: rc=%d, want %d; stderr=%s", c.provider, c.harness, rc, ExitUsage, stderr.String())
-		}
-		if !strings.Contains(stderr.String(), c.want) {
-			t.Errorf("%s+%s: stderr %q, want substring %q", c.provider, c.harness, stderr.String(), c.want)
-		}
-		ents, _ := os.ReadDir(filepath.Join(dir, "runs"))
-		if len(ents) != 0 {
-			t.Errorf("%s+%s: a refused pair must not register a round, found %d", c.provider, c.harness, len(ents))
-		}
-	}
-}
-
-func TestOpenrouterDefaultHarnessIsOpencodeNotPairingRefuse(t *testing.T) {
-	// FAIL-first (verbatim, before provider-aware default):
-	//   stderr contained "provider openrouter is not wired on the claude-code harness"
-	// --done-marker that is not in the spec refuses after pairing. If the
-	// default harness were still claude-code, pairing would fire instead.
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "spec.md")
-	if err := os.WriteFile(spec, []byte("do a thing\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
-	t.Setenv("OUTSOURCE_HARNESS", "")
-	t.Setenv("GLM_DELEGATE_MODEL", "glm-5.3")
-	var stderr bytes.Buffer
-	rc := OutsourceMain([]string{
-		"--cwd", dir, "--spec", spec, "--log", filepath.Join(dir, "x.log"),
-		"--provider", "openrouter", "--done-marker", "NOT-IN-SPEC",
-	}, &bytes.Buffer{}, &stderr)
-	if rc != ExitUsage {
-		t.Fatalf("rc=%d, want %d; stderr=%s", rc, ExitUsage, stderr.String())
-	}
-	if strings.Contains(stderr.String(), "not wired") {
-		t.Fatalf("defaulted to a refused pair: %s", stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "--done-marker") {
-		t.Fatalf("want done-marker preflight after pairing, got %s", stderr.String())
 	}
 }
 
@@ -184,22 +77,22 @@ func TestOpenrouterCredsPositivelyAbsent(t *testing.T) {
 }
 
 func TestParseOpencodeExportIdentity(t *testing.T) {
-	ok := []byte(`{"info":{"model":{"id":"stealth/ox-alpha","providerID":"openrouter"}},"messages":[{"info":{"role":"user"}},{"info":{"role":"assistant","modelID":"stealth/ox-alpha","providerID":"openrouter"}}]}`)
-	actual, _, verdict := parseOpencodeExport(ok, "openrouter/stealth/ox-alpha", "")
-	if verdict != "ok" || actual != "stealth/ox-alpha" {
+	ok := []byte(`{"info":{"model":{"id":"z-ai/glm-5.3-flash","providerID":"openrouter"}},"messages":[{"info":{"role":"user"}},{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
+	actual, _, verdict := parseOpencodeExport(ok, "openrouter/z-ai/glm-5.3-flash", "")
+	if verdict != "ok" || actual != "z-ai/glm-5.3-flash" {
 		t.Fatalf("ok case: actual=%q verdict=%q", actual, verdict)
 	}
 	mismatch := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"glm-5.3","providerID":"openrouter"}}]}`)
-	_, _, verdict = parseOpencodeExport(mismatch, "openrouter/stealth/ox-alpha", "")
+	_, _, verdict = parseOpencodeExport(mismatch, "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "mismatch" {
 		t.Fatalf("mismatch case: verdict=%q", verdict)
 	}
 	none := []byte(`{"messages":[{"info":{"role":"user"}}]}`)
-	_, _, verdict = parseOpencodeExport(none, "openrouter/stealth/ox-alpha", "")
+	_, _, verdict = parseOpencodeExport(none, "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "absent" {
 		t.Fatalf("no assistant: verdict=%q", verdict)
 	}
-	_, _, verdict = parseOpencodeExport([]byte("not json"), "openrouter/stealth/ox-alpha", "")
+	_, _, verdict = parseOpencodeExport([]byte("not json"), "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "absent" {
 		t.Fatalf("garbage: verdict=%q", verdict)
 	}
@@ -247,7 +140,7 @@ func TestFirstSessionID(t *testing.T) {
 }
 
 func TestRequestedModelIDKeepsInnerSlash(t *testing.T) {
-	if got := requestedModelID("openrouter/stealth/ox-alpha"); got != "stealth/ox-alpha" {
+	if got := requestedModelID("openrouter/z-ai/glm-5.3-flash"); got != "z-ai/glm-5.3-flash" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -281,8 +174,8 @@ func TestOpencodeEnvReplacesInheritedPWD(t *testing.T) {
 func TestParseOpencodeExportWrongDirectory(t *testing.T) {
 	// The recurrence gate for the PWD leak: a session that records a
 	// directory other than --cwd fails the round even when the model matched.
-	exp := []byte(`{"info":{"directory":"/launcher/shell/cwd","model":{"id":"stealth/ox-alpha","providerID":"openrouter"}},"messages":[{"info":{"role":"assistant","modelID":"stealth/ox-alpha","providerID":"openrouter"}}]}`)
-	actual, _, verdict := parseOpencodeExport(exp, "openrouter/stealth/ox-alpha", "/round/cwd")
+	exp := []byte(`{"info":{"directory":"/launcher/shell/cwd","model":{"id":"z-ai/glm-5.3-flash","providerID":"openrouter"}},"messages":[{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
+	actual, _, verdict := parseOpencodeExport(exp, "openrouter/z-ai/glm-5.3-flash", "/round/cwd")
 	if verdict != "wrongdir" {
 		t.Fatalf("verdict=%q, want wrongdir", verdict)
 	}
@@ -290,25 +183,25 @@ func TestParseOpencodeExportWrongDirectory(t *testing.T) {
 		t.Fatalf("actual=%q, want the offending directory", actual)
 	}
 	// Same directory (modulo cleaning) passes.
-	_, _, verdict = parseOpencodeExport(exp, "openrouter/stealth/ox-alpha", "/launcher/shell/cwd/")
+	_, _, verdict = parseOpencodeExport(exp, "openrouter/z-ai/glm-5.3-flash", "/launcher/shell/cwd/")
 	if verdict != "ok" {
 		t.Fatalf("same dir: verdict=%q, want ok", verdict)
 	}
 	// An export without a directory field skips the check rather than failing.
-	noDir := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"stealth/ox-alpha","providerID":"openrouter"}}]}`)
-	if _, _, v := parseOpencodeExport(noDir, "openrouter/stealth/ox-alpha", "/round/cwd"); v != "ok" {
+	noDir := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
+	if _, _, v := parseOpencodeExport(noDir, "openrouter/z-ai/glm-5.3-flash", "/round/cwd"); v != "ok" {
 		t.Fatalf("missing directory field must fail open, got %q", v)
 	}
 }
 
 // An identity assertion that fails at the END of a --detach round has no
 // terminal to explain itself to: <log>.err carries the harness's stderr, not
-// the launcher's. Measured 2026-08-26 — an ox-alpha round finished its work,
+// the launcher's. Measured 2026-08-26 — an opencode round finished its work,
 // exited 70, and left model_actual= empty with the reason nowhere on disk.
 // The sentinel is the completion evidence, so the verdict belongs in it.
 func TestSentinelCarriesTheIdentityVerdict(t *testing.T) {
 	r := &round{
-		o:            opts{model: "openrouter/stealth/ox-alpha", harness: "opencode"},
+		o:            opts{model: "openrouter/z-ai/glm-5.3-flash", harness: "opencode"},
 		p:            provider{name: "openrouter"},
 		modelVerdict: "absent",
 		modelSource:  "no assistant message in opencode export",
