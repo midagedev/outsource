@@ -397,7 +397,7 @@ $ bin/quota.sh --provider grok
 | `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` · `codex.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
 | `references/spec-preamble.md` | Shared rules prepended to every spec — every clause from a real incident |
 | `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
-| `references/glm-preamble.md` | GLM runtime delta (no images, hooks not flags, evidence rules) |
+| `references/glm-preamble.md` | GLM runtime delta (which model sees pixels and which does not, hooks not flags, evidence rules) |
 | `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
 | `bin/outsource` | **One Go binary is every tool below.** The `bin/*.sh` names beside it are three-line compatibility shims that exec into it — kept because docs, hooks, installed copies and tests all call these tools by path. Invoke `outsource <tool>` directly to save a fork |
 | `outsource-run` | The launcher: provider table, harness picker, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
