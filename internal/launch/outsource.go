@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -32,6 +33,24 @@ const (
 // imageRef matches a spec that names an image file. Case-insensitive, and the
 // extension must end the token so a word like "gifted" does not trip it.
 var imageRef = regexp.MustCompile(`(?i)\.(png|jpe?g|webp|gif)([^[:alnum:]]|$)`)
+
+// imageRefContext returns the first imageRef match with up to 24 bytes of the
+// text before it, on one line — enough to tell `shots/card.png` from
+// `url(a/*.png)` in the refusal without printing the spec.
+func imageRefContext(spec []byte) string {
+	loc := imageRef.FindIndex(spec)
+	if loc == nil {
+		return ""
+	}
+	start := loc[0] - 24
+	if start < 0 {
+		start = 0
+	}
+	if nl := bytes.LastIndexByte(spec[start:loc[0]], '\n'); nl >= 0 {
+		start += nl + 1
+	}
+	return string(spec[start:loc[1]])
+}
 
 // nestedEnvKey marks every harness child's environment, so a delegate that
 // tries to launch a round of its own is refused at the door. Measured
@@ -257,8 +276,12 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	// The vision capability comes from the table plus the per-model
 	// refinement (modelVision) — never a provider-name test at the call site.
 	if !o.noVisionCheck && !modelVision(p, o.model) && imageRef.Match(specBody) {
-		fmt.Fprintf(stderr, "outsource: spec %s references an image file, but model '%s' on provider '%s' cannot see images. This guard refuses a pixel verdict — a spec that only names an image as an artifact (capture harness, pixel-decoding script; see references/glm.md) wants --no-vision-check; a spec that asks the model to look at pixels wants a vision-capable model (on zai: --model glm-5.3-flash; see references/glm.md).\n",
-			o.spec, orDefault(o.model, p.defaultModel), o.providerName)
+		// Name the text that matched: the pattern is an extension test, so a
+		// fixture string in a code block (`url(a/*.png)`) trips it as surely as a
+		// capture path does, and without the match the lead guesses which token
+		// it was (measured 2026-09-15: the first guess was the wrong one).
+		fmt.Fprintf(stderr, "outsource: spec %s references an image file (matched %q), but model '%s' on provider '%s' cannot see images. This guard refuses a pixel verdict — a spec that only names an image as an artifact (capture harness, pixel-decoding script, a file name inside a test string; see references/glm.md) wants --no-vision-check; a spec that asks the model to look at pixels wants a vision-capable model (on zai: --model glm-5.3-flash; see references/glm.md).\n",
+			o.spec, imageRefContext(specBody), orDefault(o.model, p.defaultModel), o.providerName)
 		telemetry.Note("why", "vision guard: spec names an image, model is blind")
 		return ExitVisionRefused
 	}

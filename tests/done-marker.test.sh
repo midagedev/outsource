@@ -207,10 +207,11 @@ VIS_RC=$?
 set -e
 if [ "$VIS_RC" -eq 65 ] \
    && grep -q -- '--no-vision-check' "$TMP/vision.err" \
-   && grep -qi 'verdict' "$TMP/vision.err"; then
+   && grep -qi 'verdict' "$TMP/vision.err" \
+   && grep -q 'matched ".*frames/shot\.png' "$TMP/vision.err"; then
   pass=$((pass + 1))
 else
-  note "vision copy: rc=$VIS_RC want=65 plus --no-vision-check and a verdict/artifact distinction; err=$(cat "$TMP/vision.err")"
+  note "vision copy: rc=$VIS_RC want=65 plus --no-vision-check, a verdict/artifact distinction and the matched text; err=$(cat "$TMP/vision.err")"
 fi
 
 # ── Part 1: refuse an unsatisfiable marker contract before the round ─────
