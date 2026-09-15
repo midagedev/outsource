@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/midagedev/outsource/internal/human"
 )
@@ -88,8 +89,21 @@ func cmdList(f filter, stdout io.Writer) int {
 			if idleKnown && idle >= StallSeconds() {
 				// Deliberately not a kill instruction. A stall is a reason to
 				// look at the log, and the round may still recover on its own.
-				fmt.Fprintf(stdout, "         no output for %s — check %s before doing anything to it\n",
-					human.Secs(idle), logOr("the harness log"))
+				// The trail records completed turns only, so before calling it
+				// a hang, ask the socket: a turn that streams for ten minutes
+				// (a long think, one big file write) is silent in the trail and
+				// loud on the wire.
+				switch rx, ok := probeRx(r.Pid, rxWindow); {
+				case ok && rx.Receiving():
+					fmt.Fprintf(stdout, "         no trail write for %s, but the harness is receiving %.0f KB/s from the API — a long streaming turn (thinking or a big write), not a hang; leave it\n",
+						human.Secs(idle), rx.BytesPerSec/1024)
+				case ok:
+					fmt.Fprintf(stdout, "         no output for %s and no bytes arriving from the API over %s — check %s before doing anything to it\n",
+						human.Secs(idle), rx.Window, logOr("the harness log"))
+				default:
+					fmt.Fprintf(stdout, "         no output for %s — check %s before doing anything to it (socket traffic not measurable on this platform)\n",
+						human.Secs(idle), logOr("the harness log"))
+				}
 			}
 		}
 	}
@@ -196,3 +210,7 @@ func cmdLine(f filter, stdout io.Writer) int {
 	}
 	return 0
 }
+
+// rxWindow is how long the socket is sampled when a round looks stalled; the
+// full listing pays it only for a stalled round, the one-line view never does.
+const rxWindow = 3 * time.Second
