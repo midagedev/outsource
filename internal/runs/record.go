@@ -112,16 +112,26 @@ const (
 // anything that could carry a newline is flattened on write. Nothing is ever
 // eval'd: reads split on the first '=' and assign into these fields only.
 type Record struct {
-	ID             string
-	Pid            string
-	Label          string
-	Provider       string
-	Harness        string
-	Model          string
-	Cwd            string
-	Spec           string
-	Log            string
-	ProgressDir    string
+	ID          string
+	Pid         string
+	Label       string
+	Provider    string
+	Harness     string
+	Model       string
+	Cwd         string
+	Spec        string
+	Log         string
+	ProgressDir string
+	// Trail is the file a human can FOLLOW while the round is alive, and
+	// TrailFormat says how to read it. The two are separate from ProgressDir
+	// because that one only needs an mtime: for the claude-code harness the
+	// progress directory holds one .jsonl per session and picking the round's
+	// own by guessing the newest breaks the moment two rounds share a cwd
+	// (reported 2026-09-15). Trail is empty until the round reveals it —
+	// claude-code learns its transcript path only when its first turn starts,
+	// and SetTrail is how that reveal lands here.
+	Trail          string
+	TrailFormat    string
 	OwnerSession   string
 	OwnerClaudePid string
 	StartedAt      string
@@ -205,6 +215,10 @@ func Read(path string) (*Record, error) {
 			r.Log = v
 		case "progressDir":
 			r.ProgressDir = v
+		case "trail":
+			r.Trail = v
+		case "trailFormat":
+			r.TrailFormat = v
 		case "ownerSession":
 			r.OwnerSession = v
 		case "ownerClaudePid":
@@ -243,6 +257,62 @@ func sameLog(a, b string) bool {
 	aa, err1 := filepath.Abs(a)
 	ba, err2 := filepath.Abs(b)
 	return err1 == nil && err2 == nil && aa == ba
+}
+
+// FindByID returns the record with this id, or nil.
+func FindByID(id string) *Record {
+	recs, err := List()
+	if err != nil {
+		return nil
+	}
+	for _, r := range recs {
+		if r.ID == id {
+			return r
+		}
+	}
+	return nil
+}
+
+// SetTrail records where a running round's live trail turned out to be.
+//
+// It is an APPEND, like finish(): later assignments win on read, so the reveal
+// never rewrites what the launcher recorded at start. The caller is a hook
+// firing inside the round, so every failure here is silent by contract — a
+// registry that cannot be written must not be able to break the round whose
+// progress it was only trying to describe.
+func SetTrail(id, path string) error {
+	if id == "" || path == "" {
+		return fmt.Errorf("SetTrail needs both a run id and a path")
+	}
+	file, err := recordPath(id)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = fmt.Fprintf(f, "trail=%s\n", sanitize(path))
+	return err
+}
+
+// recordPath resolves a run id to its file. The name is <startedAt>-<pid>, so
+// the id is the basename and a lookup is a directory scan rather than a join —
+// which also means an id that names nothing is an error here rather than a
+// half-written file somewhere.
+func recordPath(id string) (string, error) {
+	dir := Dir()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range ents {
+		if e.Name() == id+".run" {
+			return filepath.Join(dir, e.Name()), nil
+		}
+	}
+	return "", fmt.Errorf("no such run: %s (in %s)", id, dir)
 }
 
 // FindByLog returns the first record whose Log matches path, or nil. The
@@ -414,3 +484,71 @@ func HarnessShort(h string) string {
 }
 
 func nowUnix() int64 { return time.Now().Unix() }
+
+// Ambiguous is what Resolve returns when a selector names more than one round.
+// It carries the candidates because the useful answer to "which one?" is the
+// list, not a guess: picking the newest is exactly the guess that made a live
+// claude-code transcript unfindable when two rounds shared a cwd
+// (reported 2026-09-15).
+type Ambiguous struct {
+	Sel        string
+	Candidates []*Record
+}
+
+func (a *Ambiguous) Error() string {
+	return fmt.Sprintf("%q matches %d runs", a.Sel, len(a.Candidates))
+}
+
+// Resolve turns a selector into exactly one round, or refuses.
+//
+// The order is most-specific-first: a run id, then a --log path, then a label.
+// A label that several rounds share is resolved only when exactly one of them
+// is still running — the case a live view is for — and otherwise refused with
+// the candidates. An empty selector means "the one running round", which is
+// the common case and still refuses rather than picking when there are two.
+func Resolve(sel string) (*Record, error) {
+	recs, err := List()
+	if err != nil {
+		return nil, err
+	}
+	if len(recs) == 0 {
+		return nil, fmt.Errorf("no delegated runs on record (%s)", Dir())
+	}
+	if sel != "" {
+		for _, r := range recs {
+			if r.ID == sel {
+				return r, nil
+			}
+		}
+		for _, r := range recs {
+			if sameLog(r.Log, sel) {
+				return r, nil
+			}
+		}
+	}
+	var all []*Record
+	for _, r := range recs {
+		if sel == "" || r.Label == sel {
+			all = append(all, r)
+		}
+	}
+	if len(all) == 0 {
+		return nil, fmt.Errorf("no run matches %q — it is not a run id, a --log path or a label in %s", sel, Dir())
+	}
+	var running []*Record
+	for _, r := range all {
+		if r.State() == Running {
+			running = append(running, r)
+		}
+	}
+	switch {
+	case len(running) == 1:
+		return running[0], nil
+	case len(running) > 1:
+		return nil, &Ambiguous{Sel: sel, Candidates: running}
+	case len(all) == 1:
+		return all[0], nil
+	default:
+		return nil, &Ambiguous{Sel: sel, Candidates: all}
+	}
+}

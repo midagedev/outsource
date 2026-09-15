@@ -358,8 +358,13 @@ type round struct {
 	modelVerdict string
 	modelSource  string
 	hold         *signalHold
-	runID        string
-	timedOut     bool
+	// trail is the file this round left a live, readable record in. Registered
+	// up front when the harness knows it, filled in at the end for the
+	// claude-code harness, whose transcript path is only known once the session
+	// exists. Written to the sentinel so it survives the registry.
+	trail    string
+	runID    string
+	timedOut bool
 }
 
 func (r *round) run() int {
@@ -376,10 +381,22 @@ func (r *round) run() int {
 	// the claude-code harness writes that only once, at the end, so a perfectly
 	// healthy round shows an empty log for its entire life.
 	h, harnessKnown := findHarness(r.o.harness)
-	progressDir := ""
-	if harnessKnown && h.progress != nil {
-		progressDir = h.progress(r.o)
+	progressDir, trailPath, trailFormat := "", "", ""
+	if harnessKnown {
+		if h.progress != nil {
+			progressDir = h.progress(r.o)
+		}
+		// The trail is the readable half of the same fact: the file somebody
+		// can follow while the round is alive (`outsource tail`). Some
+		// harnesses know it now; claude-code reveals its own once its first
+		// turn starts, so the format is registered here and the path arrives
+		// later through runs.SetTrail.
+		if h.trail != nil {
+			trailPath = h.trail(r.o)
+		}
+		trailFormat = h.trailFormat
 	}
+	r.trail = trailPath
 
 	// The model recorded in the REGISTRY is the bare table default when --model was
 	// not given, even on crush — because the crush qualification to provider/id
@@ -401,7 +418,7 @@ func (r *round) run() int {
 	// guards, before the harness is dispatched. A guard that refuses to launch has
 	// not started a round, and recording one would make the registry lie.
 	r.runID = registerRun(label, r.p.name, r.o.harness, regModel,
-		r.o.cwd, r.o.spec, r.o.log, progressDir)
+		r.o.cwd, r.o.spec, r.o.log, progressDir, trailPath, trailFormat)
 
 	var rc int
 	if !harnessKnown || h.run == nil {
@@ -607,6 +624,12 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	}
 	if r.modelSource != "" {
 		fmt.Fprintf(&b, "model_source=%s\n", r.modelSource)
+	}
+	// Where the round's live trail was, kept in the one artifact that outlives
+	// the registry: `runs prune` drops the record after a day, and a
+	// post-mortem a week later still wants the transcript.
+	if r.trail != "" {
+		fmt.Fprintf(&b, "trail=%s\n", r.trail)
 	}
 	b.WriteString(markerLines)
 	if s := r.hold.name(); s != "" {

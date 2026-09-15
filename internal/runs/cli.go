@@ -17,6 +17,7 @@ long, and how the last few ended.
   runs json                      machine-readable, one object per run
   runs start  --pid N --provider P --harness H [...]   -> prints run id
   runs finish <run-id> --rc N [--session S] [--model-actual M]
+  runs trail  <run-id> --path P   record where this round's live trail is
   runs prune [--keep-seconds N]  drop finished records older than N
   runs dismiss <run-id>          drop one record you have read (not running)
 
@@ -135,6 +136,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdStart(args, stdout, stderr)
 	case "finish":
 		return cmdFinish(args, stderr)
+	case "trail":
+		return cmdTrail(args, stderr)
 	case "prune":
 		return cmdPrune(args, stdout, stderr)
 	case "dismiss":
@@ -155,13 +158,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 			return cmdJSON(f, stdout)
 		}
 	default:
-		fmt.Fprintf(stderr, "runs: unknown subcommand: %s (list|line|json|start|finish|prune|dismiss)\n", sub)
+		fmt.Fprintf(stderr, "runs: unknown subcommand: %s (list|line|json|start|finish|trail|prune|dismiss)\n", sub)
 		return ExitUsage
 	}
 }
 
 func cmdStart(args []string, stdout, stderr io.Writer) int {
-	var pid, label, provider, harness, model, cwd, spec, log, progress, owner, ownerPid string
+	var pid, label, provider, harness, model, cwd, spec, log, progress, trail, trailFormat, owner, ownerPid string
 	need := func(i int, name string) bool {
 		if i+1 >= len(args) {
 			fmt.Fprintf(stderr, "runs start: %s needs a value\n", name)
@@ -191,6 +194,10 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 			dst = &log
 		case "--progress-dir":
 			dst = &progress
+		case "--trail":
+			dst = &trail
+		case "--trail-format":
+			dst = &trailFormat
 		case "--owner":
 			dst = &owner
 		case "--owner-claude-pid":
@@ -244,6 +251,8 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	put("spec", spec)
 	put("log", log)
 	put("progressDir", progress)
+	put("trail", trail)
+	put("trailFormat", trailFormat)
 	put("ownerSession", owner)
 	put("ownerClaudePid", ownerPid)
 	put("startedAt", fmt.Sprintf("%d", started))
@@ -264,6 +273,42 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	// Housekeeping rides the write path so nobody has to remember to run it.
 	_ = pruneOlderThan(KeepSecondsDefault)
 	fmt.Fprintln(stdout, id)
+	return 0
+}
+
+// cmdTrail records where a running round's live trail turned out to be. It is
+// the CLI face of SetTrail, so a hook or a human can reveal a path without
+// linking against this package.
+func cmdTrail(args []string, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "runs trail: needs a run id")
+		return ExitUsage
+	}
+	id := args[0]
+	args = args[1:]
+	var path string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--path":
+			if i+1 >= len(args) {
+				fmt.Fprintln(stderr, "runs trail: --path needs a value")
+				return ExitUsage
+			}
+			path = args[i+1]
+			i++
+		default:
+			fmt.Fprintf(stderr, "runs trail: unknown flag: %s\n", args[i])
+			return ExitUsage
+		}
+	}
+	if path == "" {
+		fmt.Fprintln(stderr, "runs trail: --path is required")
+		return ExitUsage
+	}
+	if err := SetTrail(id, path); err != nil {
+		fmt.Fprintf(stderr, "runs trail: %v\n", err)
+		return ExitNoSuchID
+	}
 	return 0
 }
 
@@ -432,6 +477,8 @@ type jsonRecord struct {
 	Spec           string `json:"spec"`
 	Log            string `json:"log"`
 	ProgressDir    string `json:"progressDir"`
+	Trail          string `json:"trail"`
+	TrailFormat    string `json:"trailFormat"`
 	OwnerSession   string `json:"ownerSession"`
 	OwnerClaudePid string `json:"ownerClaudePid"`
 	StartedAt      *int64 `json:"startedAt"`
@@ -465,7 +512,8 @@ func cmdJSON(f filter, stdout io.Writer) int {
 		j := jsonRecord{
 			ID: r.ID, Pid: numOrNull(r.Pid), Label: r.Label, Provider: r.Provider,
 			Harness: r.Harness, Model: r.Model, Cwd: r.Cwd, Spec: r.Spec, Log: r.Log,
-			ProgressDir: r.ProgressDir, OwnerSession: r.OwnerSession,
+			ProgressDir: r.ProgressDir, Trail: r.Trail, TrailFormat: r.TrailFormat,
+			OwnerSession:   r.OwnerSession,
 			OwnerClaudePid: r.OwnerClaudePid, StartedAt: numOrNull(r.StartedAt),
 			RC: numOrNull(r.RC), FinishedAt: numOrNull(r.FinishedAt),
 			Session: r.Session, ModelActual: r.ModelActual,

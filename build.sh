@@ -51,6 +51,7 @@ SHIMS=(
   "runs.sh:runs"
   "spec-lint.sh:spec-lint"
   "statusline.sh:statusline"
+  "tail.sh:tail"
   "wait.sh:wait"
 )
 

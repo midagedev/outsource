@@ -284,7 +284,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	// out. So the shell's grok rounds were invisible in exactly the place this
 	// launcher's header says it was written to make them visible. Verified before
 	// changing it: `runs line --owner X` returns nothing for an unowned record.
-	runID := registerRun(o.label, "xai", "grok-cli", o.model, o.cwd, promptFile, o.log, "")
+	runID := registerRun(o.label, "xai", "grok-cli", o.model, o.cwd, promptFile, o.log, "", "", "")
 
 	logf, err := os.Create(o.log)
 	if err != nil {
@@ -593,13 +593,22 @@ func envWithDetached() []string {
 
 // registerRun and finishRun call the registry in-process. Bookkeeping must never
 // be able to fail a round, so every error here is swallowed.
-func registerRun(label, provider, harness, model, cwd, spec, log, progressDir string) string {
+func registerRun(label, provider, harness, model, cwd, spec, log, progressDir, trail, trailFormat string) string {
 	var buf strings.Builder
 	args := []string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", label,
 		"--provider", provider, "--harness", harness, "--model", model,
 		"--cwd", cwd, "--spec", spec, "--log", log}
 	if progressDir != "" {
 		args = append(args, "--progress-dir", progressDir)
+	}
+	// trail is what a human follows live; trailFormat is how it reads. A
+	// harness that only reveals its trail once the round starts registers the
+	// format now and the path later (runs.SetTrail).
+	if trail != "" {
+		args = append(args, "--trail", trail)
+	}
+	if trailFormat != "" {
+		args = append(args, "--trail-format", trailFormat)
 	}
 	args = append(args,
 		"--owner", os.Getenv("CLAUDE_CODE_SESSION_ID"),

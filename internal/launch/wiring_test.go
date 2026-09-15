@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/midagedev/outsource/internal/tail"
 )
 
 // TestWiringTablesAgree is the recurrence gate for a half-wired arm.
@@ -305,5 +307,34 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 	// print a blank column the reader has to interpret.
 	if !strings.Contains(out, "(--model required)") {
 		t.Errorf("--list-wiring must mark a provider with no default model:\n%s", out)
+	}
+}
+
+// A harness row that declares a trail format the renderer does not know ships a
+// `outsource tail` that cannot read it. The format list is the renderer's own,
+// so the two cannot drift.
+func TestEveryHarnessDeclaresARenderableTrail(t *testing.T) {
+	for _, h := range harnessTable {
+		if !tail.KnownFormat(h.trailFormat) {
+			t.Fatalf("harness %s declares trailFormat %q, which internal/tail cannot render (known: %s, %s, %s)",
+				h.name, h.trailFormat, tail.FormatClaudeTranscript, tail.FormatOpencodeEvents, tail.FormatLines)
+		}
+	}
+}
+
+// A nil trail column means "the round reveals its own", and exactly one harness
+// has the machinery for that: writeHookSettings gives claude-code a SessionStart
+// recorder. A new row with neither a path nor a reveal would register a format
+// for a file nobody can name — which is the state this whole mechanism replaced
+// (reported 2026-09-15: ten tool calls to find a live transcript).
+func TestAHarnessWithNoTrailPathRevealsItAtRuntime(t *testing.T) {
+	revealsAtRuntime := map[string]bool{"claude-code": true}
+	for _, h := range harnessTable {
+		if h.trail == nil && !revealsAtRuntime[h.name] {
+			t.Fatalf("harness %s declares no trail path and has no runtime reveal; `outsource tail` could never find its trail", h.name)
+		}
+		if h.trail != nil && revealsAtRuntime[h.name] {
+			t.Fatalf("harness %s both declares a trail path and reveals one at runtime — two owners of the same field", h.name)
+		}
 	}
 }

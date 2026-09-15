@@ -172,7 +172,7 @@ rounds and misses the stuck ones.
 `runs.sh` therefore measures **output, not duration**. It flags `⏳` when a
 running round has written nothing for ten minutes, reading the trail each
 harness leaves in its own `--config-dir`: crush's `data/crush.db-wal` and
-`data/logs/crush.log`, the claude-code harness's `claude/projects/**.jsonl`.
+`data/logs/crush.log`, the claude-code harness's `claude/projects/**.jsonl` (the round's own file inside it is printed as `trail=` — see below).
 Note that the `--log` file is not that trail — the claude-code harness
 writes it once, at the end, so a healthy round shows an empty log for its
 whole life.
@@ -188,7 +188,19 @@ round is visible while it runs and not only once it reports:
 ~/.claude/skills/outsource/bin/runs.sh          # state, provider, harness, elapsed
 ~/.claude/skills/outsource/bin/runs.sh line     # one line, for a status line
 ~/.claude/skills/outsource/bin/runs.sh json     # for a script
+~/.claude/skills/outsource/bin/tail.sh <label>  # what the round said and ran
+~/.claude/skills/outsource/bin/tail.sh <label> -f   # follow; ends with the round
 ```
+
+`tail.sh` renders the live trail one line per turn (`💬` said, `🔧` ran, `✗` a
+failed tool call), and on this harness it is the only way to watch a round
+work — `--log` is empty until exit. It does not have to be told which file to
+read: the round records its own transcript path into the registry on its first
+turn (a `SessionStart` hook), `runs.sh` prints it as `trail=`, and the sentinel
+keeps it afterwards. Measured 2026-09-15 — before that, finding a running
+round's transcript meant guessing the newest `.jsonl` under
+`<config-dir>/claude/projects/<cwd-slug>/`, which is the wrong file as soon as
+two rounds share a cwd.
 
 The state worth knowing is `orphan`: started, pid gone, no exit code — the
 round died without finishing, and nothing else on the machine still

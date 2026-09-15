@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/midagedev/outsource/internal/cred"
+	"github.com/midagedev/outsource/internal/runs"
 	"github.com/midagedev/outsource/internal/telemetry"
 )
 
@@ -48,7 +49,7 @@ func (r *round) runClaudeCode() int {
 		r.bailed = true
 		return ExitUsage
 	}
-	if err := writeHookSettings(filepath.Join(ccHome, "settings.json")); err != nil {
+	if err := writeHookSettings(filepath.Join(ccHome, "settings.json"), r.runID, runs.Dir()); err != nil {
 		fmt.Fprintf(r.stderr, "outsource: could not write the guard hook: %v\n", err)
 		r.bailed = true
 		return ExitUsage
@@ -135,6 +136,12 @@ func (r *round) runClaudeCode() int {
 	a := analyzeRun(logPath, r.o.model, ccHome)
 	r.sid = a.session
 	r.modelActual = a.actual
+	// analyzeRun had to locate the transcript anyway to assert identity, so the
+	// sentinel gets the path for free — and a round whose SessionStart hook
+	// never fired still ends up with a recorded trail.
+	if p, ok := strings.CutPrefix(a.source, "transcript "); ok {
+		r.trail = p
+	}
 
 	// Cost honesty. The token counts in `usage` are this round's and are the only
 	// per-round figure worth quoting; total_cost_usd is Claude Code's
@@ -179,32 +186,60 @@ func (r *round) runClaudeCode() int {
 	return assertCode
 }
 
-// writeHookSettings attaches the git guard the way this harness wants it: the
-// hook receives the tool call as JSON on stdin.
+// writeHookSettings attaches this round's two hooks the way this harness wants
+// them: each receives its event as JSON on stdin.
 //
-// It points at the BINARY rather than the git-guard.sh shim, which is the one
-// place in this port where the compatibility name is deliberately bypassed. The
-// guard fires on every Bash tool call of every round, and the shim costs an extra
-// fork each time — measured 15ms through the shim against 10ms direct. The
-// decision the guard makes is identical either way; the shim execs this same
-// binary.
-func writeHookSettings(path string) error {
+// PreToolUse is the git guard. It points at the BINARY rather than the
+// git-guard.sh shim, which is the one place in this port where the
+// compatibility name is deliberately bypassed. The guard fires on every Bash
+// tool call of every round, and the shim costs an extra fork each time —
+// measured 15ms through the shim against 10ms direct. The decision the guard
+// makes is identical either way; the shim execs this same binary.
+//
+// SessionStart is how the round tells the registry where its live trail is.
+// Measured 2026-09-15 (CLI 2.1.272): the event fires under `claude -p` and its
+// payload carries transcript_path and session_id. Before it, the only way to
+// find a running round's transcript was to guess the newest .jsonl under
+// projects/<cwd-slug>/ — which is not the round's own file as soon as two
+// rounds share a cwd, and cost a session ten tool calls to work around. The
+// registry directory is passed EXPLICITLY: the hook runs inside the harness,
+// which makes no promise about passing OUTSOURCE_RUNS_DIR through, and a
+// recorder writing to the default directory while the launcher used another
+// one would silently record nothing. The recorder is silent by contract (its
+// stdout would land in the model's first turn) and its timeout is short
+// because it sits in front of turn one.
+func writeHookSettings(path, runID, runsDir string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	settings := map[string]any{
-		"hooks": map[string]any{
-			"PreToolUse": []any{
-				map[string]any{
-					"matcher": "Bash",
-					"hooks": []any{
-						map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
-					},
+	hooks := map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
+				"matcher": "Bash",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
 				},
 			},
 		},
 	}
+	// No run id means the registry never took this round (it returns an empty
+	// id on failure), so there is nothing to record the trail into.
+	if runID != "" {
+		hooks["SessionStart"] = []any{
+			map[string]any{
+				"hooks": []any{
+					map[string]any{
+						"type": "command",
+						"command": fmt.Sprintf("%s tail --record-from-hook %s --runs-dir %s",
+							shellQuote(self), shellQuote(runID), shellQuote(runsDir)),
+						"timeout": 5,
+					},
+				},
+			},
+		}
+	}
+	settings := map[string]any{"hooks": hooks}
 	b, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
@@ -390,4 +425,12 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+// shellQuote makes one argument safe inside a hook command string. The harness
+// runs a hook through a shell, and the paths here come from --config-dir and
+// the registry directory — both caller-supplied, both allowed to contain
+// spaces. Single quotes with the '"'"' escape is the portable form.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.15.0 — 2026-09-15 — a round you can watch while it works
+
+- **`bin/tail.sh <label>` follows a live round.** One line per turn — `💬` what
+  the round said, `🔧` what it ran, `✗` a tool call that came back an error —
+  with `-f` to follow (it ends when the round does, on the registry's exit code,
+  never on a timeout), `--all` for thinking blocks and successful tool results,
+  `--raw` for the trail's own lines, `-n`/`-w` for how much to render. A
+  selector is a run id, a `--log` path or a `--label`; omitted, it means the one
+  running round. A label several live rounds share is refused with the
+  candidates listed rather than resolved by picking one.
+- **A round now reveals where its live trail is, instead of being guessed at.**
+  On the claude-code harness `--output-format json` writes `--log` once, at
+  exit, so a healthy round shows a 0-byte log for its whole life; the live
+  record is the harness's own session transcript. Which `.jsonl` under
+  `<config-dir>/claude/projects/<cwd-slug>/` belongs to *this* round was not
+  answerable from outside — taking the newest is right until two rounds share a
+  cwd. The round's generated settings now carry a `SessionStart` hook that
+  records its `transcript_path` into the registry (measured 2026-09-15, CLI
+  2.1.272: the event fires under `claude -p` and carries the path), `runs.sh`
+  prints it as `trail=` for running, failed and orphaned rounds, and the
+  completion sentinel keeps a `trail=` line so a post-mortem survives
+  `runs prune`. Reported by a session that spent ten tool calls hunting for a
+  running round's transcript.
+- **The harness table owns the trail, the way it already owned everything else
+  routable.** Two new columns in `internal/launch/wiring.go`: `trail` (the file
+  to follow, nil when the round reveals its own) and `trailFormat` (how it
+  reads: `claude-transcript`, `opencode-events`, `lines`). Gates hold both — a
+  format the renderer does not know fails, and a row with neither a path nor a
+  runtime reveal fails, because it would register a trail nobody could name.
+- The recorder is silent by contract and cannot fail a round: a hook's stdout
+  lands in the model's first turn, so it prints nothing, exits 0 on every bad
+  input, and is handed the registry directory as an explicit argument rather
+  than trusting the harness to pass `OUTSOURCE_RUNS_DIR` through.
+- `runs trail <run-id> --path P` is the CLI face of that write, and
+  `runs json` carries `trail`/`trailFormat`.
+
 ## 0.14.1 — 2026-09-15 — an effort knob for the claude-code harness
 
 - **`--effort low|medium|high|xhigh|max`** passes Claude Code's own effort

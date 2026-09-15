@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/midagedev/outsource/internal/tail"
 )
 
 // This file is the single owner of "what can run where".
@@ -269,6 +271,19 @@ type harness struct {
 	// log for its entire life.
 	progress func(o opts) string
 
+	// trail is the file a human can FOLLOW while the round is alive, as opposed
+	// to progress, which only needs an mtime. nil means the round reveals it
+	// itself and the registry learns it later: claude-code knows its transcript
+	// path only once its first turn starts, which is why guessing the newest
+	// .jsonl in progress/ was the previous answer and broke as soon as two
+	// rounds shared a cwd (reported 2026-09-15).
+	trail func(o opts) string
+
+	// trailFormat names how that file reads, so `outsource tail` renders it
+	// instead of guessing. Every row declares one, and it must be a format the
+	// renderer knows — TestEveryHarnessDeclaresARenderableTrail holds that.
+	trailFormat string
+
 	// run dispatches the round. One method per harness file.
 	run func(*round) int
 
@@ -291,14 +306,22 @@ var harnessTable = []harness{
 		providers: []string{"zai", "xai"},
 		// The harness writes into projects/**.jsonl every turn.
 		progress: func(o opts) string { return filepath.Join(o.configDir, "claude", "projects") },
-		run:      (*round).runClaudeCode,
+		// Which of those .jsonl files is THIS round's is reported by the round
+		// itself, through the SessionStart hook in its generated settings.
+		trail:       nil,
+		trailFormat: tail.FormatClaudeTranscript,
+		run:         (*round).runClaudeCode,
 	},
 	{
 		name:      "crush",
 		bin:       "crush",
 		providers: []string{"zai", "xai"},
 		// crush writes into crush.db-wal and logs/crush.log every few seconds.
-		progress:      func(o opts) string { return filepath.Join(o.configDir, "data") },
+		progress: func(o opts) string { return filepath.Join(o.configDir, "data") },
+		// That log is the readable half of it, and it is plain text: shown
+		// verbatim rather than described as something it is not.
+		trail:         func(o opts) string { return filepath.Join(o.configDir, "data", "logs", "crush.log") },
+		trailFormat:   tail.FormatLines,
 		run:           (*round).runCrush,
 		modelForm:     crushModelFormError,
 		modelFormHint: "provider/id",
@@ -311,6 +334,8 @@ var harnessTable = []harness{
 		// process is still running (measured 2026-08-23), so the log file itself
 		// is the live trail.
 		progress:      func(o opts) string { return o.log },
+		trail:         func(o opts) string { return o.log },
+		trailFormat:   tail.FormatOpencodeEvents,
 		run:           (*round).runOpencode,
 		modelForm:     opencodeModelFormError,
 		modelFormHint: "openrouter/<id>",
@@ -320,9 +345,12 @@ var harnessTable = []harness{
 		bin:       "agy",
 		providers: []string{"agy"},
 		// stream-json events land on --log as the round progresses, same as
-		// opencode.
-		progress: func(o opts) string { return o.log },
-		run:      (*round).runAgy,
+		// opencode. The event shape this launcher parses is init/result only, so
+		// the trail is shown verbatim rather than half-decoded.
+		trail:       func(o opts) string { return o.log },
+		trailFormat: tail.FormatLines,
+		progress:    func(o opts) string { return o.log },
+		run:         (*round).runAgy,
 	},
 }
 

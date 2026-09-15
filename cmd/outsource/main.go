@@ -30,6 +30,7 @@ import (
 	"github.com/midagedev/outsource/internal/runs"
 	"github.com/midagedev/outsource/internal/speclint"
 	"github.com/midagedev/outsource/internal/statusline"
+	"github.com/midagedev/outsource/internal/tail"
 	"github.com/midagedev/outsource/internal/telemetry"
 )
 
@@ -60,6 +61,7 @@ var tools = []tool{
 	{"runs", noStdin(runs.Main)},
 	{"spec-lint", noStdin(speclint.Main)},
 	{"statusline", statusline.Main},
+	{"tail", tail.Main},
 	{"telemetry", noStdin(telemetry.ReportMain)},
 }
 

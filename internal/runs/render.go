@@ -62,12 +62,29 @@ func cmdList(f filter, stdout io.Writer) int {
 			}
 			return fallback
 		}
+		// The live trail is printed for a running round because that is when
+		// somebody wants to watch it, and for a dead one because that is when
+		// somebody wants to know where it stopped. The --log file answers
+		// neither on the claude-code harness: it is written once, at the end.
+		trailNote := ""
+		if r.Trail != "" {
+			trailNote = "  trail=" + r.Trail
+		}
 		switch st {
 		case Failed:
-			fmt.Fprintf(stdout, "         rc=%s  log=%s\n", r.RC, logOr("none"))
+			fmt.Fprintf(stdout, "         rc=%s  log=%s%s\n", r.RC, logOr("none"), trailNote)
 		case Orphan:
-			fmt.Fprintf(stdout, "         started but never finished — pid %s is gone; log=%s\n", r.Pid, logOr("none"))
+			fmt.Fprintf(stdout, "         started but never finished — pid %s is gone; log=%s%s\n", r.Pid, logOr("none"), trailNote)
 		case Running:
+			switch {
+			case r.Trail != "":
+				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)\n", r.Trail, r.ID)
+			case r.TrailFormat != "":
+				// A claude-code round learns its own transcript path only when
+				// its first turn starts, so "pending" is the honest word here —
+				// not "none".
+				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)\n", r.ID)
+			}
 			if idleKnown && idle >= StallSeconds() {
 				// Deliberately not a kill instruction. A stall is a reason to
 				// look at the log, and the round may still recover on its own.

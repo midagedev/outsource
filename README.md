@@ -94,6 +94,24 @@ orphan   docs-sweep       xai    crush     1h07m   /tmp/sp/spec-docs.md
 
 `orphan` is the reason this exists. A round that was killed, or died when the machine slept, leaves *no process at all* — so a `ps` grep reports the same nothing for "finished cleanly" and "died an hour ago holding your worktree". Started-but-never-finished is a state only a written record can hold. `bin/runs.sh json` is the same data for scripts.
 
+### Watching a round work
+
+`runs.sh` says whether a round is alive. To see what it is *doing*, follow its live trail:
+
+```
+$ bin/tail.sh test-backfill -f
+── test-backfill · zai·claude-code · running · …/projects/-Users-me-repo-app/2e156be9….jsonl
+14:11:14 🔧 Bash go test ./internal/launch/
+14:11:48 🔧 Read /Users/me/repo/app/internal/launch/wiring.go
+14:11:50 ✗ Bash: FAIL github.com/me/app/internal/launch
+14:11:51 💬 The pairing gate fails first, as expected. Fixing the harness row.
+── round 1789449070-74619: done rc=0
+```
+
+One line per turn, newest last: `💬` what the round said, `🔧` what it ran, `✗` a tool call that came back an error. `-f` follows and returns when the round does — the registry's exit code ends it, never a timeout. `--all` adds thinking blocks and successful tool results, `--raw` hands back the trail's own lines for `jq`, `-n` bounds how much history is rendered.
+
+Finding that file used to be the hard part, and it is the reason this exists. On the claude-code harness `--log` is written once, at exit, so there is nothing to follow there at all; the live record is the harness's own session transcript. Which of the `.jsonl` files under `<config-dir>/claude/projects/<cwd-slug>/` belongs to *this* round is not something a reader can work out — taking the newest is right until two rounds share a cwd, and then it is silently the wrong round. So the round says it itself: a `SessionStart` hook records its transcript path into the registry on the first turn, `runs.sh` prints it as `trail=`, and the completion sentinel keeps it after `prune` drops the record. A label that several live rounds share is refused with the candidates listed rather than resolved by a guess.
+
 ### A long round is not a stuck round
 
 Neither GLM harness can stop itself — `crush run` exposes no turn or time limit in its flag set at all, and this `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. The tempting fix is a time limit. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
@@ -102,12 +120,12 @@ So the registry measures **output, not duration**. The GLM harnesses write conti
 
 ```
 ▶refshot zai·crush 1h41m        # 101 minutes in, wrote a second ago — leave it alone
-⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of its 22 minutes — go read the log
+⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of its 22 minutes — go read its trail
 ```
 
-Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, `claude/projects/**.jsonl` for the claude-code harness. opencode and agy are the exceptions: their stream-JSON logs flush one event at a time onto `--log` while the process is still running, so there that file *is* the trail.
+Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, the session transcript named by `trail=` for the claude-code harness. opencode and agy are the exceptions: their stream-JSON logs flush one event at a time onto `--log` while the process is still running, so there that file *is* the trail.
 
-**Reading the log is step one, not the verdict.** Measured 2026-08-28: a
+**Reading the trail is step one, not the verdict.** Measured 2026-08-28: a
 round sat at `⏳ ⋯57m`, and its transcript's last line read
 "Adding the Core-level quarantine gates" — indistinguishable from a delegate
 mid-edit. It was not. The round had shelled out to a test runner that
@@ -128,7 +146,7 @@ awaits were ordered so it waited on work its own held lock blocked). Kill
 the *child*, not the round: the harness notices the runner died, reports,
 and the round's completed edits survive on disk.
 
-A stall is a reason to read the log, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume) — it has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
+A stall is a reason to read the trail, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume) — it has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
 
 `--label` is what the track is **for**, and it is worth typing on every launch, because the listing only earns its keep in parallel and that is exactly when the derived default fails: this skill's documented layout writes every track's spec to `<scratch>/spec.md`, one dir per track, so a basename-derived label would read `spec` three times. The default therefore falls back to the directory holding the spec — usually the track's own scratch dir — and a label that still collides renders as `name`, `name#2`: a warning that the round you are looking at cannot be identified, not a naming scheme.
 

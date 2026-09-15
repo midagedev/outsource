@@ -175,6 +175,30 @@ how long they have been running, and which one died without a report:
 <skill-dir>/bin/runs.sh line     # the same, compressed to one line
 ```
 
+Those say whether a round is alive. To watch it **work**, follow its live
+trail:
+
+```bash
+<skill-dir>/bin/tail.sh                 # the one running round, last 40 entries
+<skill-dir>/bin/tail.sh <label> -f      # follow it; ends when the round ends
+<skill-dir>/bin/tail.sh <label> --all   # plus thinking blocks and tool results
+<skill-dir>/bin/tail.sh <label> --raw   # the trail's own lines, for piping to jq
+```
+
+It renders one line per turn — `💬` what the round said, `🔧` what it ran, `✗` a
+tool call that failed — newest last, and `-f` returns when the round does (the
+registry's rc ends it, never a timeout).
+
+**The claude-code `--log` is not that trail.** `--output-format json` emits one
+object at exit, so a perfectly healthy round shows a 0-byte log for its entire
+life. The trail is the harness's own session transcript, and the round says
+which file that is on its first turn — a `SessionStart` hook records the path
+into the registry, so `runs.sh` prints it as `trail=` and nobody has to guess.
+Measured 2026-09-15: guessing meant taking the newest `.jsonl` under
+`<config-dir>/claude/projects/<cwd-slug>/`, which stops being this round's file
+the moment two rounds share a cwd. A label that several live rounds share is
+refused with the candidates listed, not resolved by picking one.
+
 **Arm a waiter at launch; do not rely on remembering to poll.** `--detach`
 returns immediately and nothing afterwards wakes the orchestrator, so with
 only the commands above, noticing that a round finished depends on the lead
@@ -237,8 +261,9 @@ only when a *running* round has written nothing for ten minutes
 ⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of those 22 — go look
 ```
 
-A stall is a reason to read the log, not to kill anything; a round often
-recovers. But the log is step one, not the verdict — measured 2026-08-28, a
+A stall is a reason to read the trail (`bin/tail.sh <label>`), not to kill
+anything; a round often recovers. But the trail is step one, not the verdict —
+measured 2026-08-28, a
 round idle for 57 minutes had a transcript whose last line ("Adding the
 Core-level quarantine gates") read exactly like a delegate mid-edit, while
 in fact it was blocked forever on a test runner it had shelled out to. Check
