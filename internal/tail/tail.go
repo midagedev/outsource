@@ -264,8 +264,16 @@ func view(args []string, stdout, stderr io.Writer) int {
 	// does not arrive as two thousand lines.
 	lines, err := f.next()
 	if err != nil {
-		fmt.Fprintf(stderr, "tail: cannot read the trail %s: %v\n", rec.Trail, err)
-		return ExitNoTrail
+		// A revealed path that does not exist yet is the reveal winning a race
+		// with the first write, not a failure: the hook fires at session start
+		// and the harness creates the file on its first turn. Follow mode waits
+		// it out; a one-shot read says so.
+		if os.IsNotExist(err) && o.follow {
+			lines = nil
+		} else {
+			fmt.Fprintf(stderr, "tail: cannot read the trail %s: %v\n", rec.Trail, err)
+			return ExitNoTrail
+		}
 	}
 	rendered := r.render(lines)
 	if o.last > 0 && len(rendered) > o.last {

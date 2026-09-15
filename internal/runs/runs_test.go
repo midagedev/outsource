@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -248,5 +249,88 @@ func TestHarnessShortOpencode(t *testing.T) {
 	}
 	if got := HarnessShort("claude-code"); got != "cc" {
 		t.Errorf("HarnessShort(\"claude-code\") = %q, want %q", got, "cc")
+	}
+}
+
+// The listing is where a lead actually looks for a live round's trail, so the
+// two states it can be in are both pinned here. FAIL-first: revert render.go's
+// Running arm and the "pending"/"trail=" lines disappear while every other
+// suite stays green — which is exactly how this shipped unguarded once.
+func TestListShowsTheTrailForARunningRound(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	// The test process's own pid: Alive() is a signal-0 probe, so a borrowed pid
+	// like 1 answers EPERM and the fixture would read as an orphan.
+	rc := Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "watchme",
+		"--provider", "zai", "--harness", "claude-code",
+		"--trail-format", "claude-transcript"}, &out, os.Stderr)
+	if rc != 0 {
+		t.Fatalf("start rc=%d", rc)
+	}
+	id := strings.TrimSpace(out.String())
+
+	// Before the reveal: the format is registered, the path is not. "pending" is
+	// the honest word — "none" would read as "this harness leaves no trail".
+	out.Reset()
+	if rc := Main([]string{"list"}, &out, os.Stderr); rc != 0 {
+		t.Fatalf("list rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "trail=pending") {
+		t.Fatalf("a running round with a format but no path must say pending:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "outsource tail "+id) {
+		t.Fatalf("the listing must say how to follow it:\n%s", out.String())
+	}
+
+	// After the reveal: the exact file, which is the whole point — it used to be
+	// guessed at from the projects/ directory.
+	trail := "/tmp/cfg/claude/projects/-Users-me-repo/2e156be9.jsonl"
+	if err := SetTrail(id, trail); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	Main([]string{"list"}, &out, os.Stderr)
+	if !strings.Contains(out.String(), "trail="+trail) {
+		t.Fatalf("the revealed trail must be printed:\n%s", out.String())
+	}
+
+	// And a script can read it.
+	out.Reset()
+	Main([]string{"json"}, &out, os.Stderr)
+	for _, want := range []string{`"trail":"` + trail + `"`, `"trailFormat":"claude-transcript"`} {
+		if !strings.Contains(strings.ReplaceAll(out.String(), " ", ""), strings.ReplaceAll(want, " ", "")) {
+			t.Fatalf("runs json is missing %s:\n%s", want, out.String())
+		}
+	}
+}
+
+// SetTrail is an append, like finish(): the reveal must never be able to
+// rewrite what the launcher recorded at start.
+func TestSetTrailAppendsAndRefusesUnknownRuns(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "keepme",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/a.log"}, &out, os.Stderr)
+	id := strings.TrimSpace(out.String())
+	if err := SetTrail(id, "/first.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTrail(id, "/second.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	r := FindByID(id)
+	if r == nil || r.Trail != "/second.jsonl" {
+		t.Fatalf("last assignment must win, got %+v", r)
+	}
+	if r.Label != "keepme" || r.Log != "/tmp/a.log" {
+		t.Fatalf("the append rewrote start fields: %+v", r)
+	}
+	if err := SetTrail("1-999999999", "/x.jsonl"); err == nil {
+		t.Fatal("an unknown run id must be an error, not a new file")
+	}
+	if err := SetTrail(id, ""); err == nil {
+		t.Fatal("an empty path must be refused")
 	}
 }
