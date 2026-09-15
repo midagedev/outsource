@@ -92,6 +92,10 @@ func (r *round) runClaudeCode() int {
 		cmdArgs = append(cmdArgs, "--resume", r.o.session)
 	}
 	cmdArgs = append(cmdArgs, "--permission-mode", "bypassPermissions", "--output-format", "json")
+	if r.o.effort != "" {
+		// Validated by effortRefusal before the run was registered.
+		cmdArgs = append(cmdArgs, "--effort", r.o.effort)
+	}
 	cmd := exec.Command("claude", cmdArgs...)
 	cmd.Dir = r.o.cwd
 	cmd.Stdin = specf

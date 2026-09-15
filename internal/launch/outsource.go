@@ -60,8 +60,17 @@ func nestedEnv(env []string) []string {
 type opts struct {
 	cwd, spec, log, session, model, harness, providerName  string
 	configDir, label, doneMarker, requireQuota, maxSeconds string
-	allowAgent, noVisionCheck, detach, foreground          bool
+	// effort is the claude-code harness's `--effort` level. Measured on z.ai
+	// glm-5.3 (2026-09-15, three probes each, one-word answer): low → 3
+	// output tokens every time, max → 113/50/52 — the endpoint folds its
+	// thinking into output tokens, so the knob is real there. Other harnesses
+	// have no equivalent and refuse the flag rather than drop it silently.
+	effort                                        string
+	allowAgent, noVisionCheck, detach, foreground bool
 }
+
+// effortLevels is what `claude --effort` accepts (its --help, 2026-09-15).
+var effortLevels = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 
 // OutsourceMain launches a delegated run on a third-party provider, on one of
 // the wired harnesses. The provider is a table entry, not a hardcoded
@@ -112,6 +121,8 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.requireQuota, ok = need()
 		case "--max-seconds":
 			o.maxSeconds, ok = need()
+		case "--effort":
+			o.effort, ok = need()
 		case "--allow-agent":
 			o.allowAgent, ok = true, true
 		case "--no-vision-check":
@@ -129,7 +140,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "-h", "--help":
 			// The harness and provider lists are derived, so a new arm cannot
 			// be routable and undocumented at the same time.
-			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--allow-agent] [--no-vision-check] [--detach] [--foreground] [--list-wiring]\n",
+			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--detach] [--foreground] [--list-wiring]\n",
 				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
 			return 0
 		default:
@@ -188,6 +199,10 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if msg := pairingRefusal(o.harness, p.name); msg != "" {
+		fmt.Fprintln(stderr, msg)
+		return ExitUsage
+	}
+	if msg := effortRefusal(o.harness, o.effort); msg != "" {
 		fmt.Fprintln(stderr, msg)
 		return ExitUsage
 	}
@@ -584,6 +599,9 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	fmt.Fprintf(&b, "finished=%s\n", now.Format("2006-01-02T15:04:05Z"))
 	fmt.Fprintf(&b, "harness=%s\nprovider=%s\n", r.o.harness, r.p.name)
 	fmt.Fprintf(&b, "model_requested=%s\nmodel_actual=%s\nsession=%s\n", r.o.model, r.modelActual, r.sid)
+	if r.o.effort != "" {
+		fmt.Fprintf(&b, "effort=%s\n", r.o.effort)
+	}
 	if r.modelVerdict != "" {
 		fmt.Fprintf(&b, "model_verdict=%s\n", r.modelVerdict)
 	}
@@ -595,4 +613,22 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 		fmt.Fprintf(&b, "wrapper_signal=%s\n", s)
 	}
 	return b.String()
+}
+
+// effortRefusal is the pre-flight for --effort: the level must be one the
+// CLI accepts, and the harness must be the one that has the flag. A silently
+// dropped effort would leave the caller believing a fan-out round ran cheap
+// when it ran at the default, which is the exact confusion the flag exists
+// to remove.
+func effortRefusal(harness, effort string) string {
+	if effort == "" {
+		return ""
+	}
+	if !effortLevels[effort] {
+		return fmt.Sprintf("outsource: --effort must be one of low|medium|high|xhigh|max, got: %s", effort)
+	}
+	if harness != "claude-code" {
+		return fmt.Sprintf("outsource: --effort is a claude-code harness flag; harness '%s' has no equivalent — drop the flag or use --harness claude-code", harness)
+	}
+	return ""
 }

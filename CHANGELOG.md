@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.1 — 2026-09-15 — an effort knob for the claude-code harness
+
+- **`--effort low|medium|high|xhigh|max`** passes Claude Code's own effort
+  level through to a claude-code round and records it in the sentinel
+  (`effort=…`). Measured on z.ai glm-5.3 first (three probes per level, a
+  one-word prompt): `low` answers in 3 output tokens every time, `max` in
+  113/50/52 — the endpoint folds thinking into `output_tokens`, so the knob is
+  real on the plan. Unset keeps the harness default. The flag is refused
+  (exit 64) on crush/opencode/agy, which have no equivalent, and on a level
+  the CLI does not accept — silently dropping it would let a "cheap" fan-out
+  round run at the default with nobody the wiser. `references/glm.md` carries
+  the per-round routing: mechanical → low, ordinary implementation → medium,
+  contracts and cause narrowing → high, max only after a lower level failed
+  on the same spec.
+
 ## 0.14.0 — 2026-09-10 — one wiring table, and a provider that lost its only model
 
 - **`internal/launch/wiring.go` is the single owner of "what can run where".**

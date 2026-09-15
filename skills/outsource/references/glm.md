@@ -135,6 +135,18 @@ zero repository-state risk; `--label <name>` names the track in the run
 registry; `--max-seconds N` kills the harness at N seconds (exit 124);
 `--done-marker <string>` records in the sentinel whether the transcript
 carries the spec's completion marker (`done_marker=found|absent`);
+`--effort low|medium|high|xhigh|max` (claude-code only; refused on the
+other harnesses, exit 64) passes the CLI's effort level through and records
+it in the sentinel (`effort=…`). **z.ai honours it** (measured 2026-09-15,
+glm-5.3, three probes per level, a one-word answer: `low` → 3 output tokens
+every time, `max` → 113/50/52; the endpoint reports `thinking_tokens: 0` and
+folds the thinking into `output_tokens`, so the saving shows there). Unset
+means the harness default. Pick it per round, not per session: mechanical
+edits, fan-out, format conversions → `low`; ordinary implementation against a
+tight spec → `medium`; multi-file contracts, gate authoring, cause narrowing
+→ `high`; `max` only when a lower level has demonstrably failed on the same
+spec — a round that ran everything at `max` is the pattern this flag exists
+to end;
 `--detach` re-execs into its own session; `--foreground` opts out of the
 non-TTY refusal. A clean harness exit without the marker is **exit 72**
 (same code and same-intent stderr as `grok-run.sh`). 70 stays the
