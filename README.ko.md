@@ -11,10 +11,10 @@
 | 백엔드 | 구동 | 쓰는 자리 | 하드 제약 |
 |---|---|---|---|
 | **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 **두 하네스** 중 하나로 — 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | 기본 모델은 **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
-| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니, 이제는 여기 플랜으로 부르십시오 | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
+| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니 이제는 여기 플랜으로 부르십시오(같은 슬롯의 현재 입주자는 `stealth/union-alpha`입니다) | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
 | **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
 | **gemini-3.8-flash-high** — Google 플랜 (2026-09-05까지의 실측 기본값은 3.7) | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드 — 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC`의 hex를 정확히 명명) | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
-| **OpenRouter** — id는 직접 고릅니다 | `opencode` CLI, `--provider openrouter --model openrouter/<vendor>/<id>` | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 — 어떤 id를 쓸지는 당신이 정하고, 그 선택도 당신 몫입니다 | **기본 모델 없음**: 여기 라우팅되던 유일한 id가 `stealth/ox-alpha`였고 2026-09-10에 제공이 끊겼습니다. 토큰당 과금이라 플랜 쿼터가 없고, 이 스킬이 프로브해 본 적 없는 id에 대해서는 아무것도 보증하지 않습니다 |
+| **OpenRouter** — 기본은 `stealth/union-alpha`, 원하면 다른 id | `opencode` CLI, `--provider openrouter`(다른 모델은 `--model openrouter/<vendor>/<id>`) | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 — 지금 기본값은 무료에 262k 컨텍스트이고, 에이전틱 라운드를 끝까지 통과했습니다 | **stealth 슬롯은 빌린 자리입니다**: 직전 입주자 `stealth/ox-alpha`는 2026-09-10에 끊겼고 이 모델도 같은 길을 갑니다. **형태는 보지만 색은 못 봅니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서). 엔드포인트가 **데이터 정책을 아예 공개하지 않으므로** 사내 코드는 이 arm에 올리지 마십시오 |
 | **Codex on Cheaper Inference** — 런처 백엔드가 아닌 사이드카 | `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회 | Codex 자체 하네스로 돌리는 임시·수동 감독 라운드. 구독이 아니라 토큰당 과금 — `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 선택 | **런처 밖**: 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트 없음 |
 
 **백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 프로바이더 테이블과 하네스 테이블이 하나씩 있고, 나머지는 전부 거기서 파생됩니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
@@ -52,7 +52,7 @@ cd outsource
 ./install.sh --project  # 프로젝트 스코프: ./.claude/skills/outsource/
 ```
 
-[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter — 이 arm은 기본 모델이 없어서 쓸 id도 직접 정해야 합니다). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
+[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter — 기본 모델은 무료 stealth 슬롯이고, 다른 id를 쓰려면 계정에 크레딧이 있어야 합니다). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 

@@ -122,19 +122,37 @@ var providerTable = []provider{
 	},
 	{
 		name: "openrouter",
-		// No default model. stealth/ox-alpha was this provider's only routed id
-		// and it was withdrawn (2026-09-10, user-reported: the stealth slot no
-		// longer serves — it had been unveiled as glm-5.3-flash, which the zai
-		// row above routes directly). The harness stays wired because the arm
-		// works; what is gone is one model, so the launcher asks for an id
-		// instead of inventing one. requiredModelError is where that is said.
-		defaultModel:   "",
+		// stealth/union-alpha, the free stealth slot as of 2026-09-16 (listed
+		// that day; measured here 2026-09-17). This column has been empty since
+		// stealth/ox-alpha — the previous occupant of the same slot — stopped
+		// serving on 2026-09-10, and the slot is the pattern: an unnamed lab
+		// puts a model up free while it evaluates, then withdraws it. So this
+		// default is expected to lapse, and the launcher must degrade the way
+		// it did last time — blank this one field and requiredModelError
+		// resumes asking the caller for an id. Do not build anything on the id
+		// itself beyond this row.
+		//
+		// Measured through the real arm, not the catalogue: an agentic round
+		// wrote two files, ran them, reported truthfully that the git guard
+		// blocked its commit, and `opencode export` asserted
+		// modelID=stealth/union-alpha. Priced 0/0 with a 262144 context.
+		defaultModel:   "stealth/union-alpha",
 		defaultHarness: "opencode",
-		// Unmeasured on purpose. OpenRouter is a catalogue, not one model: the
-		// caller names the id per round and this launcher keeps no capability
-		// table for ids it has never probed. The guard therefore defers here
-		// rather than refusing a round it cannot speak for — the honest answer
-		// to "can this id see pixels" is that only the caller knows.
+		// Still visionAlways, and still for the deferring reason rather than a
+		// claim: OpenRouter is a catalogue, the caller names the id per round,
+		// and this launcher keeps no capability table for ids it has not
+		// probed. The guard's question is only "do pixels reach the model",
+		// and for the current default the answer is measured yes — two shape
+		// probes through opencode's read tool, both correct (a drawn "4", a
+		// drawn "T").
+		//
+		// What is NOT safe to infer from that pass: colour. The same two
+		// rounds read a uniform #1E50DC as "#560000, dark maroon-red" and a
+		// uniform #E8A020 as "#F5F5F5, off-white" — wrong hue and wrong
+		// lightness, reported with stated high confidence both times. Pixels
+		// arriving is not colour fidelity, and a guard that only gates the
+		// former must not be read as certifying the latter. references/
+		// opencode.md carries this where a spec author will meet it.
 		vision:      visionAlways,
 		pairingNote: "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
 	},
@@ -437,9 +455,15 @@ func pairingRefusal(harnessName, providerName string) string {
 // defaults. It is what `outsource-run --list-wiring` prints, so "what can run
 // where" is one command rather than a read of this file.
 func wiringMatrix() string {
+	return renderWiring(providerTable)
+}
+
+// renderWiring is the matrix over a given provider table, so the empty-default
+// column can be rendered in a test without emptying a live row.
+func renderWiring(providers []provider) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-12s %-14s %-24s %s\n", "PROVIDER", "HARNESS", "DEFAULT MODEL", "NOTES")
-	for _, p := range providerTable {
+	for _, p := range providers {
 		for _, hname := range harnessesFor(p.name) {
 			def := p.defaultModel
 			notes := []string{}

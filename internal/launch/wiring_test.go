@@ -220,43 +220,85 @@ func TestSeedModelIsScopedByTheProviderRow(t *testing.T) {
 	}
 }
 
-// A provider whose only routed model was withdrawn (openrouter, after
-// stealth/ox-alpha stopped serving on 2026-09-10) must ask for --model at
-// launch. FAIL-first: with defaultModel empty and no such guard, the empty
-// string reached qualifyOpencodeModel and became "openrouter/" — a malformed
-// id raised INSIDE the --detach child, where nothing can print, so the caller
-// saw "detached (pid=…)" and exit 0 over a round that was already dead.
-func TestProviderWithoutDefaultModelDemandsOne(t *testing.T) {
-	dir := t.TempDir()
-	spec := filepath.Join(dir, "spec.md")
-	if err := os.WriteFile(spec, []byte("do a thing\n"), 0o644); err != nil {
-		t.Fatal(err)
+// requiredModelError is what stands between an empty --model and a harness
+// building a malformed id out of the empty string. It is gated at the
+// mechanism, not through a particular provider, because WHICH provider has no
+// default is a fact that moves: openrouter had none between 2026-09-10 (when
+// stealth/ox-alpha stopped serving) and 2026-09-17 (when stealth/union-alpha
+// took the slot), and the stealth slot will empty again. This is a change of
+// premise, not a relaxed standard — every assertion the end-to-end version made
+// is made here, and the end-to-end path that a provider WITH a default takes is
+// covered by TestProviderDefaultModelLaunchesWithoutTheFlag below.
+//
+// FAIL-first: make requiredModelError return ("", true) unconditionally and
+// both halves of this fail.
+func TestRequiredModelErrorDemandsAnIDOnlyWhereThereIsNoDefault(t *testing.T) {
+	oc, _ := findHarness("opencode")
+	cc, _ := findHarness("claude-code")
+
+	// A provider with no default model, whatever it is called: the refusal has
+	// to name the provider, the flag, and the form the harness wants — a
+	// caller who is told only "pass --model" still does not know what to type.
+	empty := provider{name: "someday-empty", defaultModel: ""}
+	msg, ok := requiredModelError(empty, oc, "")
+	if ok {
+		t.Fatal("a provider with no default model must refuse an absent --model")
 	}
-	t.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
-	t.Setenv("OUTSOURCE_HARNESS", "")
-	t.Setenv("GLM_DELEGATE_MODEL", "glm-5.3")
-	var stderr bytes.Buffer
-	rc := OutsourceMain([]string{
-		"--cwd", dir, "--spec", spec, "--log", filepath.Join(dir, "x.log"),
-		"--provider", "openrouter", "--label", "no-default-model",
-	}, &bytes.Buffer{}, &stderr)
-	if rc != ExitUsage {
-		t.Fatalf("rc=%d, want %d; stderr=%s", rc, ExitUsage, stderr.String())
-	}
-	for _, want := range []string{"no default model", "--model", "openrouter/<id>"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Fatalf("refusal must contain %q, got: %s", want, stderr.String())
+	for _, want := range []string{"someday-empty", "no default model", "--model", "openrouter/<id>"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("refusal must contain %q, got: %s", want, msg)
 		}
 	}
-	ents, _ := os.ReadDir(filepath.Join(dir, "runs"))
-	if len(ents) != 0 {
-		t.Fatalf("a refused launch must not register a round, found %d", len(ents))
+	// An explicit --model satisfies it even with no default.
+	if _, ok := requiredModelError(empty, oc, "openrouter/vendor/id"); !ok {
+		t.Fatal("an explicit --model must satisfy the guard")
 	}
-	// A provider that HAS a default is unaffected by the same guard.
-	zai, _ := findProvider("zai")
-	cc, _ := findHarness("claude-code")
-	if msg, ok := requiredModelError(zai, cc, ""); !ok {
-		t.Fatalf("zai has a default model and must pass, got: %s", msg)
+	// A provider that HAS a default is unaffected, on any harness.
+	for _, p := range providerTable {
+		if p.defaultModel == "" {
+			continue
+		}
+		if msg, ok := requiredModelError(p, cc, ""); !ok {
+			t.Fatalf("provider %s has default %q and must pass, got: %s", p.name, p.defaultModel, msg)
+		}
+	}
+}
+
+// The other half of the same fact, end to end: a provider that has a default
+// launches on a bare `--provider X` with no --model. This is what the stealth
+// slot going empty broke last time and what filling it fixes, and it is the
+// invocation every reference doc leads with.
+//
+// FAIL-first: blank the openrouter row's defaultModel and this fails at exit 64
+// with "no default model" — which is precisely the state 2026-09-10 left behind.
+func TestProviderDefaultModelLaunchesWithoutTheFlag(t *testing.T) {
+	for _, p := range providerTable {
+		if p.defaultModel == "" {
+			t.Errorf("provider %s has no default model; a bare --provider %s cannot launch. "+
+				"That is a legitimate state (the stealth slot empties), but it must be a deliberate "+
+				"edit to this row, so update this test in the same commit.", p.name, p.name)
+		}
+	}
+
+	// And the guard chain really does pass an absent --model through for one:
+	// harness form check included, which is where an empty id would otherwise
+	// become the malformed "openrouter/".
+	or, _ := findProvider("openrouter")
+	oc, _ := findHarness("opencode")
+	if msg, ok := requiredModelError(or, oc, ""); !ok {
+		t.Fatalf("openrouter now has a default and must not demand --model: %s", msg)
+	}
+	qualified, errMsg := qualifyOpencodeModel("", or.defaultModel)
+	if errMsg != "" {
+		t.Fatalf("the default model must qualify without a flag: %s", errMsg)
+	}
+	if qualified != "openrouter/"+or.defaultModel {
+		t.Fatalf("qualified = %q, want openrouter/%s", qualified, or.defaultModel)
+	}
+	// The id reaching opencode's -m must round-trip back to what the identity
+	// assertion compares against, inner slash and all.
+	if got := requestedModelID(qualified); got != or.defaultModel {
+		t.Fatalf("requestedModelID(%q) = %q, want %q", qualified, got, or.defaultModel)
 	}
 }
 
@@ -303,10 +345,22 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 			}
 		}
 	}
-	// A provider with no default must say so where the model would go, not
-	// print a blank column the reader has to interpret.
-	if !strings.Contains(out, "(--model required)") {
-		t.Errorf("--list-wiring must mark a provider with no default model:\n%s", out)
+	// Every routable cell must name the model a bare launch would run, because
+	// that is the question the matrix is read to answer.
+	for _, p := range providerTable {
+		if p.defaultModel != "" && !strings.Contains(out, p.defaultModel) {
+			t.Errorf("--list-wiring omits %s's default model %q:\n%s", p.name, p.defaultModel, out)
+		}
+	}
+
+	// A provider with NO default must say so where the model would go, rather
+	// than print a blank column the reader has to interpret. No live row is in
+	// that state today (openrouter regained a default on 2026-09-17), but the
+	// stealth slot empties — it did on 2026-09-10 — so the rendering is gated
+	// over a synthetic table instead of being dropped with its last example.
+	empty := renderWiring([]provider{{name: "openrouter", defaultModel: "", defaultHarness: "opencode"}})
+	if !strings.Contains(empty, "(--model required)") {
+		t.Errorf("a provider with no default model must be marked, not blank:\n%s", empty)
 	}
 }
 

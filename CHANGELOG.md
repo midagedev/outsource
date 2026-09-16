@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.16.0 — 2026-09-17 — the stealth slot has a new occupant
+
+- **`stealth/union-alpha` is the openrouter row's default model**, so a bare
+  `--provider openrouter` routes again. It is free (0/0), 262144 context,
+  131072 max completion. This column had been empty since `stealth/ox-alpha`
+  stopped serving on 2026-09-10, and the slot is the pattern rather than the
+  product: when this one lapses too, blank the one field and
+  `requiredModelError` resumes asking the caller for an id.
+- **Measured through the arm, not read off the catalogue.** An agentic round
+  wrote two files, ran them, and reported truthfully that the git guard blocked
+  its `git commit` (HEAD stayed unborn); `opencode export` asserted
+  `modelID=stealth/union-alpha`; the done-marker was found and the round exited
+  0.
+- **Vision: shape yes, colour no — and that combination is the hazard.** Two
+  rounds, two shape probes, both correct (a drawn `4`, a drawn `T`). The same
+  two rounds read a uniform `#1E50DC` as "`#560000`, dark maroon-red" and a
+  uniform `#E8A020` as "`#F5F5F5`, off-white" — wrong hue, wrong lightness,
+  and both times with stated high confidence. The vision guard still passes
+  here (pixels really do arrive, which is all it asks), so the boundary is
+  documented where a spec author meets it: `references/opencode.md` carries the
+  probe table, and precise colour work stays off this arm.
+- **The endpoint publishes no data policy** (`data_policy: null`) and the lab
+  is unnamed. A delegated round's prompt is the spec plus everything the
+  delegate reads, so the reference now says plainly: open source and throwaway
+  work, not proprietary code.
+- **A failed opencode round now says why.** The reason was always in the JSONL
+  log — the first union-alpha round exited 1 with an empty `<log>.err` and
+  "Unexpected server error (ref err_587c66b5)" one line into the log — but the
+  launcher returned a bare rc, and a `--detach` round has no terminal left to
+  ask. The last error event is lifted onto stderr and into the sentinel as
+  `harness_error=`, status code and provider reference id included. An empty
+  account gets `Insufficient credits (status 402)` this way instead of a silent
+  rc=1.
+- Two gates changed premise rather than standard, both noted in place: the
+  `--model`-required checks now gate `requiredModelError` and the
+  `(--model required)` rendering directly, since no live provider is in that
+  state today, and a new gate fails if any provider row loses its default
+  without the test being updated in the same commit.
+
 ## 0.15.0 — 2026-09-15 — a round you can watch while it works
 
 - **`bin/tail.sh <label>` follows a live round.** One line per turn — `💬` what

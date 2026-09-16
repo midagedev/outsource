@@ -226,3 +226,84 @@ func TestSentinelOmitsVerdictLinesWhenUnset(t *testing.T) {
 		t.Fatalf("unset verdict must not render a line; got:\n%s", got)
 	}
 }
+
+// A failed opencode round used to return a bare rc with no reason attached,
+// while the reason sat in the log one line in. Measured 2026-09-17: the first
+// stealth/union-alpha round exited 1 with an empty <log>.err, and the whole
+// diagnosis — "Unexpected server error", plus the provider's own reference id —
+// was already on disk. A --detach round has no terminal left to ask.
+//
+// FAIL-first: make opencodeLogError return "" and both the message and the ref
+// disappear from the sentinel.
+func TestOpencodeLogErrorLiftsTheReasonOffTheLog(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "run.log")
+
+	// The verbatim shape the failed round wrote.
+	body := `{"type":"error","timestamp":1789601452527,"sessionID":"ses_f5370ef4","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Check server logs for details.","ref":"err_587c66b5"}}}` + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := opencodeLogError(p)
+	for _, want := range []string{"Unexpected server error", "ref err_587c66b5"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lifted message %q is missing %q", got, want)
+		}
+	}
+
+	// A status code rides along when there is one — 402 on this arm means the
+	// account is out of credits, which is a different fix from a flaky provider.
+	withStatus := `{"type":"error","sessionID":"s","error":{"name":"APIError","data":{"message":"Insufficient credits.","statusCode":402}}}` + "\n"
+	if err := os.WriteFile(p, []byte(withStatus), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := opencodeLogError(p); !strings.Contains(got, "status 402") || !strings.Contains(got, "Insufficient credits") {
+		t.Fatalf("status code must ride along, got: %s", got)
+	}
+
+	// The LAST error is the one that stopped the round; an earlier, retried one
+	// is not the reason.
+	two := `{"type":"error","sessionID":"s","error":{"name":"E","data":{"message":"first, retried"}}}` + "\n" +
+		`{"type":"text","sessionID":"s","part":{"type":"text","text":"kept going"}}` + "\n" +
+		`{"type":"error","sessionID":"s","error":{"name":"E","data":{"message":"second, fatal"}}}` + "\n"
+	if err := os.WriteFile(p, []byte(two), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := opencodeLogError(p); got != "second, fatal" {
+		t.Fatalf("the last error is the reason, got: %s", got)
+	}
+
+	// A clean log yields nothing rather than an invented reason, and a missing
+	// one is not a crash.
+	if err := os.WriteFile(p, []byte(`{"type":"text","part":{"type":"text","text":"fine"}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := opencodeLogError(p); got != "" {
+		t.Fatalf("a clean log must yield no error, got: %s", got)
+	}
+	if got := opencodeLogError(filepath.Join(dir, "nope.log")); got != "" {
+		t.Fatalf("a missing log must yield no error, got: %s", got)
+	}
+}
+
+// And the reason has to land in the artifact that outlives the round: stderr is
+// gone the moment a detached round ends.
+func TestSentinelCarriesTheHarnessError(t *testing.T) {
+	r := &round{
+		o:            opts{model: "openrouter/stealth/union-alpha", harness: "opencode"},
+		p:            provider{name: "openrouter"},
+		harnessError: "Unexpected server error. Check server logs for details. (ref err_587c66b5)",
+	}
+	got := r.sentinelBody(1, "", time.Time{})
+	if !strings.Contains(got, "harness_error=Unexpected server error") {
+		t.Fatalf("sentinel must carry the harness's reason; got:\n%s", got)
+	}
+	if !strings.Contains(got, "ref err_587c66b5") {
+		t.Fatalf("sentinel must keep the provider's reference id; got:\n%s", got)
+	}
+	// A round that failed for no stated reason must not render an empty line.
+	clean := (&round{o: opts{harness: "opencode"}, p: provider{name: "openrouter"}}).sentinelBody(0, "", time.Time{})
+	if strings.Contains(clean, "harness_error=") {
+		t.Fatalf("an unset reason must not render a line; got:\n%s", clean)
+	}
+}

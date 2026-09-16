@@ -100,6 +100,20 @@ func (r *round) runOpencode() int {
 		r.timedOutNote()
 		return ExitTimedOut
 	}
+	// A non-zero rc from this harness arrives with no explanation attached: the
+	// reason is an `{"type":"error"}` event sitting in the JSONL log, and
+	// <log>.err carries opencode's stderr, which is empty for a provider-side
+	// refusal. Measured 2026-09-17 on the first stealth/union-alpha round —
+	// rc=1, an empty stderr, and the whole diagnosis ("Unexpected server error",
+	// with the provider's own reference id) already on disk one line into the
+	// log. A detached round has no terminal left to ask, so the reason is lifted
+	// onto stderr AND into the sentinel, which is the artifact that survives.
+	if rc != 0 {
+		if msg := opencodeLogError(logPath); msg != "" {
+			r.harnessError = msg
+			fmt.Fprintf(r.stderr, "outsource: the opencode round failed (rc=%d) and its log says: %s\n", rc, msg)
+		}
+	}
 
 	assertCode := 0
 	switch {
@@ -140,6 +154,58 @@ func (r *round) runOpencode() int {
 		return rc
 	}
 	return assertCode
+}
+
+// opencodeLogError returns the last error event in an opencode JSONL log, in
+// one readable line, or "" when the log carries none. Last rather than first:
+// a round that failed after doing work leaves the fatal event at the end, and
+// an earlier retried one is not the reason it stopped.
+func opencodeLogError(logPath string) string {
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		return ""
+	}
+	out := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		if line == "" || !strings.Contains(line, `"error"`) {
+			continue
+		}
+		var ev struct {
+			Type  string `json:"type"`
+			Error struct {
+				Name string `json:"name"`
+				Data struct {
+					Message    string `json:"message"`
+					Ref        string `json:"ref"`
+					StatusCode int    `json:"statusCode"`
+				} `json:"data"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil || ev.Type != "error" {
+			continue
+		}
+		msg := strings.TrimSpace(ev.Error.Data.Message)
+		if msg == "" {
+			msg = ev.Error.Name
+		}
+		if msg == "" {
+			continue
+		}
+		var extra []string
+		if ev.Error.Data.StatusCode != 0 {
+			extra = append(extra, fmt.Sprintf("status %d", ev.Error.Data.StatusCode))
+		}
+		if ev.Error.Data.Ref != "" {
+			// The provider's own reference id — the only handle a support
+			// question has, and it is lost the moment the log is pruned.
+			extra = append(extra, "ref "+ev.Error.Data.Ref)
+		}
+		if len(extra) > 0 {
+			msg += " (" + strings.Join(extra, ", ") + ")"
+		}
+		out = msg
+	}
+	return out
 }
 
 // opencodeModelFormError is the single owner of opencode's openrouter/<id>

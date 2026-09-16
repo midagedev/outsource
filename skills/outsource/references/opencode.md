@@ -5,14 +5,19 @@ The model is the point; **the harness is just how it is driven headlessly**.
 the harness to `opencode`. Division of labor is unchanged: the lead writes
 specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
 
-> **`--model` is required on this arm.** `stealth/ox-alpha` was its only
-> routed id and it stopped serving (2026-09-10) — it had been unveiled as
-> **glm-5.3-flash**, which the `zai` provider routes directly and cheaper.
-> The arm itself is unchanged and fully wired; what is gone is one model, so
-> the launcher asks you to name an id rather than inventing one. Omitting
-> `--model` exits 64 with `provider openrouter has no default model`.
-> OpenRouter ids are `vendor/model`, so the flag value has two slashes:
-> `--model openrouter/<vendor>/<id>`.
+> **The default is `stealth/union-alpha`** (listed 2026-09-16, measured here
+> 2026-09-17; free, 262144 context). A bare `--provider openrouter` runs it.
+> Any other id is `--model openrouter/<vendor>/<id>` — OpenRouter ids are
+> `vendor/model`, so the flag value carries two slashes.
+>
+> **Expect this default to lapse.** It occupies the same stealth slot that
+> `stealth/ox-alpha` held until it stopped serving on 2026-09-10 (ox-alpha was
+> later unveiled as glm-5.3-flash, which the `zai` provider routes directly and
+> cheaper). The slot is a pattern, not a product: an unnamed lab puts a model up
+> free while it evaluates it, then takes it down. When this one goes, blank
+> `defaultModel` in the openrouter row of `internal/launch/wiring.go` and the
+> launcher goes back to asking you for an id — exit 64, `provider openrouter has
+> no default model`. Nothing else has to change.
 
 opencode manages its own credentials (`opencode auth login`). This
 launcher does not write a key, does not add an `internal/cred` row, and
@@ -23,17 +28,49 @@ without notice (that is how the stealth slot worked, and how it ended).
 The launcher asserts identity per round via `opencode export` and fails
 the round with exit 70 on a mismatch, even when the run itself succeeded.
 
+**Privacy caveat, and it is the price of "free".** The stealth endpoint
+publishes **no data policy at all** — `/api/v1/models/stealth/union-alpha/
+endpoints` returns `"data_policy": null` (checked 2026-09-17), and the lab
+behind it is not named. You therefore cannot establish what happens to a
+round's prompt, and a delegated round's prompt is your spec plus every file
+the delegate reads. Treat this arm as disclosure to an undisclosed party:
+fine for open source and throwaway work, not for proprietary code, secrets,
+or anything under an NDA. The zai and agy arms are on named accounts with
+stated terms; use them when that matters.
+
 The shared implementer preamble (`references/spec-preamble.md`) is
 backend-agnostic; there is no opencode-specific preamble. Assemble the
 shared file in front of every task spec.
 
-**Vision:** the harness path works — measured 2026-08-23 on ox-alpha, a spec
-that named an absolute path to a solid-red PNG and asked the model to open it
-answered `Red` through opencode's `read` tool. What the launcher cannot do is
-speak for an arbitrary catalogue id, so the provider's vision column **defers**
-rather than deciding: image-naming specs pass the guard here and it is the
-caller who must pick a model that can actually see. Do not read that pass as
-this skill certifying the id.
+**Vision:** the harness path carries pixels — measured 2026-08-23 on ox-alpha
+(a spec naming an absolute path to a solid-red PNG answered `Red` through
+opencode's `read` tool) and again 2026-09-17 on union-alpha. The provider's
+vision column **defers** rather than deciding, because the launcher cannot
+speak for an arbitrary catalogue id: image-naming specs pass the guard here and
+the caller owns the choice of a model that can actually see. Do not read that
+pass as this skill certifying the id.
+
+> **Shape yes, colour no — measured on `stealth/union-alpha`, 2026-09-17.**
+> Two rounds, two independent probes, through the launcher and opencode's own
+> `read` tool:
+>
+> | probe | truth | answered | verdict |
+> |---|---|---|---|
+> | drawn glyph on black | `4` | `4` | correct |
+> | drawn glyph on black | `T` | `T` | correct |
+> | uniform fill | `#1E50DC` (blue) | `#560000`, "dark maroon-red" | **wrong hue** |
+> | uniform fill | `#E8A020` (orange) | `#F5F5F5`, "off-white" | **wrong hue and lightness** |
+>
+> Both colour answers came with stated high confidence ("both images were
+> delivered to me as actual rendered attachments and I read them directly").
+> That combination is the hazard: the model is not blind and it does not report
+> uncertainty, so a round asked to verify a palette will return a fluent,
+> confident, wrong hex. Compare glm-5.3-flash on the same `#1E50DC` fill:
+> `#2244DD`, ~5% per channel and the right colour name.
+>
+> So: this arm is usable for shape, layout, presence and "is the element
+> there". **Send precise colour and luminance judgment elsewhere** — the same
+> rule the rest of this skill applies, for a sharper reason than usual.
 
 ## Invocation
 
@@ -43,7 +80,7 @@ cat ~/.claude/skills/outsource/references/spec-preamble.md \
     $SP/task.md > $SP/spec.md
 
 ~/.claude/skills/outsource/bin/outsource-run.sh --detach \
-  --provider openrouter --model openrouter/<vendor>/<id> \
+  --provider openrouter \
   --cwd /absolute/path/to/worktree --spec $SP/spec.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/oc-cfg-<track> --log $SP/oc-<track>.log \
@@ -54,12 +91,12 @@ cat ~/.claude/skills/outsource/references/spec-preamble.md \
 harnesses — it happens before harness dispatch). A non-TTY foreground
 launch is refused at exit 64; use `--detach` or `--foreground`.
 
-`--harness opencode` is the default for this provider and can be omitted.
-`--model openrouter/<id>` is **required** (no default — see the note at the
-top). The id itself contains a slash (`vendor/model`), so the qualified form
-has two — a naive one-slash split is wrong. The form is checked before the
-`--detach` re-exec, so a malformed value refuses on your terminal instead of
-dying silently in the detached child.
+`--harness opencode` is the default for this provider and can be omitted, and
+so can `--model` while the row has a default (see the note at the top). When
+you do pass one, the id itself contains a slash (`vendor/model`), so the
+qualified form has two — a naive one-slash split is wrong. The form is checked
+before the `--detach` re-exec, so a malformed value refuses on your terminal
+instead of dying silently in the detached child.
 
 `--label` is the track's purpose, and it is worth typing every time. The
 last stdout line is `SESSION <id>` — pass it back with `--session <id>`
@@ -140,10 +177,17 @@ Read the round's report with `bin/last-report.sh <log>`.
   round and points at `opencode auth login`. Absence of the file is
   **not** proof — newer opencode also has a credential table in
   `opencode.db`. When the launcher cannot tell, it launches (fail open).
-- Cost: `step_finish` reports per-round cost. It read `"cost":0` while
-  ox-alpha was a free stealth listing, which is not what a priced id will
-  report. There is no plan-quota window either way, so `--require-quota`
-  stays unsupported on this arm.
+- Cost: `step_finish` reports per-round cost. It reads `"cost":0` for a free
+  stealth listing — measured on ox-alpha, and again on union-alpha
+  (2026-09-17) — which is not what a priced id will report. There is no
+  plan-quota window either way, so `--require-quota` stays unsupported on this
+  arm.
+- **A priced id needs credits on the account, and the refusal says so.** With
+  an empty balance, `openrouter/z-ai/glm-5.3-flash` came back
+  `Insufficient credits` (status 402) while the free stealth id ran fine in the
+  same minute (measured 2026-09-17). The launcher lifts that message out of the
+  log onto stderr and into the sentinel as `harness_error=`, because a
+  `--detach` round has no terminal left to print it to.
 
 ## `-f` is an array flag (do not rediscover)
 
@@ -160,7 +204,7 @@ Same family as the zai launcher:
 | rc | meaning |
 |---:|---|
 | 0 | harness exited cleanly **and** identity matched **and** the done-marker was found in the final report (when one was requested) |
-| 64 | usage (unknown flag, missing `--cwd`/`--spec`, **`--model` absent on a provider with no default**, `--model` not in `openrouter/<id>` form, pairing refused, done-marker not in the spec) |
+| 64 | usage (unknown flag, missing `--cwd`/`--spec`, `--model` not in `openrouter/<id>` form, pairing refused, done-marker not in the spec — plus **`--model` absent** once the row's default lapses) |
 | 65 | vision guard: spec names an image and the model cannot see pixels (does not fire here — this provider's vision column defers to the caller) |
 | 66 | `--require-quota` is not available for this provider |
 | 69 | `opencode` CLI not on PATH |

@@ -381,6 +381,10 @@ type round struct {
 	modelVerdict string
 	modelSource  string
 	hold         *signalHold
+	// harnessError is what the harness's own log gave as the reason it failed,
+	// when it gave one. It exists because a --detach round's stderr goes
+	// nowhere: the sentinel is the artifact a reader still has afterwards.
+	harnessError string
 	// trail is the file this round left a live, readable record in. Registered
 	// up front when the harness knows it, filled in at the end for the
 	// claude-code harness, whose transcript path is only known once the session
@@ -653,6 +657,9 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	// post-mortem a week later still wants the transcript.
 	if r.trail != "" {
 		fmt.Fprintf(&b, "trail=%s\n", r.trail)
+	}
+	if r.harnessError != "" {
+		fmt.Fprintf(&b, "harness_error=%s\n", r.harnessError)
 	}
 	b.WriteString(markerLines)
 	if s := r.hold.name(); s != "" {
