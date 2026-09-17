@@ -39,6 +39,33 @@
   state today, and a new gate fails if any provider row loses its default
   without the test being updated in the same commit.
 
+Also in this release, landed between 0.15.0 and 0.16.0:
+
+- **A stalled round's listing samples the harness socket before calling it
+  silent.** The idle column reads the trail, and the trail records *completed*
+  turns, so one long streaming turn — a long think, one large write — is
+  indistinguishable from a hang. Measured 2026-09-15: a glm-5.3 round silent
+  for 15 minutes was killed as stuck on that evidence, and its relaunch stalled
+  at the same point while receiving 10–16 KB/s from the API the whole time. The
+  full `runs` listing now samples inbound bytes on the launcher's children for
+  three seconds when a running round crosses the stall threshold (`nettop`, on
+  macOS; elsewhere it says the traffic is not measurable): receiving reads "a
+  long streaming turn, not a hang; leave it", nothing arriving keeps the old
+  wording plus the sample window. The one-line view is untouched, so the status
+  line pays nothing.
+- **The vision refusal quotes the text that matched.** The guard is an
+  extension test, so a file name inside a spec's own test string — `url(a/*.png)`
+  — trips it exactly like a capture path would. Without the match in the
+  message the lead has to guess which token fired, and the first guess was wrong
+  (2026-09-15, one wasted relaunch). The refusal now carries the match with a
+  little leading context; `tests/done-marker.test.sh` asserts it.
+- **`tail`'s trail line is gated, and `-f` waits out a not-yet-created trail.**
+  The `runs list` trail line had only a live probe behind it, so it could have
+  stopped printing silently; both of its states are pinned now. Under `-f`, a
+  revealed path that does not exist yet is the `SessionStart` hook winning a
+  race with the harness's first write, not a failure — it waits instead of
+  exiting 65.
+
 ## 0.15.0 — 2026-09-15 — a round you can watch while it works
 
 - **`bin/tail.sh <label>` follows a live round.** One line per turn — `💬` what
