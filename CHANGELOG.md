@@ -46,6 +46,12 @@
   `H`, and a uniform `#1E50DC` as "`#0000FF`, blue" — right colour name, exact
   value well off. Usable for shape, layout and colour family; exact hex still
   goes to a frontier judge.
+- **A release gate, after the same slip three times running.** `0.13.0`,
+  `0.14.1` and `0.16.1` each landed a changelog entry and its feature while
+  leaving `plugin.json` on the previous version, which then caught up silently
+  at a later bump — so no commit in history carries those manifests and each tag
+  needed a footnote explaining the disagreement. `tests/version-manifest.test.sh`
+  now fails when the manifest and the changelog's newest entry disagree.
 - **A test that could be satisfied by disappearing has been fixed.** The first
   version of the shim's gate let a bypassed guard reach `syscall.Exec`, which
   replaced the *test process* with git — so `go test` reported ok while actually
