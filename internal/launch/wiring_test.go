@@ -265,40 +265,77 @@ func TestRequiredModelErrorDemandsAnIDOnlyWhereThereIsNoDefault(t *testing.T) {
 }
 
 // The other half of the same fact, end to end: a provider that has a default
-// launches on a bare `--provider X` with no --model. This is what the stealth
-// slot going empty broke last time and what filling it fixes, and it is the
-// invocation every reference doc leads with.
+// launches on a bare `--provider X` with no --model, and the id it launches
+// with survives the round trip the identity assertion compares against.
 //
-// FAIL-first: blank the openrouter row's defaultModel and this fails at exit 64
-// with "no default model" — which is precisely the state 2026-09-10 left behind.
+// Re-premised 2026-09-18. It used to read openrouter, because openrouter was
+// the row whose default had just been filled. openrouter is now the row whose
+// default has just emptied — stealth/union-alpha stopped serving, the second
+// occupant of that slot to do so — so the roles swap: openrouter is the named
+// exception, every other row must still carry a default, and the opencode
+// qualification half runs on an explicit id, which is what a caller of that
+// provider now types anyway.
+//
+// FAIL-first (measured 2026-09-18 on the pre-blanking source): remove
+// openrouter from emptyByDesign and this fails with "provider openrouter has
+// no default model".
 func TestProviderDefaultModelLaunchesWithoutTheFlag(t *testing.T) {
+	// The rows that are deliberately without a default. Naming them one by one
+	// is the point: a row that empties without this list being edited in the
+	// same commit is an accident, and that is the only thing this loop can
+	// still catch now that an empty row is a legitimate state.
+	emptyByDesign := map[string]bool{
+		// The stealth slot. Empty between 2026-09-10 (ox-alpha withdrawn) and
+		// 2026-09-16 (union-alpha listed), and empty again since 2026-09-18
+		// (union-alpha withdrawn and unveiled as unbiased/pareto, priced).
+		"openrouter": true,
+	}
 	for _, p := range providerTable {
+		if emptyByDesign[p.name] {
+			if p.defaultModel != "" {
+				t.Errorf("provider %s is listed as having no default but carries %q; "+
+					"a slot that refills is good news, but drop it from emptyByDesign "+
+					"in the same commit so the loop guards it again.", p.name, p.defaultModel)
+			}
+			continue
+		}
 		if p.defaultModel == "" {
 			t.Errorf("provider %s has no default model; a bare --provider %s cannot launch. "+
 				"That is a legitimate state (the stealth slot empties), but it must be a deliberate "+
-				"edit to this row, so update this test in the same commit.", p.name, p.name)
+				"edit to this row, so add it to emptyByDesign in the same commit.", p.name, p.name)
 		}
 	}
 
-	// And the guard chain really does pass an absent --model through for one:
-	// harness form check included, which is where an empty id would otherwise
-	// become the malformed "openrouter/".
-	or, _ := findProvider("openrouter")
-	oc, _ := findHarness("opencode")
-	if msg, ok := requiredModelError(or, oc, ""); !ok {
-		t.Fatalf("openrouter now has a default and must not demand --model: %s", msg)
+	// A provider that does carry a default really does pass an absent --model
+	// through the guard chain, on the harness that provider launches with.
+	for _, p := range providerTable {
+		if p.defaultModel == "" {
+			continue
+		}
+		h, ok := findHarness(p.defaultHarness)
+		if !ok {
+			t.Fatalf("provider %s declares harness %q, which is not in the table", p.name, p.defaultHarness)
+		}
+		if msg, ok := requiredModelError(p, h, ""); !ok {
+			t.Errorf("provider %s has default %q and must not demand --model: %s", p.name, p.defaultModel, msg)
+		}
 	}
-	qualified, errMsg := qualifyOpencodeModel("", or.defaultModel)
+
+	// And the opencode id round-trips, inner slash and all: the qualified form
+	// is what reaches `-m`, and requestedModelID is what the identity
+	// assertion compares the transcript against. With no default in the row,
+	// the id is the caller's — which is the form every openrouter launch takes
+	// today.
+	const id = "vendor/model"
+	qualified, errMsg := qualifyOpencodeModel("openrouter/"+id, "")
 	if errMsg != "" {
-		t.Fatalf("the default model must qualify without a flag: %s", errMsg)
+		t.Fatalf("an explicit openrouter id must qualify: %s", errMsg)
 	}
-	if qualified != "openrouter/"+or.defaultModel {
-		t.Fatalf("qualified = %q, want openrouter/%s", qualified, or.defaultModel)
+	if qualified != "openrouter/"+id {
+		t.Fatalf("qualified = %q, want openrouter/%s", qualified, id)
 	}
-	// The id reaching opencode's -m must round-trip back to what the identity
-	// assertion compares against, inner slash and all.
-	if got := requestedModelID(qualified); got != or.defaultModel {
-		t.Fatalf("requestedModelID(%q) = %q, want %q", qualified, got, or.defaultModel)
+	if got := requestedModelID(qualified); got != id {
+		t.Fatalf("requestedModelID(%q) = %q, want %q", qualified, got, id)
 	}
 }
 
@@ -354,13 +391,11 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 	}
 
 	// A provider with NO default must say so where the model would go, rather
-	// than print a blank column the reader has to interpret. No live row is in
-	// that state today (openrouter regained a default on 2026-09-17), but the
-	// stealth slot empties — it did on 2026-09-10 — so the rendering is gated
-	// over a synthetic table instead of being dropped with its last example.
-	empty := renderWiring([]provider{{name: "openrouter", defaultModel: "", defaultHarness: "opencode"}})
-	if !strings.Contains(empty, "(--model required)") {
-		t.Errorf("a provider with no default model must be marked, not blank:\n%s", empty)
+	// than print a blank column the reader has to interpret. openrouter is in
+	// that state again since 2026-09-18, so this reads the live table rather
+	// than the synthetic one it fell back to while the slot was filled.
+	if !strings.Contains(out, "(--model required)") {
+		t.Errorf("openrouter has no default model and must be marked, not blank:\n%s", out)
 	}
 }
 

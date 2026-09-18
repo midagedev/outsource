@@ -33,7 +33,7 @@ only numeric contracts.
 |---|---|---|---|
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | the **default glm-5.3 is blind** (`--model glm-5.3-flash` sees — model table in `references/glm.md`); style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
-| **OpenRouter** — `stealth/union-alpha` by default, any id on request | opencode CLI, via `bin/outsource-run.sh --provider openrouter` (`references/opencode.md`) | a third process family when z.ai headroom is gone — the current default is **free** with a 262144 context, and the harness carries pixels to the model | **the stealth slot lapses**: this is the same slot `stealth/ox-alpha` held until 2026-09-10, so expect a withdrawal and blank one field when it comes. **Sees shape, not colour** — measured 2026-09-17, it read a blue fill as "dark maroon" and an orange one as "off-white", both with high stated confidence. The endpoint publishes **no data policy**, so keep proprietary work off this arm |
+| **OpenRouter** — **no default; you name the id** | opencode CLI, via `bin/outsource-run.sh --provider openrouter --model openrouter/<vendor>/<id>` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and the harness carries pixels to the model | **the stealth slot has emptied twice** — `ox-alpha` on 2026-09-10, `union-alpha` on 2026-09-18 (measured: `rc=1`, the endpoint's own 404 naming its successor `unbiased/pareto`, which is priced). A bare `--provider openrouter` is exit 64 until someone refills the row. **Sees shape, not colour** — measured 2026-09-17, a blue fill read as "dark maroon" and an orange one as "off-white", both with high stated confidence. Pay-per-token, no plan quota, and a stealth endpoint publishes no data policy — keep proprietary work off this arm |
 | **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8 is the routed default since 2026-09-05, not yet re-measured) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 | **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds. `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (`minimal`…`xhigh`, default `medium` — config.toml does not apply) pick the arm | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |
 
@@ -45,7 +45,8 @@ Selection rules:
   (image/video) or a web tool the GLM harness lacks; agy for a separate
   quota pool, the fastest benched completion, or the sharpest measured
   vision. OpenRouter (opencode) is a third process family for when the two
-  plans are both out of headroom — you name the id and own the choice.
+  plans are both out of headroom — you name the id and own the choice, and
+  since 2026-09-18 there is no default to fall back on.
   "It feels exploratory" is not a reason — narrow the cause first, then
   delegate (see *When NOT to outsource*).
 - Anything that must **look at pixels** → agy (gemini-3.8-flash-high — the
@@ -151,7 +152,7 @@ in flight*).
   z.ai model-mapping trap, measured behavior profile.
 - OpenRouter: `references/opencode.md` — `bin/outsource-run.sh --provider
   openrouter --model openrouter/<vendor>/<id>` (harness `opencode` is the
-  default for that provider, and `--model` has no default), isolated
+  default for that provider, and `--model` is required — the row has no default since 2026-09-18), isolated
   `OPENCODE_CONFIG_DIR`, git-write permission deny, `SESSION <id>` resume via
   `-s`, model-identity via `opencode export`.
 - Codex on Cheaper Inference: `references/codex.md` — `bin/codex-ci`, the

@@ -122,29 +122,28 @@ var providerTable = []provider{
 	},
 	{
 		name: "openrouter",
-		// stealth/union-alpha, the free stealth slot as of 2026-09-16 (listed
-		// that day; measured here 2026-09-17). This column has been empty since
-		// stealth/ox-alpha — the previous occupant of the same slot — stopped
-		// serving on 2026-09-10, and the slot is the pattern: an unnamed lab
-		// puts a model up free while it evaluates, then withdraws it. So this
-		// default is expected to lapse, and the launcher must degrade the way
-		// it did last time — blank this one field and requiredModelError
-		// resumes asking the caller for an id. Do not build anything on the id
-		// itself beyond this row.
-		//
-		// Measured through the real arm, not the catalogue: an agentic round
-		// wrote two files, ran them, reported truthfully that the git guard
-		// blocked its commit, and `opencode export` asserted
-		// modelID=stealth/union-alpha. Priced 0/0 with a 262144 context.
-		defaultModel:   "stealth/union-alpha",
+		// EMPTY, since 2026-09-18. `stealth/union-alpha` held this slot from
+		// 2026-09-16 and stopped serving on the 18th, exactly as the row said it
+		// would: a probe round came back rc=1 with the endpoint's own 404 body —
+		// "Thank you for participating in the Stealth Union Alpha testing period.
+		// This model was Unbiased's Pareto." That is the second occupant of this
+		// slot to lapse (stealth/ox-alpha, 2026-09-10, was unveiled as
+		// glm-5.3-flash), and the pattern is now measured twice: an unnamed lab
+		// puts a model up free while it evaluates, then withdraws it and names
+		// it. The unveiled id is live and priced ($2.5/M in, $7.5/M out on
+		// unbiased/pareto), so it is a model a caller may name — but it is not
+		// free, and a pay-per-token default nobody asked for is the one thing
+		// this column must not be. So the field goes back to empty and
+		// requiredModelError resumes asking the caller for an id.
 		defaultHarness: "opencode",
 		// Still visionAlways, and still for the deferring reason rather than a
 		// claim: OpenRouter is a catalogue, the caller names the id per round,
 		// and this launcher keeps no capability table for ids it has not
 		// probed. The guard's question is only "do pixels reach the model",
-		// and for the current default the answer is measured yes — two shape
-		// probes through opencode's read tool, both correct (a drawn "4", a
-		// drawn "T").
+		// and on this harness the answer is measured yes — two shape probes
+		// through opencode's read tool on the slot's last occupant, both
+		// correct (a drawn "4", a drawn "T"). The harness carries pixels; which
+		// id reads them is the caller's choice, now more literally than before.
 		//
 		// What is NOT safe to infer from that pass: colour. The same two
 		// rounds read a uniform #1E50DC as "#560000, dark maroon-red" and a

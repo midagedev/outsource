@@ -5,19 +5,26 @@ The model is the point; **the harness is just how it is driven headlessly**.
 the harness to `opencode`. Division of labor is unchanged: the lead writes
 specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
 
-> **The default is `stealth/union-alpha`** (listed 2026-09-16, measured here
-> 2026-09-17; free, 262144 context). A bare `--provider openrouter` runs it.
-> Any other id is `--model openrouter/<vendor>/<id>` — OpenRouter ids are
-> `vendor/model`, so the flag value carries two slashes.
+> **There is no default model on this row — `--model` is required.** The form
+> is `--model openrouter/<vendor>/<id>`; OpenRouter ids are `vendor/model`, so
+> the flag value carries two slashes. A bare `--provider openrouter` refuses at
+> exit 64 with `provider openrouter has no default model`.
 >
-> **Expect this default to lapse.** It occupies the same stealth slot that
-> `stealth/ox-alpha` held until it stopped serving on 2026-09-10 (ox-alpha was
-> later unveiled as glm-5.3-flash, which the `zai` provider routes directly and
-> cheaper). The slot is a pattern, not a product: an unnamed lab puts a model up
-> free while it evaluates it, then takes it down. When this one goes, blank
-> `defaultModel` in the openrouter row of `internal/launch/wiring.go` and the
-> launcher goes back to asking you for an id — exit 64, `provider openrouter has
-> no default model`. Nothing else has to change.
+> **The stealth slot has now emptied twice, and that is the fact to carry.**
+> `stealth/ox-alpha` held it until 2026-09-10 and was unveiled as
+> glm-5.3-flash (which the `zai` provider routes directly, and cheaper).
+> `stealth/union-alpha` held it from 2026-09-16 and stopped serving on
+> **2026-09-18**, measured here: a probe round came back `rc=1` with the
+> endpoint's own 404 body — *"Thank you for participating in the Stealth Union
+> Alpha testing period. This model was Unbiased's Pareto."* The pattern is a
+> pattern, not a product: an unnamed lab puts a model up free while it
+> evaluates it, then withdraws it and names it. **Do not plan a round around
+> free capacity here.** The unveiled successor, `unbiased/pareto`, is live and
+> priced — $2.5/M in, $7.5/M out, 262144 context — so it is an id you may name,
+> but it is not free and it is not this row's default. When some future
+> occupant takes the slot, fill `defaultModel` in the openrouter row of
+> `internal/launch/wiring.go` and drop `openrouter` from `emptyByDesign` in
+> `wiring_test.go`, in the same commit.
 
 opencode manages its own credentials (`opencode auth login`). This
 launcher does not write a key, does not add an `internal/cred` row, and
@@ -29,9 +36,10 @@ The launcher asserts identity per round via `opencode export` and fails
 the round with exit 70 on a mismatch, even when the run itself succeeded.
 
 **Privacy caveat, and it is the price of "free".** The stealth endpoint
-publishes **no data policy at all** — `/api/v1/models/stealth/union-alpha/
-endpoints` returns `"data_policy": null` (checked 2026-09-17), and the lab
-behind it is not named. You therefore cannot establish what happens to a
+published **no data policy at all** — `/api/v1/models/stealth/union-alpha/
+endpoints` returned `"data_policy": null` (checked 2026-09-17), and the lab
+behind it was not named. A stealth id is by construction an id whose terms you
+cannot read. You therefore cannot establish what happens to a
 round's prompt, and a delegated round's prompt is your spec plus every file
 the delegate reads. Treat this arm as disclosure to an undisclosed party:
 fine for open source and throwaway work, not for proprietary code, secrets,

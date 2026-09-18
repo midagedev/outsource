@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.16.1 — 2026-09-18 — the stealth slot empties again
+
+- **`stealth/union-alpha` stopped serving, so the openrouter row has no default
+  model again** and a bare `--provider openrouter` is exit 64 until someone
+  refills it. Measured, not read off the catalogue: a probe round came back
+  `rc=1` carrying the endpoint's own 404 body — *"Thank you for participating
+  in the Stealth Union Alpha testing period. This model was Unbiased's
+  Pareto."* That is the second occupant of the same slot to lapse in eight days
+  (`stealth/ox-alpha`, 2026-09-10, was unveiled as glm-5.3-flash), so the
+  reference now says plainly: do not plan a round around free capacity here.
+  The unveiled successor `unbiased/pareto` is live and priced ($2.5/M in,
+  $7.5/M out), which is why it is an id a caller may name and not a default
+  anybody gets handed.
+- **0.16.0's own debuggability change is what made this a one-command
+  diagnosis.** The round's failure arrived in `<log>.rc` as
+  `harness_error=` with the provider's sentence and status code intact; the
+  previous shape was an exit 1 and an empty `<log>.err`.
+- **Two gates changed premise rather than standard**, both noted in place and
+  both re-measured FAIL-first. `TestProviderDefaultModelLaunchesWithoutTheFlag`
+  now names the rows that are empty on purpose (`emptyByDesign`), so a
+  *different* provider losing its default still fails, and it runs the bare-launch
+  check against every row that does carry one instead of against openrouter
+  alone. The `--list-wiring` renderer's "(--model required)" assertion moves off
+  its synthetic table and back onto the live one, because openrouter is in that
+  state again.
+
 ## 0.16.0 — 2026-09-17 — the stealth slot has a new occupant
 
 - **`stealth/union-alpha` is the openrouter row's default model**, so a bare
