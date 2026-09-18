@@ -268,6 +268,23 @@ When glm-5.3-flash shipped and agy joined the pool, the same method ran again: t
 
 agy finished 2–3× fastest on two of three; **flash was slower than 5.3 on every task** — its value is the 3× plan quota and the eyes, not speed. The vision ladder came from separate probes: agy named a solid `#1E50DC` PNG's hex **exactly**; flash read it as `#2244DD` (~5% per channel); glm-5.3 failed a white-glyph shape probe outright. Precise-color and aesthetic verdicts stay with a frontier vision judge until the cheap arms are A/B-measured on verdict quality.
 
+### A real kernel task, GLM-5.3 vs muse (2026-09-19)
+
+The first same-spec A/B with muse in the pool, and the first on a task where the objective gate does not saturate: write a Q3_K quantized gemv in Rust for NVIDIA's cuda-oxide (sm_86), with a C++ reference harness against ggml's `mmvq` on the same tensor, on the same RTX 3090. Byte-identical spec except path substitutions, isolated worktrees, both gates re-run by the lead. Full write-up in [rig-log](https://github.com/midagedev/rig-log/blob/main/log/2026-09-19-a-first-rust-kernel-two-arms.md).
+
+| | glm-5.3 (effort high) | muse-spark-1.3 (effort high) |
+|---|---|---|
+| wall time | 38 min | **20 min** |
+| accuracy gate (rel err ≤ 1e-4) | pass, 1e-6 | pass, 1e-7 |
+| kernel bandwidth, stack M=1 (ggml 333 GB/s) | 62.7 GB/s (0.19×) | **134.4 GB/s (0.40×)** |
+| kernel bandwidth, stack M=8 (ggml 168 GB/s) | 8.6 (0.05×) | **32.7 (0.19×)** |
+| the one allowed optimisation pass | instruction-side only (51 → 66) | shared-memory x staging (60 → 140) |
+| wrong premise in the spec (a ggml function name) | used the right one **silently** | **reported the correction** |
+| toolchain defect met | none (`#[unroll]` on `u32` loops worked) | compiler ICE on `#[unroll]` with `usize` counters — reported, upstream candidate |
+| diagnosis in the report | **SASS read** (`ptxas -v`), cause named | pass-by-pass table, the step that mattered named |
+
+Neither arm reached the 0.9× target and both stopped after one pass as the spec said. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
+
 ### How we found out
 
 The method is the point, because "which model is better" is not answerable without one.
