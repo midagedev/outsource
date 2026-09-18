@@ -5,12 +5,13 @@ description: >
   vision-verdict work to third-party model CLIs running as headless
   sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
   headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
-  gemini-3.8-flash-high (agy CLI, Google plan), and any OpenRouter id you
-  name (opencode CLI) — while the lead Claude session stays
-  orchestration-only. Use when the user asks to run work via grok / glm /
-  crush / opencode / openrouter / agy, to save tokens, or invokes /outsource.
+  gemini-3.8-flash-high (agy CLI, Google plan), muse-spark-1.3-contributor
+  (Muse Code CLI), and any OpenRouter id you name (opencode CLI) — while the
+  lead Claude session stays orchestration-only. Use when the user asks to run
+  work via grok / glm / crush / opencode / openrouter / agy / muse, to save
+  tokens, or invokes /outsource.
   Pick the backend by task: the default glm-5.3 cannot read images, so
-  vision rounds go to agy, glm-5.3-flash, grok, or a Claude agent.
+  vision rounds go to agy, glm-5.3-flash, grok, muse, or a Claude agent.
 ---
 
 # outsource — third-party models as headless implementation sub-agents
@@ -33,6 +34,7 @@ only numeric contracts.
 |---|---|---|---|
 | **GLM-5.3** — the default | z.ai coding plan, via `bin/outsource-run.sh` on either harness — `claude -p` (default) or the `crush` CLI (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | the **default glm-5.3 is blind** (`--model glm-5.3-flash` sees — model table in `references/glm.md`); style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **grok-4.6** | `grok` CLI, headless (`references/grok.md`) | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
+| **muse-spark-1.3-contributor** — Muse Code | `muse` CLI, via `bin/outsource-run.sh --provider muse` (`references/muse.md`) | a fourth process family on a separate account: 262k context, `--effort` maps to `--reasoning-effort`, and it reads shape and colour family (measured: a drawn `H`, and `#1E50DC` as "blue") | the CLI has no hook and no definable permission profile — an unguarded round **commits** (measured), so the git guard is a `git` shim first on the round's `PATH`, refusing with exit 97. The Anthropic-compatible endpoint answers `billing_error`; the CLI's OAuth session is the path |
 | **OpenRouter** — **no default; you name the id** | opencode CLI, via `bin/outsource-run.sh --provider openrouter --model openrouter/<vendor>/<id>` (`references/opencode.md`) | a third process family when z.ai headroom is gone, and the harness carries pixels to the model | **the stealth slot has emptied twice** — `ox-alpha` on 2026-09-10, `union-alpha` on 2026-09-18 (measured: `rc=1`, the endpoint's own 404 naming its successor `unbiased/pareto`, which is priced). A bare `--provider openrouter` is exit 64 until someone refills the row. **Sees shape, not colour** — measured 2026-09-17, a blue fill read as "dark maroon" and an orange one as "off-white", both with high stated confidence. Pay-per-token, no plan quota, and a stealth endpoint publishes no data policy — keep proprietary work off this arm |
 | **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `bin/outsource-run.sh --provider agy` (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8 is the routed default since 2026-09-05, not yet re-measured) | no per-track config isolation (shared `~/.gemini` settings, git guard installed there); no readable plan quota; exit 0 ≠ success — the launcher reads the result event's `status` |
 | **Codex on Cheaper Inference** — sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` (`references/codex.md`) | spending Cheaper Inference credit from a terminal when you want Codex's own harness; ad-hoc, hand-supervised rounds. `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (`minimal`…`xhigh`, default `medium` — config.toml does not apply) pick the arm | **outside the launcher**: no run registry, no git guard, no `--done-marker`, no identity assertion, no quota gate. Not for spec-able delegation rounds |

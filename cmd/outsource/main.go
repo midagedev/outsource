@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/midagedev/outsource/internal/cred"
+	"github.com/midagedev/outsource/internal/gitshim"
 	"github.com/midagedev/outsource/internal/guard"
 	"github.com/midagedev/outsource/internal/launch"
 	"github.com/midagedev/outsource/internal/overlays"
@@ -52,6 +53,7 @@ var tools = []tool{
 	{"credential", noStdin(cred.Main)},
 	{"verify-key", func(a []string, in io.Reader, out, err io.Writer) int { return cred.VerifyMain(a, out, err, in) }},
 	{"guard", guard.Main},
+	{"git-shim", gitshim.Main},
 	{"grok-run", noStdin(launch.GrokMain)},
 	{"wait", noStdin(launch.WaitMain)},
 	{"outsource-run", noStdin(launch.OutsourceMain)},

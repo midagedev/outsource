@@ -20,6 +20,9 @@
 //	  events are keyed "event", not "type". The final {"event":"result"}
 //	  carries the whole response verbatim in result.response — an explicit
 //	  result, same trust rank as claude-code's.
+//	muse CLI (`muse exec --json`): envelopes keyed by payload_type; the
+//	  run.terminal.completed envelope's payload.text is the assembled final
+//	  answer and is an explicit result, same trust rank as claude-code's.
 //	crush CLI: not JSONL at all. The log is the assistant's prose, with
 //	  turns run together and no envelope of any kind (measured 2026-08-27:
 //	  a finished round whose sentinel said done_marker=found returned exit
@@ -114,6 +117,26 @@ func ExtractSource(r io.Reader) (string, Source, bool) {
 		var typ string
 		if raw, ok := obj["type"]; ok {
 			_ = json.Unmarshal(raw, &typ)
+		}
+		// muse keys its envelopes "payload_type" and carries the assembled
+		// final answer in run.terminal.completed's payload.text. That event is
+		// the harness saying "this is the answer", so it ranks with
+		// claude-code's result rather than with trailing text (measured
+		// 2026-09-18, CLI 1.3.0).
+		if typ == "" {
+			var pt string
+			if raw, ok := obj["payload_type"]; ok {
+				_ = json.Unmarshal(raw, &pt)
+			}
+			if pt == "run.terminal.completed" {
+				var pl struct {
+					Text string `json:"text"`
+				}
+				if raw, ok := obj["payload"]; ok && json.Unmarshal(raw, &pl) == nil && pl.Text != "" {
+					result, haveResult = pl.Text, true
+				}
+				continue
+			}
 		}
 		// agy keys its events "event" and nests the answer: the result
 		// event's result.response is the model's full final text.

@@ -680,8 +680,10 @@ func effortRefusal(harness, effort string) string {
 	if !effortLevels[effort] {
 		return fmt.Sprintf("outsource: --effort must be one of low|medium|high|xhigh|max, got: %s", effort)
 	}
-	if harness != "claude-code" {
-		return fmt.Sprintf("outsource: --effort is a claude-code harness flag; harness '%s' has no equivalent — drop the flag or use --harness claude-code", harness)
+	h, known := findHarness(harness)
+	if !known || !h.effortFlag {
+		return fmt.Sprintf("outsource: harness '%s' has no reasoning-effort control — drop --effort or use one of: %s",
+			harness, strings.Join(effortHarnesses(), ", "))
 	}
 	return ""
 }

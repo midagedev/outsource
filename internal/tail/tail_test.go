@@ -352,3 +352,51 @@ func splitLines(s string) []string {
 	}
 	return out
 }
+
+// muse streams prose in fragments: a measured round (2026-09-18) split one
+// paragraph across fifteen run.output.delta events, and rendering each as its
+// own 💬 line shredded the follow view mid-word. Consecutive speech is one
+// utterance.
+//
+// FAIL-first: drop the coalesceSpeech call in render and this returns a line
+// per fragment, with words split across them.
+func TestMuseSpeechIsCoalescedButToolCallsStillBreakIt(t *testing.T) {
+	ev := func(pt, body string) string {
+		return `{"payload_type":"` + pt + `","payload":` + body + `}`
+	}
+	lines := []string{
+		ev("run.output.delta", `{"text":"Created fizz"}`),
+		ev("run.output.delta", `{"text":".py and ran "}`),
+		ev("run.output.delta", `{"text":"the tests."}`),
+		ev("tool.result", `{"text":"all tests passed","correlation_facts":{"tool_name":"bash","outcome":"success"}}`),
+		ev("run.output.delta", `{"text":"Done."}`),
+	}
+	r := &renderer{format: FormatMuseEvents, width: 0, tools: map[string]string{}}
+	got := r.render(lines)
+	want := []string{
+		"💬 Created fizz.py and ran the tests.",
+		"🔧 bash all tests passed",
+		"💬 Done.",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("rendered:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// A failed tool call is the line a reader is looking for, so it is marked and
+// carries the outcome rather than being rendered as ordinary work.
+func TestMuseFailedToolCallIsMarked(t *testing.T) {
+	line := `{"payload_type":"tool.result","payload":{"text":"outsource git guard: refused ` + "`git commit`" + `\nBLOCKED","correlation_facts":{"tool_name":"bash","outcome":"error"}}}`
+	r := &renderer{format: FormatMuseEvents, width: 0, tools: map[string]string{}}
+	got := r.render([]string{line})
+	if len(got) != 1 || !strings.HasPrefix(got[0], "✗ ") {
+		t.Fatalf("a failed tool call must be marked, got %q", got)
+	}
+	if !strings.Contains(got[0], "error") || !strings.Contains(got[0], "refused") {
+		t.Fatalf("the mark must carry the outcome and the headline: %q", got[0])
+	}
+	// Only the headline: muse's results are multi-line and the rest is the log's job.
+	if strings.Contains(got[0], "BLOCKED") {
+		t.Fatalf("only the first line belongs in the follow view: %q", got[0])
+	}
+}

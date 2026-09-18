@@ -63,6 +63,12 @@ const (
 	// FormatOpencodeEvents is opencode's `run --format json` stream: one event
 	// per line, part.text / part.tool (references/opencode.md, 2026-08-23).
 	FormatOpencodeEvents = "opencode-events"
+	// FormatMuseEvents is the muse CLI's `exec --json` stream: one envelope per
+	// line, `payload_type` naming the event. Measured 2026-09-18 — the text a
+	// round produces arrives as `run.output.delta` chunks, and a tool call
+	// lands as `tool.result` carrying correlation_facts.tool_name plus the
+	// outcome.
+	FormatMuseEvents = "muse-events"
 	// FormatLines is a trail whose entries are not decoded — crush's text log,
 	// agy's stream-json. Shown verbatim rather than described wrongly.
 	FormatLines = "lines"
@@ -70,7 +76,7 @@ const (
 
 func KnownFormat(f string) bool {
 	switch f {
-	case FormatClaudeTranscript, FormatOpencodeEvents, FormatLines:
+	case FormatClaudeTranscript, FormatOpencodeEvents, FormatMuseEvents, FormatLines:
 		return true
 	}
 	return false
@@ -431,12 +437,49 @@ func (r *renderer) render(lines []string) []string {
 			out = append(out, r.claudeLine(l)...)
 		case FormatOpencodeEvents:
 			out = append(out, r.opencodeLine(l)...)
+		case FormatMuseEvents:
+			out = append(out, r.museLine(l)...)
 		default:
 			out = append(out, r.clip(l))
 		}
 	}
+	// muse streams its prose in very small pieces — a measured round split one
+	// paragraph across fifteen deltas, which rendered as fifteen 💬 lines and
+	// made the follow view unreadable. Consecutive speech in one batch is one
+	// utterance, so it is joined into one line. Tool calls still break it,
+	// which is what keeps the order of "said this, then ran that" intact.
+	if r.format == FormatMuseEvents {
+		out = r.coalesceSpeech(out)
+	}
 	return out
 }
+
+// coalesceSpeech joins runs of consecutive 💬 lines into one.
+func (r *renderer) coalesceSpeech(in []string) []string {
+	clipFn := r.clip
+	var out []string
+	var buf []string
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		joined := strings.Join(buf, "")
+		out = append(out, speechMark+clipFn(joined))
+		buf = nil
+	}
+	for _, l := range in {
+		if rest, ok := strings.CutPrefix(l, speechMark); ok {
+			buf = append(buf, rest)
+			continue
+		}
+		flush()
+		out = append(out, l)
+	}
+	flush()
+	return out
+}
+
+const speechMark = "💬 "
 
 func (r *renderer) clip(s string) string {
 	s = strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")
@@ -594,6 +637,72 @@ func (r *renderer) opencodeLine(line string) []string {
 		return []string{"🔧 " + r.clip(e.Part.Tool+" "+stateArg(e.Part.State))}
 	}
 	return nil
+}
+
+type museEnvelope struct {
+	PayloadType string `json:"payload_type"`
+	Payload     struct {
+		Text             string `json:"text"`
+		Terminal         string `json:"terminal"`
+		Reason           string `json:"reason"`
+		CorrelationFacts struct {
+			ToolName string `json:"tool_name"`
+			Outcome  string `json:"outcome"`
+		} `json:"correlation_facts"`
+	} `json:"payload"`
+}
+
+// museLine renders one muse envelope. The round's prose arrives as streamed
+// deltas rather than whole messages, so a delta IS the line — that is what
+// following a live round looks like here, and the assembled copy in
+// run.terminal.completed would only repeat it.
+func (r *renderer) museLine(line string) []string {
+	var e museEnvelope
+	if json.Unmarshal([]byte(line), &e) != nil {
+		return nil
+	}
+	p := e.Payload
+	switch e.PayloadType {
+	case "run.output.delta":
+		// Deltas are fragments of one sentence, so they are NOT trimmed or
+		// clipped here — coalesceSpeech joins them first and the join is what
+		// gets clipped. Trimming each piece would glue words together.
+		if p.Text != "" {
+			return []string{speechMark + p.Text}
+		}
+	case "tool.result":
+		name := p.CorrelationFacts.ToolName
+		if name == "" {
+			name = "tool"
+		}
+		mark := "🔧 "
+		if o := p.CorrelationFacts.Outcome; o != "" && o != "success" {
+			mark = "✗ "
+			name += " (" + o + ")"
+		}
+		return []string{mark + r.clip(strings.TrimSpace(name+" "+firstLine(p.Text)))}
+	case "run.terminal.completed":
+		// Only when it is NOT a clean completion: that case is already on
+		// screen as deltas, and the close-out line says the round ended.
+		if p.Terminal != "" && p.Terminal != "completed" {
+			msg := p.Terminal
+			if p.Reason != "" {
+				msg += ": " + p.Reason
+			}
+			return []string{"✗ " + r.clip(msg)}
+		}
+	}
+	return nil
+}
+
+// firstLine keeps a tool result to its headline. muse returns multi-line
+// results (a file read reports media_type and byte count under the summary),
+// and the rest belongs in the log, not the follow view.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func stateArg(raw json.RawMessage) string {

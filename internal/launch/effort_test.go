@@ -22,7 +22,14 @@ func TestEffortRefusedBeforeLaunch(t *testing.T) {
 	t.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
 	cases := []struct{ harness, effort, want string }{
 		{"claude-code", "ultra", "--effort must be one of"},
-		{"crush", "low", "claude-code harness flag"},
+		// The refusal's wording changed on 2026-09-18, when --effort stopped
+		// being a claude-code-only flag (muse exec takes --reasoning-effort) and
+		// the capability became a harness-table column. The standard is
+		// unchanged — the round is still refused at exit 64 before it launches;
+		// what the message must now do is name a harness that DOES take the
+		// flag, which a hardcoded "claude-code harness flag" sentence could not
+		// keep doing.
+		{"crush", "low", "has no reasoning-effort control"},
 	}
 	for _, c := range cases {
 		var stderr bytes.Buffer
@@ -45,6 +52,38 @@ func TestEffortRefusedBeforeLaunch(t *testing.T) {
 		if !strings.Contains(stderr.String(), c.want) {
 			t.Errorf("%s/--effort %s: stderr %q, want substring %q", c.harness, c.effort, stderr.String(), c.want)
 		}
+	}
+}
+
+// The refusal has to send the caller somewhere real, so it names every harness
+// that honours the flag — derived from the table, so a new one that takes an
+// effort level is offered without anyone remembering to edit a sentence.
+func TestEffortRefusalNamesAHarnessThatTakesTheFlag(t *testing.T) {
+	msg := effortRefusal("crush", "low")
+	if msg == "" {
+		t.Fatal("crush has no effort control and must be refused")
+	}
+	if !strings.Contains(msg, "crush") {
+		t.Errorf("the refusal must name the harness that was refused: %s", msg)
+	}
+	takers := effortHarnesses()
+	if len(takers) == 0 {
+		t.Fatal("no harness declares effortFlag; --effort could never be used")
+	}
+	for _, h := range takers {
+		if !strings.Contains(msg, h) {
+			t.Errorf("refusal omits %s, which does take the flag: %s", h, msg)
+		}
+	}
+	// And every harness that declares the column really is accepted.
+	for _, h := range takers {
+		if m := effortRefusal(h, "high"); m != "" {
+			t.Errorf("harness %s declares effortFlag but was refused: %s", h, m)
+		}
+	}
+	// An unknown harness is refused rather than silently allowed through.
+	if effortRefusal("no-such-harness", "high") == "" {
+		t.Error("an unknown harness must not be granted an effort level")
 	}
 }
 

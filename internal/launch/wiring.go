@@ -156,6 +156,28 @@ var providerTable = []provider{
 		pairingNote: "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
 	},
 	{
+		name: "muse",
+		// Muse Code is provider and harness in one, like agy: the model is
+		// Meta's and auth is an OAuth device flow the CLI owns at
+		// ~/.config/muse/auth.json, so there is no cred row and no URL here.
+		//
+		// The Anthropic-compatible endpoint is NOT the path, which is worth
+		// saying because the CLI advertises one. Measured 2026-09-18: a direct
+		// call to api.meta.ai/v1/messages carrying an API key answered
+		// `billing_error`, while the CLI's own session ran in the same minute.
+		defaultModel:   "muse-spark-1.3-contributor",
+		defaultHarness: "muse",
+		// Measured 2026-09-18 through the CLI's own read tool: a drawn white
+		// "H" on black was read back as "H", and a uniform #1E50DC fill as
+		// "#0000FF, blue" — the right colour NAME with the exact value well
+		// off. So: shape, layout and colour family yes; exact hex no, the same
+		// standing rule this skill applies everywhere. Unlike the openrouter
+		// row this is one known model rather than a catalogue, so the column
+		// states a measurement instead of deferring.
+		vision:      visionAlways,
+		pairingNote: "the muse CLI owns its own OAuth credentials and resolves its endpoint itself, so there is no Anthropic-compatible URL and no cred row for muse",
+	},
+	{
 		name: "agy",
 		// The Google Antigravity CLI is provider and harness in one — auth and
 		// quota live in the Google plan, so no cred row and no URL.
@@ -311,6 +333,13 @@ type harness struct {
 	// (measured 2026-08-26, crush). nil means the harness accepts a bare id.
 	modelForm func(model, provider string) (msg string, ok bool)
 
+	// effortFlag says this harness accepts a reasoning-effort level, so
+	// --effort is honoured rather than refused. A column and not a harness-name
+	// comparison at the call site: that comparison was written when
+	// claude-code was the only one, and muse (--reasoning-effort) made it wrong
+	// the day it was added.
+	effortFlag bool
+
 	// modelFormHint renders that rule for a human, in the message that asks for
 	// a --model this launcher has no default for.
 	modelFormHint string
@@ -327,6 +356,7 @@ var harnessTable = []harness{
 		// itself, through the SessionStart hook in its generated settings.
 		trail:       nil,
 		trailFormat: tail.FormatClaudeTranscript,
+		effortFlag:  true,
 		run:         (*round).runClaudeCode,
 	},
 	{
@@ -369,6 +399,34 @@ var harnessTable = []harness{
 		progress:    func(o opts) string { return o.log },
 		run:         (*round).runAgy,
 	},
+	{
+		name:      "muse",
+		bin:       "muse",
+		providers: []string{"muse"},
+		// `muse exec --json` flushes one JSONL envelope at a time onto --log
+		// while the process is still running (measured 2026-09-18: the log grew
+		// at 4s, 8s, 16s, 20s and 24s of a 24s round), so the log file is both
+		// the progress signal and the readable trail.
+		progress:    func(o opts) string { return o.log },
+		trail:       func(o opts) string { return o.log },
+		trailFormat: tail.FormatMuseEvents,
+		// muse exec --reasoning-effort takes none|minimal|low|medium|high|
+		// xhigh|max|ultra — a superset of this launcher's five names.
+		effortFlag: true,
+		run:        (*round).runMuse,
+	},
+}
+
+// effortHarnesses is the harnesses that honour --effort, in table order, so a
+// refusal names where the flag does work.
+func effortHarnesses() []string {
+	out := []string{}
+	for _, h := range harnessTable {
+		if h.effortFlag {
+			out = append(out, h.name)
+		}
+	}
+	return out
 }
 
 func findHarness(name string) (harness, bool) {

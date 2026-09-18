@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.17.0 — 2026-09-18 — Muse Code is a fourth process family, and the git guard learned a new place to stand
+
+- **New arm: `--provider muse`**, driving Meta's Muse Code CLI headlessly on
+  `muse-spark-1.3-contributor` (262144 context, reasoning-effort knob). Provider
+  and harness in one, like agy: auth is an OAuth device flow the CLI owns, so
+  there is no cred row and no API URL.
+- **Its Anthropic-compatible endpoint is a dead end, and that is worth
+  recording** because the CLI advertises one. A direct call to
+  `api.meta.ai/v1/messages` with an API key answered `billing_error` on both the
+  `x-api-key` and `Authorization: Bearer` forms, while the CLI's own session ran
+  in the same minute. Wiring this as a second claude-code provider — the obvious
+  first guess, since zai and xai are exactly that — would have produced an arm
+  that could never run.
+- **The git guard now has a third attachment point: the `git` on `PATH`.**
+  Every other harness takes a hook (claude-code) or a deny block in a generated
+  config (opencode, agy). muse takes neither — its `--permission-profile` names
+  profiles that no user-writable document defines, with every candidate member
+  of the enterprise `defaults` and `policy` planes rejected as `unknown_member`.
+  Measured baseline: a plain `muse exec` round told to run
+  `git commit --allow-empty` **did it**, exit 0, HEAD moved. So each round now
+  gets a `git` shim in `<config-dir>/bin`, that directory goes first on the
+  round's PATH, and the shim asks `internal/guard` — still the one owner of what
+  is refused — before exec'ing the real git. In a live round `command -v git`
+  resolved to the shim, the commit was refused with exit 97, HEAD stayed unborn,
+  and the delegate reported the refusal verbatim. It is a belt and not a cage:
+  an absolute-path call still gets past it, exactly as it gets past opencode's
+  command-pattern deny list.
+- **Identity is asserted from the export, never from the live log.** The
+  `--json` stream's `run.model.configured` says `source: "startup"` — it reports
+  what the run was configured with, not what replied, the same trap
+  claude-code's `modelUsage` sets. `muse export` carries
+  `model_completed` events instead, one per model completion with its own usage;
+  every one must match the requested id or the round exits 70. A real round
+  recorded `model_source=muse export (5 model_completed event(s))`.
+- **`--effort` is no longer a claude-code-only flag.** It maps to muse's
+  `--reasoning-effort`, whose scale is a superset of this launcher's, so the
+  capability became a harness-table column (`effortFlag`) and the refusal now
+  names every harness that takes it instead of hardcoding one.
+- `bin/tail.sh` renders the new `muse-events` trail, joining the many small
+  `run.output.delta` fragments into one line per utterance (one paragraph
+  arrived in fifteen pieces) while letting tool calls break the run.
+  `bin/last-report.sh` reads `run.terminal.completed` as an explicit result.
+- Vision, measured through the CLI's own read tool: a drawn `H` read back as
+  `H`, and a uniform `#1E50DC` as "`#0000FF`, blue" — right colour name, exact
+  value well off. Usable for shape, layout and colour family; exact hex still
+  goes to a frontier judge.
+- **A test that could be satisfied by disappearing has been fixed.** The first
+  version of the shim's gate let a bypassed guard reach `syscall.Exec`, which
+  replaced the *test process* with git — so `go test` reported ok while actually
+  running `git commit` against this repository (four empty commits, removed).
+  Execution now sits behind a seam the test replaces, and the gate asserts that
+  a refused command never reaches git at all.
+
 ## 0.16.1 — 2026-09-18 — the stealth slot empties again
 
 - **`stealth/union-alpha` stopped serving, so the openrouter row has no default
