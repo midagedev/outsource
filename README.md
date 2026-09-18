@@ -282,6 +282,7 @@ The first same-spec A/B with muse in the pool, and the first on a task where the
 | wrong premise in the spec (a ggml function name) | used the right one **silently** | **reported the correction** |
 | toolchain defect met | none (`#[unroll]` on `u32` loops worked) | compiler ICE on `#[unroll]` with `usize` counters — reported, upstream candidate |
 | diagnosis in the report | **SASS read** (`ptxas -v`), cause named | pass-by-pass table, the step that mattered named |
+| tokens spent (output incl. reasoning / model turns) | 357k / 224 | **79k + 45k reasoning / 76** |
 
 **Round 2, same two arms, same day** — the spec was the lever both round-1 reports had pointed at (ggml's mmvq structure: q8_1 activations, `dp4a`, coalesced weight words), with the accuracy gate re-stated for that design. Both cleared it:
 
@@ -293,6 +294,9 @@ The first same-spec A/B with muse in the pool, and the first on a task where the
 | evidence tool | `ptxas -v`, incl. a reverted step (−35 %, regs 60→122) | `ncu` instruction counts |
 | structure | separate quantize kernel (runs once per token, reused by every expert) | quantize fused into each gemv block |
 | adopted | **yes** (numbers and structure) | no |
+| tokens spent (output incl. reasoning / model turns) | 443k / 172 | **137k + 93k reasoning / 94** |
+
+Both arms ran at `--effort high`, but that label maps onto each vendor's own scale (z.ai folds reasoning into output tokens; muse reports it separately and its default is already `high`), so the label alone is not a controlled variable — the token and turn rows are, and GLM spent 3–4× the output tokens of muse in both rounds. Read the speed rows with that beside them.
 
 Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
 
