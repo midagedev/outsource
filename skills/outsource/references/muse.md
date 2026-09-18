@@ -53,6 +53,34 @@ Follow a running round with `bin/tail.sh <label> -f`; read the finished one with
 subscription backends (zai, grok), and this provider has none. The launcher
 prints the generic refusal and exits 66.
 
+## The sandbox is a second switch, and headless needs it off
+
+muse ships two safety switches, not one: `--approval-mode` and a shell
+filesystem/network **sandbox**, both on by default. The launcher passes
+`--disable-approval` (nobody is there to answer) — and it must pass
+`--disable-sandbox` with it, which it does.
+
+The reason is that the two interlock badly. A tool call that needs to leave the
+sandbox asks for approval to leave it, so with approval off and the sandbox on
+the call is refused outright:
+
+```
+tool denied: unsandboxed execution requires human approval, but approval
+prompts are disabled
+```
+
+Measured 2026-09-18, twice in one round, on a round running a repo's own npm
+gates. That pair is a dead end rather than a safety posture — the escalation is
+lost instead of deferred, and the round carries on believing the gate could not
+run.
+
+This does not weaken what is actually enforced. Every other arm in this skill
+runs with no sandbox at all, and the three layers that hold a round in bounds
+are the same on all of them: the git guard, worktree isolation, and the spec's
+own file whitelist. `--yolo` would also clear the sandbox, but it disables
+approval wholesale and marks the workspace trusted past this run; the launcher
+names the one switch it means.
+
 ## The git guard is a PATH shim here, and that is the interesting part
 
 Every other arm attaches the guard the way its harness allows — `claude-code`
