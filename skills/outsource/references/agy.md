@@ -50,6 +50,16 @@ available list on stderr) — no silent mapping was measured, unlike z.ai.
   and "DONE" in the response while no file exists. The launcher reads the
   final result event and fails any round whose status is not SUCCESS; judge
   by the sentinel and the tree, never by agy's exit code.
+- **agy will hand the turn back mid-work, and the launcher scores that
+  `exit 72`.** Measured 2026-09-18: a round started its own background job
+  (`manage_task`, `Action: status` showing `RUNNING`) and ended the turn with
+  "I will proceed as soon as the background scan finishes." The result event
+  said `status: "SUCCESS"`, so only the missing `--done-marker` caught it —
+  which is precisely why that flag exists. **Nothing wakes an agy round when
+  its background task finishes; there is no later turn.** Put the rule in the
+  spec, because the launcher cannot: run every scan synchronously and read it
+  in the same turn, or cut the work small enough to finish inline; a partial
+  result with its bounds stated is a result, a promise is not.
 - **`--print-timeout` defaults to 5 minutes** — it would truncate most real
   rounds. The launcher pins it to 24h (or above `--max-seconds` when that is
   set, so the watchdog's kill stays attributed as exit 124).
