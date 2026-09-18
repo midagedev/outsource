@@ -283,7 +283,18 @@ The first same-spec A/B with muse in the pool, and the first on a task where the
 | toolchain defect met | none (`#[unroll]` on `u32` loops worked) | compiler ICE on `#[unroll]` with `usize` counters — reported, upstream candidate |
 | diagnosis in the report | **SASS read** (`ptxas -v`), cause named | pass-by-pass table, the step that mattered named |
 
-Neither arm reached the 0.9× target and both stopped after one pass as the spec said. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
+**Round 2, same two arms, same day** — the spec was the lever both round-1 reports had pointed at (ggml's mmvq structure: q8_1 activations, `dp4a`, coalesced weight words), with the accuracy gate re-stated for that design. Both cleared it:
+
+| round 2 | glm-5.3 | muse-spark-1.3 |
+|---|---|---|
+| wall time | 39 min | **34 min** |
+| stack M=1 vs ggml mmvq | **1.046×** | 0.91× |
+| stack M=8 | **0.83×** | 0.78× |
+| evidence tool | `ptxas -v`, incl. a reverted step (−35 %, regs 60→122) | `ncu` instruction counts |
+| structure | separate quantize kernel (runs once per token, reused by every expert) | quantize fused into each gemv block |
+| adopted | **yes** (numbers and structure) | no |
+
+Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
 
 ### How we found out
 
