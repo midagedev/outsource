@@ -377,6 +377,44 @@ script exports it into its own process, so `ps` never sees it. Sourcing the
 script is refused rather than leaking that export into your shell.
 `tests/glm-interactive.test.sh` holds all of this.
 
+### The context window Claude Code believes in is a sixth of the real one
+
+Claude Code does not know `glm-5.3`, so it applies an **unknown-model default
+of 200000** — and enforces it client-side, before a request is made. Measured
+2026-09-20:
+
+| | prompt ≈215k tokens |
+|---|---|
+| default | **`Prompt is too long`**, rc=1, no request sent |
+| `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1310720` | answered; endpoint reported **243868** input tokens |
+
+The model's real window is 1M — 1310720 exactly, per z.ai's model page for
+GLM-5.3 and GLM-5.3-Flash, and the CLI reports that figure verbatim once told.
+The raw endpoint confirms it independently: a direct `curl` was accepted at
+260013 and again at 400013 input tokens, with no complaint from z.ai at all.
+So the ceiling was never the model's.
+
+Two things follow, and both are now fixed in this repo:
+
+- **`bin/glm.sh` sets it** (`GLM_CONTEXT_TOKENS` overrides). Without it an
+  interactive session compacts six times sooner than it needs to, and a big
+  paste or a few large file reads just fails.
+- **Headless rounds set it too**, from a `contextWindow` column on the
+  provider table (`internal/launch/wiring.go`). Every `claude-code`-harness GLM
+  round before 2026-09-20 ran inside 200000. Zero in that column means "not
+  measured", and then nothing is set — a guessed number would refuse work the
+  model can do.
+
+Worth knowing: the plan's quota is counted in **prompts**, not tokens
+(`bin/quota.sh` prints `6430/28000 consumed`), so a wider window costs
+requests, not budget.
+
+Do not confuse this with **`CLAUDE_CODE_MAX_OUTPUT_TOKENS`**, which is the
+output side and a separate measured fix (see `internal/launch/claudecode.go`).
+`modelUsage.maxOutputTokens` reads `32000` no matter what you set — that field
+is a catalog value, not the live ceiling: a single turn measured **52009**
+output tokens straight through it.
+
 ### A subagent asking for opus gets glm-5.3, and there is no way around it
 
 Measured 2026-09-20, inside a `glm.sh` session: an `Agent` call with
@@ -413,4 +451,4 @@ model-switching page describe the same setup from the vendor's side. Checked
 | Default the aliases to `GLM-5.3-Flash` | **`glm-5.3`**, deliberately. Flash's measured value is quota and eyes, not strength (model table at the top); `GLM_MODEL=glm-5.3-flash` when you want it |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | **Taken.** A session answered by z.ai has no business reporting to Anthropic. The one item from that page this script adopts |
 | `API_TIMEOUT_MS=3000000` | **Not taken.** Nothing in this repo's history is a client timeout, and the variable appears nowhere in it. A 50-minute ceiling turns a hung request into a 50-minute hang; a human is present here and `--max-seconds` covers the headless side. Adopt it if a round is ever measured dying on one |
-| `glm-5.3-flash[1m]` plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` for 1M context | **Unreachable on this account.** Measured 2026-09-20: `glm-5.3-flash[1m]` and `glm-5.3[1m]` are both refused `[1211][Unknown Model]` — on `api.z.ai/api/anthropic` *and* on the coding-plan `api/coding/paas/v4`, while bare `glm-5.3-flash` answers on both. Our measured `contextWindow` stays 200000, so the compact window is moot. Re-probe if the plan tier changes |
+| `glm-5.3-flash[1m]` plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` for 1M context | **The suffix is unreachable and the variable is the wrong one — but the 1M is real.** Measured 2026-09-20: `glm-5.3-flash[1m]` and `glm-5.3[1m]` are both refused `[1211][Unknown Model]`, on `api.z.ai/api/anthropic` *and* on the coding-plan `api/coding/paas/v4`, while bare `glm-5.3-flash` answers on both. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` moved nothing. The window is `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and plain `glm-5.3` takes the full 1M without any suffix — see below |

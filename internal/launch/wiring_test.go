@@ -427,3 +427,55 @@ func TestAHarnessWithNoTrailPathRevealsItAtRuntime(t *testing.T) {
 		}
 	}
 }
+
+// The context window the claude-code harness passes is ENFORCED by the CLI,
+// not decorative — so a wrong number here refuses work the model could do, and
+// a missing one refuses work the model CAN do.
+//
+// Measured 2026-09-20: the CLI does not know `glm-5.3`, applied its
+// unknown-model default of 200000, and killed a ~215k-token prompt with
+// "Prompt is too long" before any request left the machine. The same content
+// with CLAUDE_CODE_MAX_CONTEXT_TOKENS set went through, and the endpoint
+// reported 243868 input tokens.
+//
+// FAIL-first: drop the contextWindow from the zai row and this names it.
+func TestClaudeCodeProvidersCarryTheirRealContextWindow(t *testing.T) {
+	// zai is the one measured, and it is the arm this skill runs most.
+	p, ok := findProvider("zai")
+	if !ok {
+		t.Fatal("the zai provider row is gone")
+	}
+	if p.contextWindow == 0 {
+		t.Fatal("zai lost its contextWindow: rounds would silently run on the " +
+			"CLI's unknown-model default of 200000, which is enforced — a prompt " +
+			"past it dies with 'Prompt is too long' before a request is made")
+	}
+	// The documented 1M window for GLM-5.3 / GLM-5.3-Flash, exactly.
+	if p.contextWindow != 1310720 {
+		t.Errorf("zai contextWindow = %d, want 1310720 (z.ai's documented 1M window); "+
+			"if the plan tier changed, re-measure and move this number with it", p.contextWindow)
+	}
+	// A window SMALLER than the CLI's own default would be a silent downgrade
+	// rather than a fix, which is the one way this column can do harm.
+	if p.contextWindow < 200000 {
+		t.Errorf("zai contextWindow = %d is below the CLI's own unknown-model "+
+			"default; that narrows rounds instead of widening them", p.contextWindow)
+	}
+}
+
+// Zero means "not measured", and it has to keep meaning that: a provider on
+// this harness whose window nobody has measured must be left alone rather than
+// given a guess. This asserts the intent is recorded, so a future row does not
+// quietly inherit zai's number.
+func TestUnmeasuredContextWindowIsLeftUnset(t *testing.T) {
+	p, ok := findProvider("xai")
+	if !ok {
+		t.Skip("no xai row to check")
+	}
+	if p.contextWindow != 0 {
+		// Not a failure of principle — but if someone sets it, it must be
+		// because they measured grok's window, not because they copied zai's.
+		t.Logf("xai now declares contextWindow=%d; that number must come from a "+
+			"measurement against x.ai, not from zai's row", p.contextWindow)
+	}
+}

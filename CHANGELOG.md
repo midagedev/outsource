@@ -34,6 +34,28 @@
   and sourcing the script is refused **before** it runs `set -euo pipefail` —
   a refusal that has already turned on errexit in the caller's interactive
   shell has done the damage it exists to prevent.
+- **Every GLM round has been running inside a sixth of its model's context, and
+  the ceiling was Claude Code's, not z.ai's.** The CLI does not know `glm-5.3`,
+  so it applies an unknown-model default of **200000** and **enforces it
+  client-side**: measured 2026-09-20, a ~215k-token prompt died with `Prompt is
+  too long` before a request left the machine, while the same content with
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1310720` was answered and the endpoint
+  reported 243868 input tokens. The raw endpoint accepts 400013 without
+  complaint. GLM-5.3's documented window is 1M — 1310720 exactly.
+  - `bin/glm.sh` sets it (`GLM_CONTEXT_TOKENS` overrides).
+  - Headless rounds set it too, from a new **`contextWindow` column on the
+    provider table** — zero means "not measured" and nothing is set, because a
+    guessed number would refuse work the model can do. Only `zai` carries one.
+  - Quota is counted in prompts, not tokens, so a wider window costs requests,
+    not budget.
+  - Not `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, which z.ai's own page recommends for
+    this and which measured to move nothing. And not the `[1m]` model suffix,
+    which is refused `[1211][Unknown Model]` on both endpoints — plain
+    `glm-5.3` takes the full window with no suffix.
+  - Separately confirmed while chasing it: `modelUsage.maxOutputTokens` reads
+    `32000` whatever you set, but it is a catalog value and not the live
+    ceiling — one turn measured **52009** output tokens through it. The
+    2026-09-05 output-token fix stands.
 - **A subagent asking for `opus` inside a `glm` session gets glm-5.3.** Measured:
   the `Agent` call's own `.meta.json` records `"model": "opus"`, the subagent's
   per-turn `message.model` reads `glm-5.3`. `ANTHROPIC_BASE_URL` is set for the

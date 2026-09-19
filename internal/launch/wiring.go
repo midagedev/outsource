@@ -80,6 +80,25 @@ type provider struct {
 	// never be the round that was asked for.
 	silentMappings map[string]string
 
+	// contextWindow is the model's real input ceiling, in tokens, for the
+	// claude-code harness only. ZERO means "not measured here" and nothing is
+	// set, leaving the CLI's own behaviour untouched.
+	//
+	// It exists because the CLI's unknown-model default is not a display
+	// value: it is ENFORCED client-side. Measured 2026-09-20 on zai — the CLI
+	// does not know `glm-5.3`, applied a 200000 ceiling, and killed a ~215k
+	// token prompt with "Prompt is too long" before any request left the
+	// machine. The same content with the window set went through and the
+	// endpoint reported 243868 input tokens. So a round reading a few large
+	// files was dying against a limit its model does not have.
+	//
+	// Per provider rather than a constant, because the harness serves several
+	// and their windows differ; per provider rather than per model, because
+	// every model routed here today shares one. Split it the day that stops
+	// being true — a wrong number is worse than none, since it would refuse
+	// work the model could do.
+	contextWindow int
+
 	// pairingNote explains why this provider is not wired on other harnesses.
 	// It is appended to the pairing refusal so the message says why, not just
 	// what.
@@ -112,6 +131,11 @@ var providerTable = []provider{
 		// at all and the misassignment would be permanent and silent. Refusing
 		// at launch is the only guard that covers both harnesses.
 		silentMappings: map[string]string{"glm-5.2": "glm-5.3"},
+		// 1310720, the exact figure behind z.ai's "1M-token context window"
+		// for GLM-5.3 and GLM-5.3-Flash (their model page), and what the CLI
+		// reports verbatim once told. Measured to work: 243868 input tokens
+		// accepted where 200000 had refused.
+		contextWindow: 1310720,
 	},
 	{
 		name:           "xai",

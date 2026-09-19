@@ -103,6 +103,29 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
 export ANTHROPIC_SMALL_FAST_MODEL="$model"
 export CLAUDE_CODE_SUBAGENT_MODEL="$model"
 
+# ── The context window Claude Code believes in is not the model's ────────
+#
+# Measured 2026-09-20, and this is a hard failure, not a cosmetic one. Claude
+# Code does not know `glm-5.3`, so it applies an unknown-model default of
+# **200000** — and enforces it client-side. A prompt of ~215k tokens died with
+# `Prompt is too long` before a request was ever made, while the SAME content
+# with this variable set went through and the endpoint reported 243868 input
+# tokens. GLM-5.3 and GLM-5.3-Flash are documented at a 1M-token window, which
+# is 1310720 exactly (z.ai's model page; the CLI reports that figure verbatim
+# once told).
+#
+# So the default silently gave the session a sixth of the model it is talking
+# to, and compacted six times sooner than it had to. Note the plan's quota is
+# counted in PROMPTS, not tokens (`bin/quota.sh` prints "6430/28000
+# consumed"), so a larger window costs requests, not budget.
+#
+# Not to be confused with CLAUDE_CODE_AUTO_COMPACT_WINDOW, which z.ai's own
+# page recommends for this: measured, it moved nothing. The window is this
+# variable.
+if [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]; then
+  export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${GLM_CONTEXT_TOKENS:-1310720}"
+fi
+
 # Vendor-recommended for this setup (z.ai's own Claude Code page), and it is
 # the one item on that page this script takes. The reasoning is not ours to
 # measure: a session pointed at a third-party endpoint has no business sending

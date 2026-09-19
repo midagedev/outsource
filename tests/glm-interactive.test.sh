@@ -129,6 +129,11 @@ else
   # A session answered by z.ai should not be reporting to Anthropic.
   [ "$(field "$rec" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)" = "1" ] \
     && ok || bad "non-essential traffic to Anthropic was left on while pointed at z.ai"
+  # The window is the measured one, not Claude Code's unknown-model default of
+  # 200000 — which is ENFORCED: a ~215k-token prompt died with "Prompt is too
+  # long" before any request was made (measured 2026-09-20).
+  [ "$(field "$rec" CLAUDE_CODE_MAX_CONTEXT_TOKENS)" = "1310720" ] \
+    && ok || bad "the context window was left at Claude Code's unknown-model default (200000 enforced)"
   note "six model vars, base URL, token, output ceiling and telemetry all set"
 fi
 

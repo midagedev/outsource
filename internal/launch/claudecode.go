@@ -132,6 +132,14 @@ func (r *round) runClaudeCode() int {
 	if os.Getenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS") == "" {
 		env = append(env, "CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000")
 	}
+	// The same shape of defect on the input side, and a harder failure. The CLI
+	// applies an unknown-model context ceiling and ENFORCES it: a round whose
+	// prompt crossed it died with "Prompt is too long" before a request was
+	// made. The provider table owns the real number; zero means unmeasured, and
+	// then nothing is set and the CLI keeps its own behaviour.
+	if r.p.contextWindow > 0 && os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS") == "" {
+		env = append(env, fmt.Sprintf("CLAUDE_CODE_MAX_CONTEXT_TOKENS=%d", r.p.contextWindow))
+	}
 	cmd.Env = nestedEnv(env)
 	// Its own process group, so the watchdog can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
