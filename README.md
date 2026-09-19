@@ -312,6 +312,28 @@ Both arms ran at `--effort high`, but that label maps onto each vendor's own sca
 
 Both arms used *fewer* tokens at `max` than at `high` in round 2, because the task was smaller and the gate closed early — so the label is not comparable across tasks either; only the token row is.
 
+**Round 4, two different task types, both arms at `max`** — the series so far was one kernel refined three times, so the last round changed the task class twice: a CPU kernel (Rust AVX2 intrinsics, `Q3_K×Q8_K` gemv with pinned CCD-aware threads, against ik_llama.cpp's CPU backend on a 317 MB working set; gate ≥ 0.9× ggml at each engine's best thread count) and a compiler bug hunt (minimal reproducer for a cuda-oxide `#[unroll]` ICE, one-variable intervention table, locate the pass, duplicate search, English issue draft — no GitHub writes). Four arms, four worktrees, all gates re-run by the lead:
+
+| round 4 (`max`) | glm-5.3 | muse-spark-1.3 |
+|---|---|---|
+| **CPU gemv** — wall time | 34 min | **18 min** |
+| big M=1 vs ggml, lead re-run | 1.11× | 1.11× |
+| big M=8 | **0.87×** | 0.57× |
+| expert0 M=1 (small shape) | **0.91×** | 0.12× (barrier noise at < 22 rows/thread) |
+| 64 threads (SMT) on big M=1 | **holds** (−0.1 %) | −12 % |
+| what the arm found | a scale-unpack bug in its own port, localized by diffing against ggml's dequant dump | a lever table: THP never engaged, 2× unroll −25 %, sw prefetch −10 % — all reverted with evidence |
+| adopted | **yes** (kernel) | lever table folded into the notes |
+| tokens (output incl. reasoning / turns) | 456k / 160 | **77k + 48k reasoning / 52** |
+| **ICE hunt** — wall time | 16 min | **12 min** |
+| cause located | `const_fold.rs:200` via `unroll.rs:387` → SCCP | same two frames, independently |
+| reproducer | 1-trip loop, 14 variant files, partial unroll with a *runtime* trip count also ICEs | 8-trip loop with accumulator; `i << 1u64` compiles, `i << 1u32` ICEs — a bare `1` is `i32` |
+| spec premise corrected | `for` under `#[unroll]` is not E0658 (warns instead) | same |
+| lead re-verified | all 14 variants rebuilt, baseline re-ICEs after each | baseline + fix |
+| adopted | **yes** (tree + draft), muse's `1u64/1u32` row added to the draft | |
+| tokens (output incl. reasoning / turns) | 129k / 150 | **34k + 13k reasoning / 88** |
+
+Two arms on the same compiler bug converged on the same two source lines without seeing each other — that is what a root cause looks like when it is one. On the CPU kernel both cleared the gate at the same ratio, and the decision came from the rows the gate did not cover (M=8, SMT, small shapes): a gate that saturates on both arms is a gate, not a comparison. Across four rounds and ten arms GLM spent 2.7–6× the output tokens of muse on every task, and won three of the four adoption decisions where one arm was picked. Nothing in the series says which of those two facts should drive routing; the table exists so the next round does not have to guess.
+
 Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
 
 ### How we found out
