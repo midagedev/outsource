@@ -34,6 +34,13 @@
   and sourcing the script is refused **before** it runs `set -euo pipefail` —
   a refusal that has already turned on errexit in the caller's interactive
   shell has done the damage it exists to prevent.
+- **A subagent asking for `opus` inside a `glm` session gets glm-5.3.** Measured:
+  the `Agent` call's own `.meta.json` records `"model": "opus"`, the subagent's
+  per-turn `message.model` reads `glm-5.3`. `ANTHROPIC_BASE_URL` is set for the
+  process, so subagents and background queries go to z.ai too — a `glm` session
+  cannot reach Anthropic at all, and the pin only decides whether you find out.
+  The trap is that glm-5.3 is blind, so a vision judge or an "fall back to
+  opus" round quietly becomes a blind GLM one.
 - **Checked against z.ai's own Claude Code page**, and took one thing from it:
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` — a session answered by z.ai has
   no business reporting to Anthropic. Declined `API_TIMEOUT_MS=3000000` (no

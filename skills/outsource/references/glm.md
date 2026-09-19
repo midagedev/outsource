@@ -377,6 +377,29 @@ script exports it into its own process, so `ps` never sees it. Sourcing the
 script is refused rather than leaking that export into your shell.
 `tests/glm-interactive.test.sh` holds all of this.
 
+### A subagent asking for opus gets glm-5.3, and there is no way around it
+
+Measured 2026-09-20, inside a `glm.sh` session: an `Agent` call with
+`model: "opus"` produced a subagent whose recorded request was
+`"model": "opus"` (its `.meta.json`) and whose per-turn `message.model` was
+**`glm-5.3`**. The redirect caught it, which is the point of pinning all six.
+
+What matters is that the redirect is not the only thing standing in the way.
+`ANTHROPIC_BASE_URL` is set for the **process**, and a subagent is a request
+from that process — so main turns, subagents, sidechains and background
+queries all go to z.ai. There is no per-subagent endpoint override. **A
+`glm` session cannot reach Anthropic at all**, pinned or not; the pin only
+decides whether you find out. Without it the request leaves as
+`claude-opus-5`, and z.ai now accepts and echoes that id (see the
+re-measurement above), so it would look answered by Opus and not be.
+
+The trap this sets is specific: **glm-5.3 is blind** (model table, top of this
+file). A vision judge, a "fall back to opus" round, or any rule that reaches
+for a frontier model gets a GLM subagent instead, and a blind one. Orchestrate
+from a normal `claude` session and keep `glm` for the hands-on work — or spawn
+the judge on `glm-5.3-flash`, which does see pixels, knowing it is not a
+frontier verdict.
+
 ### What z.ai's own Claude Code page recommends, and what this takes from it
 
 [docs.z.ai/devpack/tool/claude](https://docs.z.ai/devpack/tool/claude) and its
