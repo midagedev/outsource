@@ -103,6 +103,15 @@ export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
 export ANTHROPIC_SMALL_FAST_MODEL="$model"
 export CLAUDE_CODE_SUBAGENT_MODEL="$model"
 
+# Vendor-recommended for this setup (z.ai's own Claude Code page), and it is
+# the one item on that page this script takes. The reasoning is not ours to
+# measure: a session pointed at a third-party endpoint has no business sending
+# telemetry and error reports to Anthropic, and the traffic is non-essential by
+# Anthropic's own name for it. A caller who wants it keeps it.
+if [ -z "${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-}" ]; then
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+fi
+
 # The same ceiling the headless launcher raises, for the same measured reason:
 # the CLI caps one assistant turn at 32k output tokens and GLM writes a whole
 # file plus its tests in one turn. A caller who pinned their own keeps it.

@@ -376,3 +376,18 @@ The key never reaches a command line: `credential.sh zai` resolves it and the
 script exports it into its own process, so `ps` never sees it. Sourcing the
 script is refused rather than leaking that export into your shell.
 `tests/glm-interactive.test.sh` holds all of this.
+
+### What z.ai's own Claude Code page recommends, and what this takes from it
+
+[docs.z.ai/devpack/tool/claude](https://docs.z.ai/devpack/tool/claude) and its
+model-switching page describe the same setup from the vendor's side. Checked
+2026-09-20:
+
+| Vendor says | Here |
+|---|---|
+| `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL` in `~/.claude/settings.json` | **Same three variables, opposite scope.** Putting them in `settings.json` makes them global — your Anthropic sessions get them too. This script exports them into its own process, so `glm` and `claude` coexist |
+| Those three are the whole model story | **Not enough.** They cover alias paths only; a request naming an id goes straight through. `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` close the rest — measured above |
+| Default the aliases to `GLM-5.3-Flash` | **`glm-5.3`**, deliberately. Flash's measured value is quota and eyes, not strength (model table at the top); `GLM_MODEL=glm-5.3-flash` when you want it |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | **Taken.** A session answered by z.ai has no business reporting to Anthropic. The one item from that page this script adopts |
+| `API_TIMEOUT_MS=3000000` | **Not taken.** Nothing in this repo's history is a client timeout, and the variable appears nowhere in it. A 50-minute ceiling turns a hung request into a 50-minute hang; a human is present here and `--max-seconds` covers the headless side. Adopt it if a round is ever measured dying on one |
+| `glm-5.3-flash[1m]` plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` for 1M context | **Unreachable on this account.** Measured 2026-09-20: `glm-5.3-flash[1m]` and `glm-5.3[1m]` are both refused `[1211][Unknown Model]` — on `api.z.ai/api/anthropic` *and* on the coding-plan `api/coding/paas/v4`, while bare `glm-5.3-flash` answers on both. Our measured `contextWindow` stays 200000, so the compact window is moot. Re-probe if the plan tier changes |

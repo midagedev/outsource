@@ -34,7 +34,19 @@
   and sourcing the script is refused **before** it runs `set -euo pipefail` —
   a refusal that has already turned on errexit in the caller's interactive
   shell has done the damage it exists to prevent.
-- **`tests/glm-interactive.test.sh`** holds all of it — 21 assertions,
+- **Checked against z.ai's own Claude Code page**, and took one thing from it:
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` — a session answered by z.ai has
+  no business reporting to Anthropic. Declined `API_TIMEOUT_MS=3000000` (no
+  client timeout appears anywhere in this repo's history, and a 50-minute
+  ceiling turns a hung request into a 50-minute hang). The vendor's
+  `glm-5.3-flash[1m]` 1M-context id is **unreachable on this account**:
+  measured 2026-09-20, both `glm-5.3-flash[1m]` and `glm-5.3[1m]` are refused
+  `[1211][Unknown Model]` on the Anthropic-compatible endpoint *and* on the
+  coding-plan v4 one, while bare `glm-5.3-flash` answers on both. The vendor
+  also defaults the three aliases to Flash and writes them into
+  `~/.claude/settings.json`, where they leak into every Claude session;
+  `references/glm.md` now has that comparison as a table.
+- **`tests/glm-interactive.test.sh`** holds all of it — 22 assertions,
   FAIL-first confirmed five ways. Two of those five changed the gate rather
   than confirming it. The obvious runtime assertion does **not** catch
   `env KEY=... claude`, because env consumes the assignment out of its own argv

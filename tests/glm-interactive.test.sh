@@ -126,7 +126,10 @@ else
     && ok || bad "the key did not reach the CLI's environment"
   [ "$(field "$rec" CLAUDE_CODE_MAX_OUTPUT_TOKENS)" = "64000" ] \
     && ok || bad "the 32k-turn ceiling was not raised (see claudecode.go for the measurement)"
-  note "six model vars, base URL, token and output ceiling all set"
+  # A session answered by z.ai should not be reporting to Anthropic.
+  [ "$(field "$rec" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)" = "1" ] \
+    && ok || bad "non-essential traffic to Anthropic was left on while pointed at z.ai"
+  note "six model vars, base URL, token, output ceiling and telemetry all set"
 fi
 
 # ── The key is never an argument ──────────────────────────────────────────
