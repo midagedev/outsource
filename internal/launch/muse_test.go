@@ -3,6 +3,7 @@ package launch
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -143,5 +144,32 @@ func TestMuseLogErrorLiftsTheReason(t *testing.T) {
 	}
 	if got := museLogError(p); got != "" {
 		t.Fatalf("a clean log must yield no error, got %q", got)
+	}
+}
+
+// The flags that hold a muse round in bounds are each here because of a measured
+// incident, so a dropped one is a silent regression: the round still runs, and
+// what is lost (the guard's escalation, the repo's rules) only shows in its
+// output. FAIL-first: removing --trust-workspace from museArgs fails this.
+func TestMuseArgsCarryTheFlagsThatHoldARoundInBounds(t *testing.T) {
+	got := museArgs("/tmp/spec.md", "muse-spark-1.3-contributor", "max", "")
+	for _, want := range []string{
+		"--prompt-file", "/tmp/spec.md",
+		"--model", "muse-spark-1.3-contributor",
+		"--reasoning-effort",
+		"--disable-approval", // headless: nobody can answer a prompt
+		"--disable-sandbox",  // with approval off, a sandboxed escalation is refused outright
+		"--user-input-auto-resolve",
+		"--trust-workspace", // without it the workspace's AGENTS.md is skipped
+	} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("muse exec line lost %q: %v", want, got)
+		}
+	}
+	if slices.Contains(got, "--session-id") {
+		t.Fatalf("a fresh round must not carry --session-id: %v", got)
+	}
+	if slices.Contains(got, "--yolo") {
+		t.Fatalf("--yolo marks the workspace trusted past this run; --trust-workspace is the scoped one: %v", got)
 	}
 }

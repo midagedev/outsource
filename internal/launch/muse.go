@@ -77,35 +77,7 @@ func (r *round) runMuse() int {
 		errf, _ = os.Create(r.o.log + ".err")
 	}
 
-	args := []string{"exec", "--json", "--prompt-file", r.o.spec, "--model", r.o.model}
-	if r.o.effort != "" {
-		// muse's own scale is none|minimal|low|medium|high|xhigh|max|ultra,
-		// which is a superset of this launcher's; museEffort maps the shared
-		// names and effortRefusal has already rejected anything else.
-		args = append(args, "--reasoning-effort", museEffort(r.o.effort))
-	}
-	if r.o.session != "" {
-		args = append(args, "--session-id", r.o.session)
-	}
-	// Headless means nobody can answer a prompt. --disable-approval turns the
-	// approval prompts off; the git guard is the shim, not the approval mode,
-	// so nothing here weakens what is refused. --user-input-auto-resolve stops
-	// a round that asks a question from hanging until --max-seconds.
-	//
-	// --disable-sandbox is the third of the set and it is not optional here.
-	// muse's sandbox and its approval mode are separate switches, and a tool
-	// call that needs to leave the sandbox asks for approval to do it — so with
-	// approval off and the sandbox on, that call is refused outright:
-	// "tool denied: unsandboxed execution requires human approval, but approval
-	// prompts are disabled" (measured 2026-09-18, a round running the repo's own
-	// npm gates). The pair is a dead end rather than a safety posture: nobody is
-	// there to approve, so the round loses the escalation instead of deferring
-	// it. Every other arm in this launcher runs with no sandbox at all, and what
-	// actually holds a round in bounds is the same three layers there — the git
-	// shim, the worktree, and the spec's own file whitelist. --yolo would do
-	// this too, but it also disables approval wholesale and marks the workspace
-	// trusted beyond this run; name the one switch that is meant instead.
-	args = append(args, "--disable-approval", "--disable-sandbox", "--user-input-auto-resolve")
+	args := museArgs(r.o.spec, r.o.model, r.o.effort, r.o.session)
 
 	cmd := exec.Command("muse", args...)
 	cmd.Dir = r.o.cwd
@@ -337,4 +309,51 @@ func museReport(logPath string) string {
 		}
 	}
 	return out
+}
+
+// museArgs assembles the `muse exec` command line. It is a separate function
+// so the flags that hold a round in bounds are assertable without launching
+// the CLI — each one below is here because of a measured incident, and a
+// silent drop is how a round loses its guard or its rules.
+func museArgs(spec, model, effort, session string) []string {
+	args := []string{"exec", "--json", "--prompt-file", spec, "--model", model}
+	if effort != "" {
+		// muse's own scale is none|minimal|low|medium|high|xhigh|max|ultra,
+		// which is a superset of this launcher's; museEffort maps the shared
+		// names and effortRefusal has already rejected anything else.
+		args = append(args, "--reasoning-effort", museEffort(effort))
+	}
+	if session != "" {
+		args = append(args, "--session-id", session)
+	}
+	// Headless means nobody can answer a prompt. --disable-approval turns the
+	// approval prompts off; the git guard is the shim, not the approval mode,
+	// so nothing here weakens what is refused. --user-input-auto-resolve stops
+	// a round that asks a question from hanging until --max-seconds.
+	//
+	// --disable-sandbox is the third of the set and it is not optional here.
+	// muse's sandbox and its approval mode are separate switches, and a tool
+	// call that needs to leave the sandbox asks for approval to do it — so with
+	// approval off and the sandbox on, that call is refused outright:
+	// "tool denied: unsandboxed execution requires human approval, but approval
+	// prompts are disabled" (measured 2026-09-18, a round running the repo's own
+	// npm gates). The pair is a dead end rather than a safety posture: nobody is
+	// there to approve, so the round loses the escalation instead of deferring
+	// it. Every other arm in this launcher runs with no sandbox at all, and what
+	// actually holds a round in bounds is the same three layers there — the git
+	// shim, the worktree, and the spec's own file whitelist. --yolo would do
+	// this too, but it also disables approval wholesale and marks the workspace
+	// trusted beyond this run; name the one switch that is meant instead.
+	args = append(args, "--disable-approval", "--disable-sandbox", "--user-input-auto-resolve")
+
+	// --trust-workspace loads the workspace's own AGENTS.md and skills. Without
+	// it muse prints "rules file at <cwd>/AGENTS.md exists, but the workspace is
+	// untrusted, so it is skipped for this session" and the round runs without
+	// the repo's agent contract (measured 2026-09-19, a mulle survey round: the
+	// repo's Never-list never reached the delegate). Its own help text scopes it
+	// to "(this run)", which is the difference from --yolo above: no trust is
+	// recorded past this process. Every round this launcher starts runs in a
+	// worktree the lead created, so the rules being loaded are the lead's own.
+	args = append(args, "--trust-workspace")
+	return args
 }
