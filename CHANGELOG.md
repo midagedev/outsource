@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.1 — 2026-09-19 — Concurrent rounds shared one settings file, so four of five never revealed their trail
+
+- **The default config dir is one path for every round on the machine**
+  (`tmpDir()/outsource-glm-cfg`), and its `settings.json` carried the
+  `SessionStart` trail recorder with THIS round's id baked in. Five rounds
+  launched in the same second each wrote that file over the last one; the final
+  writer's id won, and all five rounds' hooks then recorded into that one run's
+  record. Measured: one `.run` file with eleven `trail=` lines, four rounds
+  reading `trail=pending` after fifty minutes, and `outsource tail <label>`
+  naming a different round's worktree.
+- **The settings are now split by who they are true for.** The git guard is
+  identical for every round, so it stays in the shared `settings.json` — sharing
+  is harmless precisely because nothing in it names a round. Everything carrying
+  a run id moves to a per-round `settings-<run id>.json` passed with
+  `--settings`, which the CLI loads on top of the config dir's.
+- **`SetTrail` no longer lets a foreign trail win silently.** A record already
+  holding a different trail is not a second reveal — a transcript path is fixed
+  once the first turn starts — so the round's own value is kept and the intruder
+  is parked in `trailConflict=`, which the listing prints next to the trail with
+  what it means. The same hook firing twice is idempotent, not a conflict.
+
 ## 0.17.0 — 2026-09-18 — Muse Code is a fourth process family, and the git guard learned a new place to stand
 
 - **New arm: `--provider muse`**, driving Meta's Muse Code CLI headlessly on

@@ -71,6 +71,7 @@ func cmdList(f filter, stdout io.Writer) int {
 		if r.Trail != "" {
 			trailNote = "  trail=" + r.Trail
 		}
+		trailNote += conflictNote(r)
 		switch st {
 		case Failed:
 			fmt.Fprintf(stdout, "         rc=%s  log=%s%s\n", r.RC, logOr("none"), trailNote)
@@ -79,12 +80,12 @@ func cmdList(f filter, stdout io.Writer) int {
 		case Running:
 			switch {
 			case r.Trail != "":
-				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)\n", r.Trail, r.ID)
+				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)%s\n", r.Trail, r.ID, conflictNote(r))
 			case r.TrailFormat != "":
 				// A claude-code round learns its own transcript path only when
 				// its first turn starts, so "pending" is the honest word here —
 				// not "none".
-				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)\n", r.ID)
+				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)%s\n", r.ID, conflictNote(r))
 			}
 			if idleKnown && idle >= StallSeconds() {
 				// Deliberately not a kill instruction. A stall is a reason to
@@ -214,3 +215,15 @@ func cmdLine(f filter, stdout io.Writer) int {
 // rxWindow is how long the socket is sampled when a round looks stalled; the
 // full listing pays it only for a stalled round, the one-line view never does.
 const rxWindow = 3 * time.Second
+
+// conflictNote surfaces a foreign trail wherever a trail is printed. Another
+// round's SessionStart hook writing into this record is the shared-settings
+// signature (2026-09-19), and without a word here it reads as "outsource tail
+// names the wrong worktree" — which cost a session exactly that guess.
+func conflictNote(r *Record) string {
+	if r.TrailConflict == "" {
+		return ""
+	}
+	return "\n         trail CONFLICT — another round also recorded " + r.TrailConflict +
+		" here; their hook settings were shared. Update outsource and relaunch."
+}

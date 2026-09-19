@@ -130,8 +130,16 @@ type Record struct {
 	// (reported 2026-09-15). Trail is empty until the round reveals it —
 	// claude-code learns its transcript path only when its first turn starts,
 	// and SetTrail is how that reveal lands here.
-	Trail          string
-	TrailFormat    string
+	Trail       string
+	TrailFormat string
+	// TrailConflict names a SECOND, different trail that tried to land on this
+	// record. One record can only have one live transcript, so a conflict means
+	// some other round's hook wrote here — the signature of a shared settings
+	// file (2026-09-19: the default config dir is one path, so five concurrent
+	// rounds all recorded into the last launcher's run id). Kept as its own
+	// field rather than a second `trail=` line, because the parser takes the
+	// last value and the wrong one would silently win.
+	TrailConflict  string
 	OwnerSession   string
 	OwnerClaudePid string
 	StartedAt      string
@@ -217,6 +225,8 @@ func Read(path string) (*Record, error) {
 			r.ProgressDir = v
 		case "trail":
 			r.Trail = v
+		case "trailConflict":
+			r.TrailConflict = v
 		case "trailFormat":
 			r.TrailFormat = v
 		case "ownerSession":
@@ -288,12 +298,27 @@ func SetTrail(id, path string) error {
 	if err != nil {
 		return err
 	}
+	// A record already carrying a DIFFERENT trail is not a second reveal of this
+	// round's transcript — nothing reveals twice. It is another round's hook
+	// writing here, so the first value is kept and the intruder is recorded
+	// where it can be seen instead of silently becoming the answer.
+	key := "trail"
+	if b, err := os.ReadFile(file); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if v, ok := strings.CutPrefix(line, "trail="); ok && v != "" {
+				if v == sanitize(path) {
+					return nil // idempotent: the same hook fired twice
+				}
+				key = "trailConflict"
+			}
+		}
+	}
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "trail=%s\n", sanitize(path))
+	_, err = fmt.Fprintf(f, "%s=%s\n", key, sanitize(path))
 	return err
 }
 

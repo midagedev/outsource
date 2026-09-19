@@ -317,12 +317,28 @@ func TestSetTrailAppendsAndRefusesUnknownRuns(t *testing.T) {
 	if err := SetTrail(id, "/first.jsonl"); err != nil {
 		t.Fatal(err)
 	}
+	// A second, DIFFERENT trail is not a re-reveal — a round's transcript path is
+	// fixed once its first turn starts. It is another round's hook writing here,
+	// which is what a shared settings file produces (2026-09-19: five concurrent
+	// rounds, one config dir, eleven `trail=` lines in one record and four rounds
+	// reading `trail=pending` forever). "Last wins" made the wrong one the answer
+	// silently; the first is kept and the intruder is parked where it is visible.
 	if err := SetTrail(id, "/second.jsonl"); err != nil {
 		t.Fatal(err)
 	}
 	r := FindByID(id)
-	if r == nil || r.Trail != "/second.jsonl" {
-		t.Fatalf("last assignment must win, got %+v", r)
+	if r == nil || r.Trail != "/first.jsonl" {
+		t.Fatalf("the round's own trail must survive a foreign one, got %+v", r)
+	}
+	if r.TrailConflict != "/second.jsonl" {
+		t.Fatalf("the foreign trail must be recorded as a conflict, got %+v", r)
+	}
+	// The same hook firing twice is not a conflict.
+	if err := SetTrail(id, "/first.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if r2 := FindByID(id); r2.Trail != "/first.jsonl" {
+		t.Fatalf("an idempotent re-record must not disturb the trail: %+v", r2)
 	}
 	if r.Label != "keepme" || r.Log != "/tmp/a.log" {
 		t.Fatalf("the append rewrote start fields: %+v", r)

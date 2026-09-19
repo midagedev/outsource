@@ -41,16 +41,27 @@ func (r *round) runClaudeCode() int {
 		return ExitNoCredential
 	}
 
-	// An isolated CLAUDE_CONFIG_DIR keeps the user's own Claude Code untouched and
-	// gives this track its own settings/session store.
+	// An isolated CLAUDE_CONFIG_DIR keeps the user's own Claude Code untouched.
+	// It is NOT per-track by default: without --config-dir every zai round on the
+	// machine lands in the same tmpDir()/outsource-glm-cfg, and its settings.json
+	// is one file that concurrent rounds overwrite in turn. So the settings are
+	// split by who they are true for -- the guard, identical for every round, in
+	// the shared file; anything naming THIS run in a per-round file handed to the
+	// CLI with --settings (which loads additional settings on top).
 	ccHome := filepath.Join(r.o.configDir, "claude")
 	if err := os.MkdirAll(ccHome, 0o755); err != nil {
 		fmt.Fprintf(r.stderr, "outsource: %v\n", err)
 		r.bailed = true
 		return ExitUsage
 	}
-	if err := writeHookSettings(filepath.Join(ccHome, "settings.json"), r.runID, runs.Dir()); err != nil {
+	if err := writeSharedSettings(filepath.Join(ccHome, "settings.json")); err != nil {
 		fmt.Fprintf(r.stderr, "outsource: could not write the guard hook: %v\n", err)
+		r.bailed = true
+		return ExitUsage
+	}
+	roundSettings := filepath.Join(ccHome, "settings-"+roundKey(r.runID)+".json")
+	if err := writeHookSettings(roundSettings, r.runID, runs.Dir()); err != nil {
+		fmt.Fprintf(r.stderr, "outsource: could not write this round's settings: %v\n", err)
 		r.bailed = true
 		return ExitUsage
 	}
@@ -92,7 +103,8 @@ func (r *round) runClaudeCode() int {
 	if r.o.session != "" {
 		cmdArgs = append(cmdArgs, "--resume", r.o.session)
 	}
-	cmdArgs = append(cmdArgs, "--permission-mode", "bypassPermissions", "--output-format", "json")
+	cmdArgs = append(cmdArgs, "--permission-mode", "bypassPermissions", "--output-format", "json",
+		"--settings", roundSettings)
 	if r.o.effort != "" {
 		// Validated by effortRefusal before the run was registered.
 		cmdArgs = append(cmdArgs, "--effort", r.o.effort)
@@ -186,16 +198,58 @@ func (r *round) runClaudeCode() int {
 	return assertCode
 }
 
-// writeHookSettings attaches this round's two hooks the way this harness wants
-// them: each receives its event as JSON on stdin.
+// writeHookSettings holds the half that is true of THIS round only, and so must
+// never go in the shared settings.json: the trail recorder, which carries the run
+// id. Measured 2026-09-19: five rounds launched in the same second each wrote its
+// own id into the one shared file, the last writer won, and every round's
+// SessionStart hook then recorded into that one run's record — one .run file with
+// 11 `trail=` lines while four rounds read `trail=pending` forever. The file is
+// handed to the CLI with --settings, which loads additional settings on top of
+// the config dir's.
+//
+// writeSharedSettings holds the half of the hook configuration that is the same
+// for every round: the git guard. It is written to the config dir's settings.json,
+// which concurrent rounds share by default -- and sharing is harmless precisely
+// because nothing here names a particular round.
 //
 // PreToolUse is the git guard. It points at the BINARY rather than the
 // git-guard.sh shim, which is the one place in this port where the
 // compatibility name is deliberately bypassed. The guard fires on every Bash
-// tool call of every round, and the shim costs an extra fork each time —
+// tool call of every round, and the shim costs an extra fork each time --
 // measured 15ms through the shim against 10ms direct. The decision the guard
 // makes is identical either way; the shim execs this same binary.
-//
+func writeSharedSettings(path string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	settings := map[string]any{"hooks": map[string]any{
+		"PreToolUse": []any{
+			map[string]any{
+				"matcher": "Bash",
+				"hooks": []any{
+					map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
+				},
+			},
+		},
+	}}
+	b, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+// roundKey names this round's own settings file. The run id already is
+// <startedAt>-<pid>; without one (the registry refused the round) the pid alone
+// still separates it from every other live round.
+func roundKey(runID string) string {
+	if runID != "" {
+		return runID
+	}
+	return fmt.Sprint(os.Getpid())
+}
+
 // SessionStart is how the round tells the registry where its live trail is.
 // Measured 2026-09-15 (CLI 2.1.272): the event fires under `claude -p` and its
 // payload carries transcript_path and session_id. Before it, the only way to
@@ -213,16 +267,7 @@ func writeHookSettings(path, runID, runsDir string) error {
 	if err != nil {
 		return err
 	}
-	hooks := map[string]any{
-		"PreToolUse": []any{
-			map[string]any{
-				"matcher": "Bash",
-				"hooks": []any{
-					map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
-				},
-			},
-		},
-	}
+	hooks := map[string]any{}
 	// No run id means the registry never took this round (it returns an empty
 	// id on failure), so there is nothing to record the trail into.
 	if runID != "" {
