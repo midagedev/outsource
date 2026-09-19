@@ -298,6 +298,20 @@ The first same-spec A/B with muse in the pool, and the first on a task where the
 
 Both arms ran at `--effort high`, but that label maps onto each vendor's own scale (z.ai folds reasoning into output tokens; muse reports it separately and its default is already `high`), so the label alone is not a controlled variable — the token and turn rows are, and GLM spent 3–4× the output tokens of muse in both rounds. Read the speed rows with that beside them.
 
+**Round 3, both arms at `max`**, on the M=8 follow-up (gate: M=8 ≥ 0.9× **and** M=1 ≥ 1.0× in one run). The arms took orthogonal levers:
+
+| round 3 (`max`) | glm-5.3 | muse-spark-1.3 |
+|---|---|---|
+| wall time | 20 min | **14 min** |
+| lever | 128-value q8_1 blocks: four dp4a share one scale, one FMA per column | bounds checks off on 73 device loads (`get_unchecked` + SAFETY), `drow` hoisted |
+| stack M=1 | 1.14× | **1.57×** |
+| stack M=8 | **1.06×** | 0.99× |
+| tokens (output incl. reasoning / turns) | 257k / 125 | **57k + 33k reasoning / 70** |
+| spec premise corrected | — | `QR3_K` is 4, not 2 |
+| **lead combined both** | stack M=1 **1.86×**, M=8 **1.20×**, every shape above ggml | |
+
+Both arms used *fewer* tokens at `max` than at `high` in round 2, because the task was smaller and the gate closed early — so the label is not comparable across tasks either; only the token row is.
+
 Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
 
 ### How we found out
