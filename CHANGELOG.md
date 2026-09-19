@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.18.0 — 2026-09-20 — The other direction: your own interactive session on the plan, and z.ai stopped telling us which model answered
+
+- **`bin/glm.sh` seats you in front of GLM.** Everything else here drives a
+  model headlessly as a delegate; this is an interactive Claude Code session on
+  the same z.ai coding plan, with you at the keyboard. `glm.sh`,
+  `glm.sh --resume`, `GLM_MODEL=glm-5.3-flash glm.sh` — every claude flag passes
+  through. Worth an alias:
+  `alias glm='~/.claude/skills/outsource/bin/glm.sh'`.
+- **Six model variables, not one, and the reason is measured.**
+  `ANTHROPIC_MODEL` does beat a config dir's own `"model"` setting (measured
+  against `~/.claude`, reading per-turn `message.model` out of the transcript).
+  It does not cover the paths that ask by **alias** — the `model` setting,
+  `/model opus` mid-session, a Task subagent asking for sonnet, the background
+  haiku queries. So `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`,
+  `ANTHROPIC_SMALL_FAST_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` are pinned to
+  the same id. Measured: with nothing set, a `-p` round went out as
+  `claude-opus-5`; with only the opus alias redirected, it came back `glm-5.3`.
+- **z.ai now echoes whatever model id it is given, and that is a loss of
+  evidence.** Re-measured 2026-09-20 straight at `/v1/messages`:
+  `claude-opus-5`, `claude-sonnet-4-5-20250929`, `glm-5.2`, `glm-5.3` and
+  `glm-5.3-flash` each came back naming themselves; only an invented id was
+  refused. The 2026-08-16 finding that `claude-opus-5` answered as `glm-4.7` no
+  longer reproduces. Nothing in the launcher changes — it only ever requests
+  `glm-*` ids and refuses `glm-5.2` statically — but the identity assertion is
+  narrower than it reads, and `references/glm.md` now says so instead of
+  implying a mismatch would surface. Pinning is more necessary, not less.
+- **No git guard in the interactive session, deliberately.** A delegate round
+  gets one because nobody is watching it. glm-5.2 is still refused (exit 64),
+  and the stated reason is now the honest one: its reply used to name a
+  different model, and since the endpoint echoes every id it accepts, what
+  answers it cannot be checked at all. The key never reaches a command line,
+  and sourcing the script is refused **before** it runs `set -euo pipefail` —
+  a refusal that has already turned on errexit in the caller's interactive
+  shell has done the damage it exists to prevent.
+- **`tests/glm-interactive.test.sh`** holds all of it — 21 assertions,
+  FAIL-first confirmed five ways. Two of those five changed the gate rather
+  than confirming it. The obvious runtime assertion does **not** catch
+  `env KEY=... claude`, because env consumes the assignment out of its own argv
+  and execs the CLI without it, so the exposed process is gone before a test
+  can look at it; that form is asserted at the source, where it is visible.
+  And the probe for leaked shell options passed a script that leaked them —
+  errexit killed the probe's own subshell on the refused return, before it
+  could print what it came to read. A gate that breaks in exactly the case it
+  exists to catch is not a gate.
+
 ## 0.17.1 — 2026-09-19 — Concurrent rounds shared one settings file, so four of five never revealed their trail
 
 - **The default config dir is one path for every round on the machine**

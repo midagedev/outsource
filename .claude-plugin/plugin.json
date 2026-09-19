@@ -1,6 +1,6 @@
 {
   "name": "outsource",
-  "version": "0.17.1",
+  "version": "0.18.0",
   "description": "Outsource implementation, investigation and vision-verdict work to third-party model CLIs (GLM-5.3 and glm-5.3-flash on the z.ai coding plan, grok-4.6, gemini-3.8-flash-high via the agy CLI, muse-spark-1.3-contributor via the Muse Code CLI, and any OpenRouter id via opencode), plus a codex-ci sidecar that redirects the Codex CLI at Cheaper Inference, as headless sub-agents, with spec linting, plan-quota gates and model-identity assertions, while the lead Claude session stays orchestration-only.",
   "author": {
     "name": "midagedev",

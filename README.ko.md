@@ -494,6 +494,7 @@ $ bin/quota.sh --provider grok
 | `guard` | git 금지 `PreToolUse` 훅. 두 하네스 공용 (54 회귀 케이스 + 670건 판정 골든) |
 | `credential` · `setup-key.sh` | 키 **와 호스트** 해석의 단일 소유자, 그리고 그 대화형 절반. `setup-key.sh` 는 의도적으로 셸로 남았습니다(TTY 상호작용 전용, `tests/shell-boundary.test.sh` 가 경계를 강제) |
 | `verify-key` | 저장 전 키 검증. 키는 argv가 아니라 stdin으로 받습니다 |
+| `glm.sh` | 반대 방향: 위임 라운드가 아니라 *당신의* 대화형 Claude Code 세션을 z.ai 플랜 위에서 띄웁니다. 의도적으로 셸입니다 — 키를 해석하고, alias 경로가 우회할 수 있는 여섯 개 변수 전부에 모델을 못박고, CLI를 `exec` 합니다. alias 로 걸어 둘 만합니다 |
 | `spec-lint` · `quota` | 발사 전 스펙 검사; `--require-window` 로 게이트화되는 플랜 쿼터 |
 | `runs` | 실행 레지스트리: 어떤 라운드가 무엇 위에서 얼마나 오래 살아 있는지 — 그리고 시작만 하고 끝나지 않은 것 |
 | `wait` | 라운드의 센티넬이 나타날 때까지 블록 — 발사 시점에 백그라운드로 걸어 두면, 끝난 라운드가 폴링할 대상이 아니라 알림이 됩니다 |

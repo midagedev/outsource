@@ -510,6 +510,7 @@ $ bin/quota.sh --provider grok
 | `guard` | The git-ban `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden) |
 | `credential` · `setup-key.sh` | The single owner of key *and* host resolution, and its interactive half. `setup-key.sh` stays shell on purpose — its whole job is TTY interaction, and `tests/shell-boundary.test.sh` enforces that boundary |
 | `verify-key` | Checks a key before it is stored; the key arrives on stdin, never in argv |
+| `glm.sh` | The other direction: *your own* interactive Claude Code session on the z.ai plan, not a delegate round. Shell on purpose — it resolves the key, pins the model on all six variables an alias could route around, and `exec`s the CLI. Worth an alias |
 | `spec-lint` · `quota` | Pre-launch spec check; plan quota with `--require-window` as a gate |
 | `runs` | The run registry: which rounds are alive, on what, for how long — and which started and never finished |
 | `wait` | Blocks until a round's sentinel appears — armed at launch and backgrounded, a finished round becomes a notification instead of something you remember to poll |

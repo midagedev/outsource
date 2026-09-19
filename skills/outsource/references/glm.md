@@ -12,8 +12,8 @@ implementation tokens, which are close to free on a z.ai coding plan.
 | **glm-5.3** (default) | honoured verbatim | **blind** (shape probe: answered "Y" to a white 7) | implementation, gate authoring, investigation, reports — every spec-able round where per-round intelligence matters |
 | **glm-5.3-flash** | honoured verbatim | **sees pixels** — "7" on the shape probe; through the claude-code harness's Read tool it named a solid `#1E50DC` fill as `#2244DD` (~5%/channel). This is the officially unveiled identity of what OpenRouter listed as the stealth `ox-alpha`, which stopped serving 2026-09-10 — route it here, on the plan | mechanical edits, format conversions, large fan-out where 5.3 quota is the constraint (**3× the usable plan quota** at the same tier, vendor-stated), and **capture self-verification inside an implementation round** — the delegate can finally open its own screenshot. Precise color/luminance and aesthetic verdicts stay with a frontier vision judge until A/B-measured. Benched 2026-08-27 (3 tasks, identical specs, all objective gates perfect): flash was **slower than 5.3 on every task** (80s vs 74s, 166s vs 45s, 191s vs 159s) — its value is quota and eyes, not speed |
 | glm-4.6 | honoured verbatim | not probed | legacy pin only |
-| glm-5.2 | **silently answered by glm-5.3** (response `model` field differs from the request — measured twice) | — | never — the launcher refuses it at launch (exit 70; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists only to re-measure) |
-| anything else | nonexistent ids error loudly (code 1214); unqualified `claude-*` maps to the plan default | — | — |
+| glm-5.2 | **silently answered by glm-5.3** — the response `model` field differed from the request, measured twice 2026-08-27. **Re-measured 2026-09-20: it now echoes `glm-5.2` back**, so the tell is gone and what answers it cannot be checked at all — a stronger reason to refuse, not a weaker one | — | never — the launcher refuses it at launch (exit 70; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists only to re-measure) |
+| anything else | nonexistent ids error loudly (`[1211][Unknown Model]`, re-measured 2026-09-20 — 1214 was the older code). Anthropic ids are **accepted and echoed**: `claude-opus-5` and `claude-sonnet-4-5-20250929` each came back naming themselves, where 2026-08-16 they mapped visibly to the plan default. See the re-measurement below | — | — |
 
 The vision guard is per-model: a spec that names an image launches on
 `--model glm-5.3-flash` without `--no-vision-check`, and is still refused on
@@ -51,6 +51,26 @@ assume-nothing rule goes for opencode and agy.
 `glm-4.6`/`glm-5.3` are honoured verbatim. So the harness must pin
 `ANTHROPIC_MODEL` — otherwise you believe you ran one model and actually ran
 another.
+
+> **The trap got quieter, not smaller (re-measured 2026-09-20).** That
+> mismatch no longer reproduces, and the reason is worse than a fix: the
+> endpoint now **echoes whatever id it is given**. A direct `curl` at
+> `/v1/messages` asking for `claude-opus-5`, `claude-sonnet-4-5-20250929`,
+> `glm-5.2`, `glm-5.3` and `glm-5.3-flash` got each id back naming itself,
+> and only an invented id (`bogus-model-xyz`) was refused —
+> `[1211][Unknown Model]`. Through the CLI the same thing: a `-p` round with
+> no `ANTHROPIC_MODEL`, against a config dir whose `settings.json` says
+> `"model": "opus"`, produced a per-turn `message.model` of `claude-opus-5`.
+>
+> So the response id has stopped discriminating, and a wrong model now passes
+> silently where it used to fail loudly. Two consequences, and neither changes
+> what the launcher does. **Pinning is more necessary, not less** — it is now
+> the only thing standing between a round and a backend nobody chose. And the
+> identity assertion's strength is narrower than it reads: it still catches an
+> id the endpoint rejects or rewrites, but it can no longer prove that a
+> `claude-*` id was not quietly served by something else. That is why the
+> launcher's provider table only ever requests `glm-*` ids and refuses
+> `glm-5.2` statically rather than relying on the reply to give it away.
 
 The launcher now asserts this per round and **fails the round with exit 70**
 on a mismatch, even when the run itself succeeded. Where the evidence comes
@@ -310,3 +330,49 @@ a second unrelated push. A spec for a maybe-standalone task carries three
 lines: CI green is the definition of done, not the push; never push onto a
 red main; one commit at a time through the gate.
 
+
+## Sitting in front of it yourself — `bin/glm.sh`
+
+Everything above drives GLM as a delegate. `bin/glm.sh` is the other
+direction: your own interactive Claude Code session, on the same z.ai coding
+plan, with you at the keyboard.
+
+```bash
+glm.sh                           # interactive, glm-5.3
+glm.sh --resume                  # every claude flag passes through
+GLM_MODEL=glm-5.3-flash glm.sh   # the model that can see pixels
+```
+
+Worth an alias, since that is how it gets used:
+
+```zsh
+alias glm='~/.claude/skills/outsource/bin/glm.sh'
+```
+
+**Six model variables, not one.** `ANTHROPIC_MODEL` covers requests that name
+an id, and measured 2026-09-20 it does beat a config dir's own `"model"`
+setting. It does not cover the paths that ask by **alias** — the `model`
+setting itself, `/model opus` mid-session, a Task subagent asking for sonnet,
+the background haiku queries — and z.ai accepts an Anthropic id without
+complaint and now echoes it back (see the re-measurement above). So the script
+sets `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL`,
+`ANTHROPIC_SMALL_FAST_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` to the same id.
+Measured, in the same session: with only the opus alias redirected, a request
+that would have gone out as `claude-opus-5` came back as `glm-5.3`.
+
+**The config dir is shared with your normal sessions.** No
+`CLAUDE_CONFIG_DIR` is set, so your skills, MCP servers, history and
+`--resume` all work. The costs are real: your hooks run inside it and
+`~/.claude/CLAUDE.md` loads (~32k input tokens before you type). Export
+`CLAUDE_CONFIG_DIR` yourself for an isolated session.
+
+**No git guard, deliberately.** A delegate round gets one because nobody is
+watching it. Here you are, and the standalone caveat above is the rule that
+applies instead. `glm-5.2` is still refused (exit 64): its reply used to name
+a different model than the request, and now that the endpoint echoes every id
+it accepts, what actually answers it cannot be checked at all.
+
+The key never reaches a command line: `credential.sh zai` resolves it and the
+script exports it into its own process, so `ps` never sees it. Sourcing the
+script is refused rather than leaking that export into your shell.
+`tests/glm-interactive.test.sh` holds all of this.
