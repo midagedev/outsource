@@ -11,6 +11,13 @@
   last-line identity (`EndsWithMarker` is strict on purpose — see 2026-08-22);
   this only turns "absent, go dig through the report" into a one-glance
   diagnosis. The GLM preamble now says the marker is a byte-for-byte sentinel.
+- **`go test ./internal/launch/` no longer writes into your real run registry.**
+  A launch path registers its round before it can refuse, and the tests that
+  did not set `OUTSOURCE_RUNS_DIR` themselves left records owned by the session
+  that ran them — measured: 26 failed "rounds" in a live status line from one
+  test run. A package `TestMain` now points the registry at a temp dir for
+  every test, present and future. Verified: registry record count unchanged
+  across `go test -count=1`.
 
 ## 0.18.0 — 2026-09-20 — The other direction: your own interactive session on the plan, and z.ai stopped telling us which model answered
 
