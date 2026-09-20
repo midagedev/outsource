@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **An absent done-marker now says what the report ended with instead.** The
+  sentinel gains `done_marker_last_line=…` and the exit-72 message quotes it.
+  Measured 2026-09-20: two finished GLM rounds in one afternoon came back
+  exit 72 because the delegate, reporting in Korean, translated the marker —
+  `DONE-c2` arrived as `완료-c2` (one of them with an explicit "do not
+  translate" sentence in its spec). The verdict is unchanged and stays
+  last-line identity (`EndsWithMarker` is strict on purpose — see 2026-08-22);
+  this only turns "absent, go dig through the report" into a one-glance
+  diagnosis. The GLM preamble now says the marker is a byte-for-byte sentinel.
+
 ## 0.18.0 — 2026-09-20 — The other direction: your own interactive session on the plan, and z.ai stopped telling us which model answered
 
 - **`bin/glm.sh` seats you in front of GLM.** Everything else here drives a

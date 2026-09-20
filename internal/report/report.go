@@ -294,6 +294,28 @@ func EndsWithMarker(rep, marker string) bool {
 	return false
 }
 
+// LastLine is the report's last non-empty line as EndsWithMarker reads it
+// (trimmed, markdown decoration stripped), capped for a sentinel field. It
+// exists for the absent verdict: a delegate that reports in another language
+// may TRANSLATE the marker ("DONE-c2" came back as "완료-c2", twice in one
+// day), and without this line the sentinel says only "absent" — the lead has
+// to dig through the report to learn the round had in fact finished. The
+// verdict stays strict; this only says what was there instead.
+func LastLine(rep string) string {
+	lines := strings.Split(rep, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.Trim(strings.TrimSpace(lines[i]), "`*")
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > 80 {
+			line = string(r[:80]) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 // Main is the last-report entry point.
 func Main(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "" {

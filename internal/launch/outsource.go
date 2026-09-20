@@ -369,8 +369,11 @@ type round struct {
 	// written and no SESSION line is printed, because neither would be true. This
 	// is the shell's behaviour: those paths call exit directly rather than going
 	// through finish().
-	bailed      bool
-	modelActual string
+	bailed bool
+	// markerLastLine is the report's last line when the done-marker verdict is
+	// absent — diagnosis only, never part of the verdict.
+	markerLastLine string
+	modelActual    string
 	// modelVerdict/modelSource record WHY the identity assertion landed where
 	// it did. They exist because the assertion runs at the END of a round, so
 	// a --detach failure cannot be moved earlier the way a usage error can,
@@ -472,8 +475,13 @@ func (r *round) finish(rc int) int {
 		verdict, scope := r.markerVerdict()
 		markerLines = fmt.Sprintf("done_marker=%s (%s)\ndone_marker_scope=%s\n",
 			verdict, r.o.doneMarker, scope)
+		if verdict == "absent" && r.markerLastLine != "" {
+			// What the report ended with instead. A translated marker shows up
+			// here at a glance; the verdict above is unchanged.
+			markerLines += fmt.Sprintf("done_marker_last_line=%s\n", r.markerLastLine)
+		}
 		if verdict == "absent" && rc == 0 {
-			fmt.Fprintf(r.stderr, "outsource: the round finished but --done-marker '%s' is absent; not claiming a pass (exit 72). Judge by the tree, not this exit code.\n", r.o.doneMarker)
+			fmt.Fprintf(r.stderr, "outsource: the round finished but --done-marker '%s' is absent; not claiming a pass (exit 72). Judge by the tree, not this exit code. The report's last line was: %q\n", r.o.doneMarker, r.markerLastLine)
 			telemetry.Note("why", "round finished, completion marker absent")
 			rc = ExitNoMarker
 		}
@@ -512,6 +520,7 @@ func (r *round) markerVerdict() (verdict, scope string) {
 					return "found", "report"
 				}
 				if r.o.harness != "crush" || src != report.SourcePlainTail {
+					r.markerLastLine = report.LastLine(rep)
 					return "absent", "report"
 				}
 				// A plain-text crush log has no plan-vs-report boundary: the

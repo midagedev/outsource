@@ -81,6 +81,10 @@ Context is 1M tokens, output 131k — read whole files rather than grepping
 blind. There is no turn cap and no auto-continuation: finish the whole task
 in this turn and end with the exact `DONE-<track>` marker the task spec
 names. A missing marker is read as "unfinished".
+The marker is a machine-read ASCII sentinel, matched byte for byte against
+the last line of your reply. Copy it exactly — do not translate it, even when
+the rest of your report is in another language (`DONE-c2` written as
+`완료-c2` scores absent and turns a finished round into exit 72).
 
 ## 5. Working directory
 

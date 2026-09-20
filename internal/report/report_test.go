@@ -169,3 +169,24 @@ func TestLastReportNamesRunningRound(t *testing.T) {
 		t.Errorf("running diagnosis missing; got %s", stderr.String())
 	}
 }
+
+// A translated marker is absent — and LastLine says what was there instead.
+func TestLastLineNamesATranslatedMarker(t *testing.T) {
+	rep := "## 보고\n본문\n\n완료-c2\n\n"
+	if EndsWithMarker(rep, "DONE-c2") {
+		t.Fatal("a translated marker must stay absent: the verdict is last-line identity")
+	}
+	if got := LastLine(rep); got != "완료-c2" {
+		t.Fatalf("LastLine = %q, want the translated marker", got)
+	}
+	if got := LastLine("x\n`DONE-c2`\n"); got != "DONE-c2" {
+		t.Fatalf("LastLine strips the same decoration EndsWithMarker does, got %q", got)
+	}
+	if got := LastLine("\n \n"); got != "" {
+		t.Fatalf("empty report has no last line, got %q", got)
+	}
+	long := strings.Repeat("가", 200)
+	if got := []rune(LastLine(long)); len(got) != 81 {
+		t.Fatalf("LastLine caps at 80 runes plus an ellipsis, got %d", len(got))
+	}
+}
