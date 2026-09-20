@@ -92,6 +92,15 @@ Say what is distinguishable, say what is not, and say how you decided.
 5. **What you deliberately left untouched** — out of scope or outside the
    whitelist. This is distinct from item 4: "couldn't" versus "chose not to".
    Each with a path and one line of reasoning.
+6. **Improvement opportunities you noticed beyond the spec** — you read code
+   the lead has not read this round. List what looked improvable outside the
+   task as given: a faster or simpler structure, duplicated logic, a missing
+   gate, a misleading comment or name, a latent bug, a friction in the
+   tooling you were told to use. Each with `path:line`, one line on what and
+   why, and a rough size (trivial / a round / a design question). **Report
+   only — do not act on any of them**; the whitelist and the task still bound
+   your edits. "None noticed" is an acceptable answer only with the list of
+   files you read.
 
 ## Premises
 

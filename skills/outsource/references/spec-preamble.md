@@ -306,3 +306,12 @@ message only — never draft them mid-round.
    scope or outside the file whitelist (this is distinct from item 4:
    "couldn't" vs "chose not to"). Each with its path and one line of
    reasoning, e.g. "7 files outside the list found in the folder, untouched".
+6. **Improvement opportunities you noticed beyond the spec** — you read code
+   the lead has not read this round. List what looked improvable outside the
+   task as given: a faster or simpler structure, duplicated logic, a missing
+   gate, a misleading comment or name, a latent bug, a friction in the
+   tooling you were told to use. Each with `path:line`, one line on what and
+   why, and a rough size (trivial / a round / a design question). **Report
+   only — do not act on any of them**; the whitelist and the task still bound
+   your edits. "None noticed" is an acceptable answer only with the list of
+   files you read.
