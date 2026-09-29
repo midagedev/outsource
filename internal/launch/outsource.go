@@ -86,6 +86,10 @@ type opts struct {
 	// have no equivalent and refuse the flag rather than drop it silently.
 	effort                                        string
 	allowAgent, noVisionCheck, detach, foreground bool
+	// allowNoTools accepts a zero-tool-call claude-code round instead of
+	// failing it with exit 73 — for a round that is legitimately answer-only
+	// (a pure question). The allowance is recorded in the sentinel.
+	allowNoTools bool
 }
 
 // effortLevels is what `claude --effort` accepts (its --help, 2026-09-15).
@@ -146,6 +150,8 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.allowAgent, ok = true, true
 		case "--no-vision-check":
 			o.noVisionCheck, ok = true, true
+		case "--allow-no-tools":
+			o.allowNoTools, ok = true, true
 		case "--detach":
 			o.detach, ok = true, true
 		case "--foreground":
@@ -159,7 +165,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "-h", "--help":
 			// The harness and provider lists are derived, so a new arm cannot
 			// be routable and undocumented at the same time.
-			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--detach] [--foreground] [--list-wiring]\n",
+			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--detach] [--foreground] [--list-wiring]\n",
 				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
 			return 0
 		default:
@@ -392,9 +398,15 @@ type round struct {
 	// up front when the harness knows it, filled in at the end for the
 	// claude-code harness, whose transcript path is only known once the session
 	// exists. Written to the sentinel so it survives the registry.
-	trail    string
-	runID    string
-	timedOut bool
+	trail string
+	// toolCallsLine is the sentinel's `tool_calls=` line, set by finish for a
+	// claude-code round: the count of tool_use blocks in the trail,
+	// `unknown (<reason>)` when the count could not be taken, or `0 (allowed)`
+	// under --allow-no-tools. Empty for every other harness — no counting
+	// there (see toolcalls.go).
+	toolCallsLine string
+	runID         string
+	timedOut      bool
 }
 
 func (r *round) run() int {
@@ -485,6 +497,12 @@ func (r *round) finish(rc int) int {
 			telemetry.Note("why", "round finished, completion marker absent")
 			rc = ExitNoMarker
 		}
+	}
+	// The zero-tool-call verdict runs after the marker check on purpose: 72
+	// already names a reason this round is not a pass, the codes never stack,
+	// and the sentinel carries both facts (toolcalls.go).
+	if !r.bailed {
+		r.toolCallsLine, rc = r.toolCallVerdict(rc)
 	}
 	finishRun(r.runID, rc, r.sid, r.modelActual)
 	if r.bailed {
@@ -666,6 +684,12 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	// post-mortem a week later still wants the transcript.
 	if r.trail != "" {
 		fmt.Fprintf(&b, "trail=%s\n", r.trail)
+	}
+	// The tool-call count, when this harness's trail was countable. Beside the
+	// trail on purpose: it is the count OF that file, and a reader checking a
+	// tool_calls=0 does not have to guess which transcript produced it.
+	if r.toolCallsLine != "" {
+		fmt.Fprintf(&b, "%s\n", r.toolCallsLine)
 	}
 	if r.harnessError != "" {
 		fmt.Fprintf(&b, "harness_error=%s\n", r.harnessError)

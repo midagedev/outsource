@@ -218,6 +218,7 @@ Same family as the zai launcher:
 | 69 | `opencode` CLI not on PATH |
 | 70 | model-identity mismatch or unverifiable, or the session's directory was not `--cwd` |
 | 72 | clean harness exit, `--done-marker` absent from the final report |
+| 73 | claude-code harness only — transcript held zero `tool_use` blocks (`--allow-no-tools` allows it); not reachable on this harness |
 | 1 | OpenRouter credentials positively absent from auth.json |
 | 124 | `--max-seconds` ceiling; process group killed |
 

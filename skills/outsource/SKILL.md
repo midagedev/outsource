@@ -321,7 +321,15 @@ evidence is still the `.rc` sentinel**, never the report's existence.
    model-identity assertion. Two rounds on one day both exited clean: one
    had written nothing at all, the other had correctly stopped because the
    spec's own precondition check said to. 72 names the missing marker; the
-   tree still tells those two apart.
+   tree still tells those two apart. And on the claude-code harness a clean
+   exit whose transcript holds zero `tool_use` blocks is **exit 73** — a
+   report claiming completed work from a round that never made a tool call
+   is fabrication by construction (measured 2026-09-29: a ~30 s round
+   claiming "32 passed" over 23 transcript lines, zero of them tool_use,
+   no file written, empty `git status`). The sentinel carries
+   `tool_calls=<N>` (`unknown (<reason>)` when uncountable, `0 (allowed)`
+   under `--allow-no-tools` for answer-only rounds); 72 keeps precedence
+   over 73, and the other harnesses are not counted yet.
 2. **Re-run the suite it called green from cold** and compare the test
    count with CI's — a differing count is a failed verification. **Never
    pipe a gate through `tail`/`head`**: the pipeline's exit status becomes

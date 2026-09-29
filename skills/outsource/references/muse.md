@@ -186,6 +186,7 @@ them (2026-09-18) and the sentinel recorded
 | 69 | `muse` CLI not on PATH |
 | 70 | model-identity mismatch or unverifiable |
 | 72 | clean harness exit, `--done-marker` absent from the final report |
+| 73 | claude-code harness only — transcript held zero `tool_use` blocks (`--allow-no-tools` allows it); not reachable on this harness |
 | 124 | `--max-seconds` ceiling; process group killed |
 
 Inside a round, the git shim's own refusal is **exit 97** — that is the

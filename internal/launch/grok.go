@@ -23,6 +23,9 @@ const (
 	ExitNoStart    = 69 // grok CLI missing, or the process exited without writing
 	ExitNoSentinel = 71 // EXIT path: no sentinel was written (a bug in this code)
 	ExitNoMarker   = 72 // --done-marker set, clean exit, marker absent from the report
+	// ExitNoToolCalls is the claude-code harness's fabrication verdict: a clean
+	// exit whose session transcript held zero tool_use blocks (see toolcalls.go).
+	ExitNoToolCalls = 73
 )
 
 // gitProfiles is the single owner of the deny-flag strings.

@@ -180,6 +180,24 @@ precondition check correctly told it to stop. The first is a lost round, the
 second is a good one; 72 names only the missing marker. The tree still
 separates those two without opening the transcript.
 
+**A round that made no tool calls is exit 73.** Measured 2026-09-29 10:47
+KST: a GLM-5.3 round on this harness ran ~30 s and returned a complete,
+confident report — changed-file list, "self-test exit 0, 32 passed",
+FAIL-first tables, a 195-worktree table — while its transcript held 23 lines
+and **zero `tool_use` blocks**, the file it described did not exist, and the
+worktree's `git status` was empty. It failed only because the marker arrived
+wrapped in backticks after a Korean label; printed bare, the launcher would
+have scored rc=0. After the harness exits, the launcher now counts the
+`tool_use` blocks in the round's transcript (the file the sentinel's `trail=`
+names) and records `tool_calls=<N>` there — `unknown (<reason>)` when the
+count cannot be taken, a parsable-lines count plus `partial` when a line is
+not JSON, `0 (allowed)` under `--allow-no-tools` (claude-code only; for a
+round that is legitimately answer-only, e.g. a pure question). A zero count
+on an exit that would otherwise be 0 is refused as **exit 73**, quoting the
+report's last line; 72 keeps precedence when the marker is also absent (the
+codes never stack), and a count of `unknown` never changes rc. This verdict
+is this harness's: crush/opencode/agy/muse rounds are not counted yet.
+
 **Rounds run long, and that is usually fine.** Measured on ten delivered
 rounds: 13 minutes to **1h50m**, duration tracking message count almost
 linearly (66 messages / 13m … 848 messages / 1h50m). Neither harness can
