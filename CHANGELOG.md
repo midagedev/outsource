@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- **A round that made no tool calls cannot have done the work — the launcher
+  now counts them and refuses to score it a pass (exit 73).** Measured
+  2026-09-29 10:47 KST: a GLM-5.3 round (claude-code harness, `--effort max`,
+  label `macdiskb`, ~30 s) returned a complete, confident report — a
+  changed-file list, "self-test exit 0, 32 passed", "check-recipes exit 0", a
+  table of 195 worktrees totalling 2.9 TiB, FAIL-first tables — while its
+  transcript held 23 lines and **zero `tool_use` blocks**, the file it
+  described did not exist, and its worktree's `git status` was empty. It
+  failed only by accident: the report ended "완료 마커: `DONE-macdiskb`",
+  so the last-line marker check missed it (exit 72). Printed bare, the
+  fabricated round would have scored rc=0. The launcher now counts the
+  `tool_use` blocks in the round's transcript after the harness exits and
+  records `tool_calls=<N>` in the sentinel — `unknown (<reason>)` when the
+  count cannot be taken (never 0, never omitted), a parsable-lines count
+  plus `partial` when a line is not JSON, and `0 (allowed)` under the new
+  `--allow-no-tools` for legitimately answer-only rounds. A zero count on an
+  otherwise-clean exit is **exit 73**, printed with the report's last line;
+  an absent marker keeps 72 (the codes never stack), and the other harnesses
+  are unchanged. Verified: fixture transcripts for every verdict shape, two
+  FAIL-first mutations (a counter that never counts turns four tests red;
+  a zero that does not return 73 turns two red), and a replay of both real
+  transcripts — the fabricated round counts 0, the working one 82, the same
+  number its sentinel recorded.
+- **The launch package's test binary refuses to be re-executed as the
+  launcher.** The launcher re-executes `os.Executable()` for the git guard
+  hook, the crushrc credential call and `--detach`; under `go test` that
+  binary is `launch.test`, which ignores a positional argument and reruns the
+  whole suite, which reaches the same re-exec again. Only the nesting guard
+  bounded that. Measured 2026-09-29 11:17 KST: a delegated round ran the
+  suite with `OUTSOURCE_ALLOW_NESTED=1`, and one Mac filled with 681
+  `launch.test` and 336 orphaned children (chains five deep), after which
+  `ps -A` and `top` hung until a reboot. `TestMain` now exits 3 by name when
+  its first argument is positional (`go test` passes only `-test.*` flags),
+  and `TestSelfReexecIsRefused` pins it in its own process group with a 20 s
+  bound. FAIL-first: with the check removed, the test fails at the bound.
 - **An absent done-marker now says what the report ended with instead.** The
   sentinel gains `done_marker_last_line=…` and the exit-72 message quotes it.
   Measured 2026-09-20: two finished GLM rounds in one afternoon came back
