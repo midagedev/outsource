@@ -86,6 +86,12 @@ the last line of your reply. Copy it exactly — do not translate it, even when
 the rest of your report is in another language (`DONE-c2` written as
 `완료-c2` scores absent and turns a finished round into exit 72).
 
+A long command does not belong in the harness's own background Bash: that
+slot has a time limit, and a gate runner launched there dies at the limit
+with its log cut (measured 2026-10-04, a 30-minute batch). Start a run that
+can outlast a few minutes detached, `nohup <cmd> > <log> 2>&1 & echo $! >
+<pidfile>`, then poll it with `kill -0 $(cat <pidfile>)` and read the log.
+
 ## 5. Working directory
 
 `--cwd` points at the tree you may edit. Bash keeps its own cwd between
