@@ -1,5 +1,119 @@
 # Changelog
 
+## 0.20.0 — 2026-10-06 — One install with verified binaries, and rounds a lead can steer, stop and resume
+
+- **One install brings the panel.** `/plugin install outsource@outsource`
+  now loads `mods/outsource-panel` through the root plugin's
+  `hooks/hooks.json`, so the skill and the panel arrive together, and
+  `claude --plugin-dir <clone>` loads the same two. The panel finds the
+  binary from its own plugin root and names its tools after the plugin that
+  loads it: `mcp__outsource__rounds` and `mcp__outsource__round_send`
+  (`mcp__outsource-panel__…` when the panel is loaded on its own). When a
+  standalone copy is loaded beside the bundled one, the standalone copy
+  stands down, whichever of the two loads first (measured both orders).
+  `/rounds off` turns the whole panel off — no polling, band, toasts, wake
+  or pane — until `/rounds on`, and the setting is remembered. The panel's
+  own log goes to the debug log, not the conversation.
+
+- **No binaries in git; each machine gets a verified one.** `bin/outsource`
+  is now a POSIX `sh` dispatcher and `bin/outsource.sha256` a committed
+  manifest (version + four sha256s). Resolution order: local build, cache
+  (`~/.cache/outsource/<version>/`), Go build from the source a marketplace
+  install carries, then a GitHub Release download that runs only if it
+  hashes to the manifest — there is no switch that skips that check.
+  Concurrent first calls share one fetch under a lock; the cache keeps the
+  current and previous version. `git-guard.sh` turns the dispatcher's "no
+  binary" exit 69 into exit 2, so a broken fetch blocks git instead of
+  opening it. `install.sh` fetches at install time without Go (`--no-fetch`
+  skips) and, with Go, refuses when the manifest does not match a fresh
+  build of the four. `scripts/release-assets.sh` uploads manifest-verified
+  release assets. The dispatcher exports `OUTSOURCE_SKILL_DIR` when it runs
+  a binary from its cache, so a round launched that way carries it; the
+  test suites now scrub it, because five `dispatcher.test.sh` checks failed
+  inside such a round (measured 2026-10-06).
+
+- **A round recognises its lead.** A claude-code round's prompt now opens
+  with a launcher notice naming the launching session's socket and a
+  per-launch `lead-token`. A message from that socket, or one whose first
+  line is the token, is a spec amendment; a message from any other session
+  is information only, and the spec preamble says so. The panel's
+  `round_send` prefixes the token, and `runs json` exposes
+  `leadSocket`/`leadToken`. The panel says why a row has no inbox
+  (`inbox=no (<reason>)`).
+
+- **`outsource runs stop`, and the signal source in the sentinel.** New
+  `outsource runs stop <label|id> [--reason T] [--any-owner] [--kill-after N]`.
+  A TERM to the `outsource-run` wrapper does nothing while a harness child
+  runs (the wrapper holds it so the sentinel survives a caller's timeout),
+  so `runs stop` TERMs the child the launcher recorded at spawn, sends KILL
+  to its process group after 20 s, and prints the sentinel's `rc=` line;
+  the sentinel says `stopped_by=lead` and `stop_reason=`. The sentinel
+  records `harness_signal=` and `signal_source=` when a signal ended the
+  harness; `runs` shows `■stopped` / `✗TERM ext`.
+
+- **Plan-limit deaths say so; `--resume-on-reset`; the launch warning.** A
+  round cut by z.ai's 5-hour cap read `❌q38big rc=1` in every view, and
+  `last-report` printed the API error line as the report (measured
+  2026-10-06). Now: `--resume-on-reset` (5-minute plan reads, resume as soon
+  as the window reopens); plan-limit sentinel keys `quota_exhausted`,
+  `reset_at`, `quota_reset_at`, `api_error`, `resumed_after_reset`,
+  `reset_zone_suspect`; `runs` state `waiting`, `⛔quota`/`⏸quota`, json
+  `quotaExhausted`/`resetAt`/`resetSource`/`waitingUntil`; last-report's
+  rate-limited line; launch warning under 25 % plan left. `.err` is
+  appended to on a resume; `--require-quota` is read once per launch (not
+  again in the `--detach` child); `--max-seconds` bounds each attempt, not
+  the launch. A resumed attempt keeps its launch's lead token, so
+  `round_send` never prefixes a token the round did not see. Why the wait
+  polls the plan: a 429's reset text can name a later time than the plan
+  really resets. The 429s at 06:30–06:32Z said 08:23:45Z, and the plan took
+  requests again from 06:32:47Z; at 08:24Z the text and the quota API agreed
+  to the second.
+
+- **`outsource slot`: heavy proof steps take turns on the machine.**
+  Measured 2026-10-06 on a 10-core Mac: about six rounds at once, load
+  23–28, every proof step crawling. `outsource slot` (`bin/slot.sh`) is a
+  machine-wide counting semaphore for heavy proof steps; `outsource-run`
+  exports `OUTSOURCE_SLOT` and `OUTSOURCE_RUN_LABEL` to every harness child,
+  and the spec preamble tells a round to wrap its full builds, suites and
+  tree-wide linters in it. `--status` shows holders and waiters. git is
+  refused (exit 64), bare or behind `env`, `nice` or `command`.
+
+- **spec-lint expands brace sets and stops failing on fenced-off peer files.**
+  A token like `crates/serve/src/{qwenxml,dsml,api,lib}.rs` was one literal
+  path, always missing, and the finding could not say which file was wrong.
+  Sets with a comma now expand as bash expands them (cartesian product,
+  nested sets), each expansion is checked, and a finding names the expansion
+  and its token (`; from …`). Past 64 expansions the token is one
+  `unchecked:` finding. `{id}`, `{}` and `${VAR}` keep their old reading.
+  A token that ends in a set (`pkg/x.{go,md}`) used to go unchecked; it is
+  checked now, so an old spec can gain a finding (none did across 32 live
+  specs).
+- **`Absent-ok: <path>`** declares a path that may be absent here, such as a
+  peer round's new file. It uses `Create:`'s marker language and applies by
+  path. It exempts the missing check only: if the path exists, its `:line`
+  is still checked. A line that says do not touch / off-limits / read-only
+  for you / not yours (or `건드리지 마`) does the same for its own paths,
+  and for the list under it when the line ends in `:`. The fence stops at a
+  blank line or a heading. The ok line prints `(n absent-ok)`, and telemetry
+  gains `absent-ok` and `unchecked`. Measured 2026-10-06: two false findings
+  in one day cost a lead re-lints on specs that were right.
+
+- **Smaller.**
+  - doc-refs reads `bin/outsource.sha256` as itself; it used to read it as a
+    missing `bin/outsource.sh`.
+  - Launch tests get a private TMPDIR, because a test once rewrote the
+    shared crushrc in `$TMPDIR/outsource-glm-cfg`.
+  - New registry records are 0600 and a new registry dir 0700 (an existing
+    dir keeps its mode).
+  - A harness child no longer inherits the launching session's
+    `CLAUDE_CODE_MESSAGING_SOCKET`/`CLAUDE_CODE_MESSAGING_TOKEN`.
+  - Telemetry stops counting flags at `--`, so `slot -- go test --count=1`
+    no longer records `--count` as a flag of `slot`.
+  - glm-preamble: never poll a lock or box window yourself (measured:
+    polling every 75–360 s starved a round for 40 minutes).
+
+The frictions came from another lead's day of GLM rounds.
+
 ## 0.19.0 — 2026-10-06 — See, talk to and audit a running round, and the panel wakes the lead when one finishes
 
 - **The wake's review commands run as written.** They named a bare
