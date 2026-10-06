@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.0 — 2026-10-06 — See, talk to and audit a running round, and the panel wakes the lead when one finishes
 
 - **The wake's review commands run as written.** They named a bare
   `outsource`, which is not on PATH, and a long log path cut the one-line
@@ -20,7 +20,7 @@
   trail. The model also gets the `rounds` and `round_send` tools plus a
   system-prompt section, and `/rounds wake [on|off]` toggles the wake
   (toasts stay). `install.sh` no longer refuses on a `*_test.go` newer than
-  the committed binary (STD-11; a non-test `.go` still refuses).
+  the committed binary (a non-test `.go` still refuses).
 
 - **A round with two inbox sockets is called out, and the panel will not send
   into it.** A second socket parked on a record (shared hook settings) was
