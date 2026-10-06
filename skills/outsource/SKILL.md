@@ -331,9 +331,11 @@ panel has never polled seeds silently. A wake carries only launcher-written fiel
 rc, timings, `log`, `cwd`, id — never the round's trail or tail output,
 which the round itself wrote.
 
-On a wake, review the round before acting on it. The wake's closing line
-names the routine: `outsource last-report <log>`, the round's `.rc` sentinel,
-the diff in its `cwd`, the gates, `outsource audit <id>`.
+On a wake, review the round before acting on it. The wake's closing block
+gives the routine as commands, one per line, each spelled with the installed
+binary's absolute path — the `outsource` command is not on PATH, so the wake
+never writes it bare: `last-report <log>`, `cat <log>.rc`, the diff in its
+`cwd`, `audit <id>`, then the gates.
 
 `/rounds wake on|off` toggles the model wake (default on; toasts stay either
 way, and a bare `/rounds wake` prints the state). `send` and `wake` are

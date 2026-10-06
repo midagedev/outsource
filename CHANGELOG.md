@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The wake's review commands run as written.** They named a bare
+  `outsource`, which is not on PATH, and a long log path cut the one-line
+  pointer mid-command. The wake now closes with one command per line, spelled
+  with the binary path the panel runs, and command lines are never truncated.
+
 - **The panel now tells the lead model, not only the person.** When one of
   the session's rounds finishes, fails, is orphaned or stalls, the
   outsource-panel mod submits one `[outsource-panel]` prompt, so a lead with
