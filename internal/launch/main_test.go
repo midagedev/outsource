@@ -70,6 +70,14 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	os.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
+	// A private TMPDIR too: a launch without --config-dir writes the shared
+	// $TMPDIR/outsource-glm-cfg, and a test once rewrote the real crushrc
+	// there (measured 2026-10-06). TestTempDirIsPrivate pins it.
+	if err := os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "launch tests: cannot create a private TMPDIR:", err)
+		os.Exit(2)
+	}
+	os.Setenv("TMPDIR", filepath.Join(dir, "tmp"))
 	// No harness CLI is reachable from a launch test (pinHarnessFreePath).
 	if msg := pinHarnessFreePath(); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
@@ -150,4 +158,16 @@ func TestSelfReexecIsRefused(t *testing.T) {
 // through the environment must still refuse instead of running the suite.
 func TestSelfReexecMarkerIsRefused(t *testing.T) {
 	reexecRefused(t, []string{"-test.run=XXX_none"}, os.Environ(), testmainEnvKey)
+}
+
+// TestTempDirIsPrivate pins TestMain's private TMPDIR, so no launch test can
+// write the shared $TMPDIR/outsource-glm-cfg (a test once rewrote the real
+// crushrc there, 2026-10-06). FAIL-first: without the Setenv in TestMain,
+// os.TempDir() is the user's own temp dir.
+func TestTempDirIsPrivate(t *testing.T) {
+	runsDir := os.Getenv("OUTSOURCE_RUNS_DIR")
+	want := filepath.Join(filepath.Dir(runsDir), "tmp")
+	if got := os.TempDir(); filepath.Clean(got) != want {
+		t.Fatalf("os.TempDir() = %q, want the package's private %q", got, want)
+	}
 }
