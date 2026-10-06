@@ -74,7 +74,7 @@ func cmdList(f filter, stdout io.Writer) int {
 		trailNote += conflictNote(r)
 		switch st {
 		case Failed:
-			fmt.Fprintf(stdout, "         rc=%s  log=%s%s\n", r.RC, logOr("none"), trailNote)
+			fmt.Fprintf(stdout, "         rc=%s%s  log=%s%s\n", r.RC, endingNote(r), logOr("none"), trailNote)
 		case Orphan:
 			fmt.Fprintf(stdout, "         started but never finished — pid %s is gone; log=%s%s\n", r.Pid, logOr("none"), trailNote)
 		case Running:
@@ -182,6 +182,12 @@ func cmdLine(f filter, stdout io.Writer) int {
 		}
 		el := human.Secs(r.Elapsed(now))
 		lbl := seen.next(r.Label)
+		// A finished round a lead stopped, or an outside signal killed, says
+		// so instead of a bare rc (ending): ■<label> stopped, ✗<label> TERM ext.
+		if g, w, ok := ending(r); ok && (st == Done || st == Failed) {
+			past = append(past, fmt.Sprintf("%s%s %s", g, lbl, w))
+			continue
+		}
 		switch st {
 		case Running:
 			// A long round that is still writing gets no alarm — that is just
@@ -255,4 +261,18 @@ func conflictNote(r *Record) string {
 // this line is also what justifies the panel refusing the send.
 func inboxConflictNote(r *Record) string {
 	return conflictLine("inbox", r.MessagingSocketConflict)
+}
+
+// endingNote is the list's spelling of ending(): " ■stopped — <reason>" or
+// " ✗TERM ext" after the rc, nothing for an ordinary failure.
+func endingNote(r *Record) string {
+	g, w, ok := ending(r)
+	if !ok {
+		return ""
+	}
+	note := " " + g + w
+	if r.StopReason != "" {
+		note += " — " + r.StopReason
+	}
+	return note
 }

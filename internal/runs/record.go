@@ -158,6 +158,22 @@ type Record struct {
 	// TrailConflict parks a second trail.
 	MessagingSocket         string
 	MessagingSocketConflict string
+
+	// The lead's voice and the stop lever (record_lead.go owns the writers).
+	// LeadSocket is the launching lead's own inbox at launch time and
+	// LeadToken the per-launch secret the round's prompt names, so a lead
+	// that restarted (new pid, new socket) can still prove a note is its own.
+	// ChildPid is the harness child of the latest spawn: `runs stop` signals
+	// it and nothing else. The stop request and the ending are appended by
+	// `runs stop` and by the wrapper's finish, last value wins.
+	LeadSocket    string
+	LeadToken     string
+	ChildPid      string
+	StopRequested string
+	StopBy        string
+	StopReason    string
+	HarnessSignal string
+	SignalSource  string
 }
 
 // sanitize flattens newlines so one value stays one line.
@@ -258,6 +274,22 @@ func Read(path string) (*Record, error) {
 			r.MessagingSocket = v
 		case "messagingSocketConflict":
 			r.MessagingSocketConflict = v
+		case "leadSocket":
+			r.LeadSocket = v
+		case "leadToken":
+			r.LeadToken = v
+		case "childPid":
+			r.ChildPid = v
+		case "stopRequested":
+			r.StopRequested = v
+		case "stopBy":
+			r.StopBy = v
+		case "stopReason":
+			r.StopReason = v
+		case "harnessSignal":
+			r.HarnessSignal = v
+		case "signalSource":
+			r.SignalSource = v
 		}
 	}
 	if err := sc.Err(); err != nil {

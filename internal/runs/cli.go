@@ -20,6 +20,12 @@ long, and how the last few ended.
   runs trail  <run-id> --path P   record where this round's live trail is
   runs prune [--keep-seconds N]  drop finished records older than N
   runs dismiss <run-id>          drop one record you have read (not running)
+  runs stop <label|id> [--reason T] [--any-owner] [--kill-after N]
+                                 stop a running round: TERM its harness child
+                                 (KILL after N s, default 20), wait for the
+                                 sentinel. Exit 0 stopped · 3 no such round ·
+                                 64 usage, ambiguous, foreign or pid mismatch ·
+                                 1 anything else
 
 list/line/json take --owner <session-id> and --owner-claude-pid <pid>, which
 restrict the output to rounds launched from one Claude Code session. The
@@ -142,6 +148,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 		return cmdPrune(args, stdout, stderr)
 	case "dismiss":
 		return cmdDismiss(args, stdout, stderr)
+	case "stop":
+		return cmdStop(args, stdout, stderr)
 	case "list", "line", "json":
 		f, rest, err := parseFilter(args)
 		if err != nil {
@@ -158,7 +166,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 			return cmdJSON(f, stdout)
 		}
 	default:
-		fmt.Fprintf(stderr, "runs: unknown subcommand: %s (list|line|json|start|finish|trail|prune|dismiss)\n", sub)
+		fmt.Fprintf(stderr, "runs: unknown subcommand: %s (list|line|json|start|finish|trail|prune|dismiss|stop)\n", sub)
 		return ExitUsage
 	}
 }
@@ -221,7 +229,10 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	}
 
 	dir := Dir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Owner-only when this creates it (0700, was 0755), like the records in
+	// it: run ids and labels are nobody else's business either. An existing
+	// directory keeps its mode — MkdirAll never changes one.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		fmt.Fprintf(stderr, "runs start: %v\n", err)
 		return 1
 	}
@@ -258,9 +269,12 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	put("startedAt", fmt.Sprintf("%d", started))
 
 	// Write-then-rename: a status line reading the directory concurrently sees
-	// either no record or a complete one, never half of one.
+	// either no record or a complete one, never half of one. Owner-only
+	// (0600, was 0644): a claude-code record carries the lead token that gives
+	// a note spec authority (SetLead), and the default registry sits in a
+	// home directory every local account on a Mac can read (group staff).
 	tmp := filepath.Join(dir, "."+id+".tmp")
-	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
 		fmt.Fprintf(stderr, "runs start: %v\n", err)
 		return 1
 	}
@@ -496,6 +510,17 @@ type jsonRecord struct {
 	ElapsedSeconds          *int64 `json:"elapsedSeconds"`
 	IdleSeconds             *int64 `json:"idleSeconds"`
 	Stalled                 bool   `json:"stalled"`
+	// The lead's voice and the stop lever, empty strings (null for the pid)
+	// when absent. leadToken is what the panel prefixes a note with; it is a
+	// credential, which is why the record holding it is 0600.
+	LeadSocket    string `json:"leadSocket"`
+	LeadToken     string `json:"leadToken"`
+	ChildPid      *int64 `json:"childPid"`
+	StopRequested string `json:"stopRequested"`
+	StopBy        string `json:"stopBy"`
+	StopReason    string `json:"stopReason"`
+	HarnessSignal string `json:"harnessSignal"`
+	SignalSource  string `json:"signalSource"`
 }
 
 func numOrNull(s string) *int64 {
@@ -532,6 +557,9 @@ func cmdJSON(f filter, stdout io.Writer) int {
 			v := idle
 			j.IdleSeconds = &v
 		}
+		j.LeadSocket, j.LeadToken, j.ChildPid = r.LeadSocket, r.LeadToken, numOrNull(r.ChildPid)
+		j.StopRequested, j.StopBy, j.StopReason = r.StopRequested, r.StopBy, r.StopReason
+		j.HarnessSignal, j.SignalSource = r.HarnessSignal, r.SignalSource
 		out = append(out, j)
 	}
 	enc := json.NewEncoder(stdout)
