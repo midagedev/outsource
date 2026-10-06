@@ -54,7 +54,7 @@ if printf '%s' "$out" | grep -q 'overlays/acme.md'; then ok; else
 fi
 
 # The stale-binary refusal keys on mtimes, so a *_test.go newer than
-# bin/outsource must NOT refuse (tracker STD-11: a test-only edit made
+# bin/outsource must NOT refuse (a test-only edit made
 # install.sh refuse and this suite red until a content-identical rebuild —
 # hit twice on 2026-10-06). A non-test .go newer than the binary must still
 # refuse: that is the check doing its one job.
@@ -73,7 +73,7 @@ if [ -e "$BIN" ]; then
   : >"$NEWER_TEST"
   touch "$BIN" "$NEWER_TEST"; sleep 1; touch "$NEWER_TEST" # strictly newer
   if ./install.sh >/dev/null 2>&1; then ok; else
-    bad "install refused on a *_test.go newer than the binary — a test-only edit must not need a rebuild (STD-11)"
+    bad "install refused on a *_test.go newer than the binary — a test-only edit must not need a rebuild"
   fi
 
   : >"$NEWER_SRC"
@@ -83,7 +83,7 @@ if [ -e "$BIN" ]; then
   else ok; fi
   cleanup_probe
 else
-  bad "no committed binary at $BIN — the STD-11 cases cannot run, and a skip would read as a pass"
+  bad "no committed binary at $BIN — the test-only-edit cases cannot run, and a skip would read as a pass"
 fi
 
 printf 'install-preserve: %d passed, %d failed\n' "$pass" "$fail"

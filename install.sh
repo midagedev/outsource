@@ -78,7 +78,7 @@ fi
 # artifact, not this action. Measured 2026-08-26 — a source fix followed by
 # ./install.sh printed "installed." while shipping the previous binary, and
 # the change looked like it had not worked.
-# *_test.go is excluded (STD-11, measured 2026-10-06 twice): a test-only edit
+# *_test.go is excluded (measured 2026-10-06 twice): a test-only edit
 # changes nothing the binary embeds, so refusing on it only blocks installs
 # until a content-identical rebuild. A non-test .go still refuses.
 BIN="$SRC/bin/outsource"

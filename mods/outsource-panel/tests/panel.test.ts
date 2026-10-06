@@ -631,7 +631,7 @@ test('wakeText matches the contract', () => {
 // within the budget. FAIL-first: against a truncate-everything wake the
 // command lines come back cut (a `…` where the path continued).
 test('wake commands arrive whole, prose stays within 200 columns', () => {
-  const BIN51 = '/Users/hckim/.claude/skills/outsource/bin/outsource'
+  const BIN51 = '/Users/exmpl/.claude/skills/outsource/bin/outsource'
   expect(BIN51.length).toBe(51)
   const longLog = '/tmp/panel-fixtures/logs/' + 'x'.repeat(111) + '.log'
   expect(longLog.length).toBe(140)
