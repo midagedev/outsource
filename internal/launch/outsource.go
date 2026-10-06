@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/midagedev/outsource/internal/audit"
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/quota"
 	"github.com/midagedev/outsource/internal/report"
@@ -684,6 +685,14 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	// post-mortem a week later still wants the transcript.
 	if r.trail != "" {
 		fmt.Fprintf(&b, "trail=%s\n", r.trail)
+		// The seal: hashes of the trail (and its subagents, on the claude-code
+		// layout) taken after the harness has exited, so `outsource audit` can
+		// later tell an untouched transcript from an edited one. Computed and
+		// formatted by the audit package — the same code that verifies it —
+		// because a seal and its check written in two places can drift apart
+		// exactly when it matters. Never fails the round: a read error becomes
+		// trail_sha256=unavailable (…) and the exit code stands.
+		b.WriteString(audit.SealLines(r.trail))
 	}
 	// The tool-call count, when this harness's trail was countable. Beside the
 	// trail on purpose: it is the count OF that file, and a reader checking a
