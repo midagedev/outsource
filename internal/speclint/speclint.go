@@ -50,6 +50,13 @@ const (
 
 const usageLine = "usage: spec-lint [--root <dir>] [--quiet] <spec.md> [<spec.md>...]"
 
+// helpMarkers is the help's one line on the exemptions a spec can declare. A
+// marker nobody can find from the tool is the 2026-08-27 failure again: the
+// exemption existed, and the spec paid ten findings for not knowing it.
+const helpMarkers = "  markers: `Create: <path>` (new: must not exist yet) · `Absent-ok: <path>` (may be absent here: " +
+	"a peer's new file) · a line saying do not touch / off-limits / read-only for you / not yours fences its paths, " +
+	"and the list under it when it ends in `:`, as absent-ok · `{a,b}` sets expand"
+
 func usage(w io.Writer) {
 	fmt.Fprintln(w, usageLine)
 }
@@ -81,6 +88,7 @@ parse:
 			// Help goes to stdout and exits 0 — usage ERRORS go to stderr
 			// and exit 2. The shell was equally explicit about that split.
 			fmt.Fprintln(stdout, usageLine)
+			fmt.Fprintln(stdout, helpMarkers)
 			return ExitClean
 		case a == "--":
 			specs = append(specs, args[i+1:]...)
@@ -128,6 +136,8 @@ parse:
 		total.exempt += s.exempt
 		total.missing += s.missing
 		total.already += s.already
+		total.absentOK += s.absentOK
+		total.unchecked += s.unchecked
 	}
 	// Counts are strings because telemetry.Note is a map[string]string — the
 	// same shape every other tool writes. Mining splits on the keys.
@@ -135,6 +145,8 @@ parse:
 	telemetry.Note("exempt", strconv.Itoa(total.exempt))
 	telemetry.Note("missing", strconv.Itoa(total.missing))
 	telemetry.Note("already-exists", strconv.Itoa(total.already))
+	telemetry.Note("absent-ok", strconv.Itoa(total.absentOK))
+	telemetry.Note("unchecked", strconv.Itoa(total.unchecked))
 	// The to-be-created exemption only fires for paths the spec declares in
 	// the marker language creationLines knows ("Create: <path>", a
 	// colon-terminated line opening a list, the Korean forms). A spec that
@@ -151,6 +163,14 @@ parse:
 			"declare them so: a line `Create: <path>` (or `New file: <path>`, `신규 파일: <path>`), "+
 			"or `Create:` on its own line opening a list of them. Declared paths are exempt "+
 			"everywhere else they are named, and are checked the other way instead: already-exists.")
+		// The other half of the same question: a path the spec names but does
+		// not claim is here — a peer round's new file, fenced off — is not a
+		// creation, and Create: would report it already-exists the day the
+		// peer lands. One line, so the two markers are read together.
+		fmt.Fprintln(stdout, "spec-lint: hint — if any are files that may be ABSENT here (a peer round's new files "+
+			"you fence off), declare them `Absent-ok: <path>` (or `Absent-ok:` opening a list); a line saying "+
+			"do not touch / off-limits / read-only for you / not yours does it for its own paths, and for the "+
+			"list under it when it ends in `:`, up to a blank line or heading.")
 	}
 	if total.findings > 0 {
 		return ExitFindings
@@ -162,8 +182,11 @@ parse:
 // telemetry row. findings is the exit-1 axis; exempt is the to-be-created
 // suppression; missing vs already-exists split the findings that those two
 // checks produce (line-out-of-range is a finding in neither bucket).
+// absentOK counts the missing findings an Absent-ok declaration or a fence
+// suppressed, and unchecked the brace sets too large to expand (findings).
 type lintStats struct {
 	findings, exempt, missing, already int
+	absentOK, unchecked                int
 }
 
 // lintSpec lints one spec and prints its findings and its ok line. The
@@ -210,9 +233,20 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 	// those moved the cry-wolf defect a page down instead of fixing it.
 	created := map[string]bool{}
 	for _, r := range refs {
-		if toCreate[r.lineno] {
+		if toCreate[r.lineno] && !r.unchecked {
 			p, _ := resolve(r.path, bases)
 			created[p] = true
+		}
+	}
+
+	// Absent-ok is by path for the same reason: a peer's new file is fenced
+	// off once and then named again where the spec explains the peer.
+	absentAt := absentLines(lines)
+	absent := map[string]bool{}
+	for _, r := range refs {
+		if absentAt[r.lineno] && !r.unchecked {
+			p, _ := resolve(r.path, bases)
+			absent[p] = true
 		}
 	}
 
@@ -224,6 +258,13 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 			continue
 		}
 		seen[key] = true
+		if r.unchecked {
+			fmt.Fprintf(stdout, "%s:%d: unchecked: %s (a brace set of more than %d paths; spell them out)\n",
+				spec, r.lineno, r.tok, maxBraceExpansions)
+			st.findings++
+			st.unchecked++
+			continue
+		}
 		resolved, exists := resolve(r.path, bases)
 		if created[resolved] {
 			// A file the spec is creating, at its declaration or anywhere
@@ -234,16 +275,22 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 			// here, before launch.
 			st.exempt++
 			if exists && toCreate[r.lineno] {
-				fmt.Fprintf(stdout, "%s:%d: already-exists: %s (spec says create it; resolved: %s)\n",
-					spec, r.lineno, r.tok, resolved)
+				fmt.Fprintf(stdout, "%s:%d: already-exists: %s (spec says create it; resolved: %s%s)\n",
+					spec, r.lineno, r.tok, resolved, r.via())
 				st.findings++
 				st.already++
 			}
 			continue
 		}
 		if !exists {
-			fmt.Fprintf(stdout, "%s:%d: missing: %s (resolved: %s)\n",
-				spec, r.lineno, r.tok, resolved)
+			if absent[resolved] {
+				// Declared as possibly absent: exempt from this check only.
+				// The same path, present, falls through to the line check.
+				st.absentOK++
+				continue
+			}
+			fmt.Fprintf(stdout, "%s:%d: missing: %s (resolved: %s%s)\n",
+				spec, r.lineno, r.tok, resolved, r.via())
 			st.findings++
 			st.missing++
 			continue
@@ -251,8 +298,8 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 		if r.cited && !isDir(resolved) {
 			total := lineCount(resolved)
 			if r.line < 1 || r.line > total {
-				fmt.Fprintf(stdout, "%s:%d: line-out-of-range: %s (file has %d lines)\n",
-					spec, r.lineno, r.tok, total)
+				fmt.Fprintf(stdout, "%s:%d: line-out-of-range: %s (file has %d lines%s)\n",
+					spec, r.lineno, r.tok, total, r.via())
 				st.findings++
 			}
 		}
@@ -264,6 +311,9 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 		if st.exempt > 0 {
 			note = fmt.Sprintf(" (%d to-be-created exempt)", st.exempt)
 		}
+		if st.absentOK > 0 {
+			note += fmt.Sprintf(" (%d absent-ok)", st.absentOK)
+		}
 		fmt.Fprintf(stdout, "%s: ok%s\n", spec, note)
 	}
 	return st, nil
@@ -274,12 +324,27 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 // ref is one reference found in a spec: the line it sits on, the token as it
 // appeared after edge-punctuation trimming (what findings print), the path it
 // claims, and the cited line number when the token was a path:line citation.
+// A brace set yields one ref per expansion: tok is the expansion and from the
+// token as written. unchecked marks a set too large to expand; its tok is the
+// token and it claims no path.
 type ref struct {
-	lineno int
-	tok    string
-	path   string
-	cited  bool
-	line   int
+	lineno    int
+	tok       string
+	path      string
+	cited     bool
+	line      int
+	from      string
+	unchecked bool
+}
+
+// via is the finding suffix naming the brace set an expansion came from, so
+// the reader can find the token in the spec. Empty for a plain token, which
+// keeps every plain finding's text exactly what it was.
+func (r ref) via() string {
+	if r.from == "" {
+		return ""
+	}
+	return "; from " + r.from
 }
 
 // lineTok is the dedup key: the same token on the same line is one claim,
@@ -305,7 +370,8 @@ type token struct {
 // prose naming a file as a concept ("copy the relevant CLAUDE.md clauses")
 // produced ~30 findings across this repo's own docs with zero real defects
 // (measured 2026-08-16) — a linter at that precision gets ignored, which
-// costs more than the class it catches.
+// costs more than the class it catches. A brace set yields one reference per
+// expansion (see appendBraceRefs).
 func collectRefs(lines []string, spans [][2]int) []ref {
 	var refs []ref
 	base := 0
@@ -338,16 +404,30 @@ func collectRefs(lines []string, spans [][2]int) []ref {
 			if inSpan {
 				continue // inside a <...> template span or an HTML comment
 			}
-			if m := citeRe.FindStringSubmatch(tok); m != nil &&
-				(strings.Contains(m[1], "/") || hasExt(m[1])) {
-				refs = append(refs, ref{lineno: lineno, tok: tok, path: m[1], cited: true, line: atoiClamped(m[2])})
-			} else if strings.Contains(tok, "/") && hasExt(tok) {
-				refs = append(refs, ref{lineno: lineno, tok: tok, path: tok})
+			if set := stripBraceEdges(t.text); hasBraceSet(set) {
+				refs = appendBraceRefs(refs, lineno, set)
+				continue
+			}
+			if r, ok := pathRef(lineno, tok); ok {
+				refs = append(refs, r)
 			}
 		}
 		base += len(line)
 	}
 	return refs
+}
+
+// pathRef classifies one token: a path:line citation (an explicit claim about
+// a specific file, bare filename or not), or a slash-bearing token that ends
+// in a known file extension. Anything else is not a reference.
+func pathRef(lineno int, tok string) (ref, bool) {
+	if m := citeRe.FindStringSubmatch(tok); m != nil &&
+		(strings.Contains(m[1], "/") || hasExt(m[1])) {
+		return ref{lineno: lineno, tok: tok, path: m[1], cited: true, line: atoiClamped(m[2])}, true
+	} else if strings.Contains(tok, "/") && hasExt(tok) {
+		return ref{lineno: lineno, tok: tok, path: tok}, true
+	}
+	return ref{}, false
 }
 
 // tokens splits a line into (offset, text) pairs the way the shell's Python
@@ -483,11 +563,22 @@ const createWords = `create|creates?d?|new files?|files? to create|to create|add
 // to-be-created paths are densest (measured 2026-08-19, fixed the same day).
 const bullet = `(?:[-*+]|[0-9]+[.)])`
 
+// markerOpenRe is a marker word on a line of its own, ending in a colon: it
+// opens a list. markerInlineRe is the word, a colon, and the path on the
+// same line. Both take the positions a list item or heading gives them.
+func markerOpenRe(words string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^` + pyS + `*(?:` + bullet + pyS + `+)?(?:#+` + pyS +
+		`*)?(?:\*\*)?(?:` + words + `)(?:\*\*)?` + pyS + `*(?:\([^)]*\))?` + pyS + `*:` + pyS + `*$`)
+}
+
+func markerInlineRe(words string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^` + pyS + `*(?:` + bullet + pyS + `+)?(?:#+` + pyS +
+		`*)?(?:\*\*)?(?:` + words + `)(?:\*\*)?` + pyS + `*:` + pyS + `+` + pyNotS)
+}
+
 var (
-	createOpenRe = regexp.MustCompile(`(?i)^` + pyS + `*(?:` + bullet + pyS + `+)?(?:#+` + pyS +
-		`*)?(?:\*\*)?(?:` + createWords + `)(?:\*\*)?` + pyS + `*(?:\([^)]*\))?` + pyS + `*:` + pyS + `*$`)
-	createInlineRe = regexp.MustCompile(`(?i)^` + pyS + `*(?:` + bullet + pyS + `+)?(?:#+` + pyS +
-		`*)?(?:\*\*)?(?:` + createWords + `)(?:\*\*)?` + pyS + `*:` + pyS + `+` + pyNotS)
+	createOpenRe   = markerOpenRe(createWords)
+	createInlineRe = markerInlineRe(createWords)
 	// Inside a creation block: a list item, or a wrapped continuation of one.
 	listItemRe     = regexp.MustCompile(`^` + pyS + `*` + bullet + pyS + `+` + pyNotS)
 	continuationRe = regexp.MustCompile(`^` + pyS + `{2,}` + pyNotS)
@@ -499,16 +590,21 @@ var (
 // list items and continuations are marked, a blank line does not end the
 // list, and any other prose does.
 func creationLines(lines []string) map[int]bool {
+	return markedLines(lines, createInlineRe, createOpenRe)
+}
+
+// markedLines is creationLines over any marker's pair of patterns.
+func markedLines(lines []string, inlineRe, openRe *regexp.Regexp) map[int]bool {
 	marked := map[int]bool{}
 	inBlock := false
 	for i, line := range lines {
 		n := i + 1
-		if createInlineRe.MatchString(line) {
+		if inlineRe.MatchString(line) {
 			marked[n] = true
 			inBlock = false
 			continue
 		}
-		if createOpenRe.MatchString(line) {
+		if openRe.MatchString(line) {
 			inBlock = true
 			continue
 		}
@@ -527,6 +623,94 @@ func creationLines(lines []string) map[int]bool {
 	return marked
 }
 
+// ─── absent-ok ───────────────────────────────────────────────────────────────
+
+// A spec names files that are not in this tree and never claims they are: a
+// peer round's new files, fenced off so the delegate leaves them alone
+// ("Do not touch: crates/serve/src/qwenxml.rs" while that file exists only
+// on the peer's branch). Reporting them missing is a finding about a premise
+// the spec never stated (measured 2026-10-06, the same field report as the
+// brace sets). Such a path is absent-ok: exempt from the missing check and
+// from nothing else — present, its :line citation is still checked. It is
+// declared in Create:'s marker language, or by a fence line.
+var (
+	absentOpenRe   = markerOpenRe(`absent-ok`)
+	absentInlineRe = markerInlineRe(`absent-ok`)
+	// fenceRe is the fence phrasing. \b keeps "not yourself" out; the
+	// curly apostrophe is how an editor spells "don't"; 마/말 covers the
+	// Korean imperative's forms (마라, 마세요, 말 것).
+	fenceRe = regexp.MustCompile(`(?i)\b(?:do` + pyS + `+not` + pyS + `+touch|don['’]t` + pyS + `+touch|off(?:-|` +
+		pyS + `+)limits|read-only` + pyS + `+for` + pyS + `+you|not` + pyS + `+yours)\b|건드리지` + pyS + `*[마말]`)
+	// colonEndRe is a line that introduces what follows it: a colon at the
+	// end, with any closing emphasis after it ("- **Do not touch:**").
+	colonEndRe = regexp.MustCompile(`[:：][*_` + "`" + `]*` + pyS + `*$`)
+	headingRe  = regexp.MustCompile(`^ {0,3}#{1,6}(?:` + pyS + `|$)`)
+)
+
+// absentLines returns the 1-based line numbers whose paths are absent-ok:
+// the Absent-ok: marker's, by Create:'s rules, and every fence's.
+func absentLines(lines []string) map[int]bool {
+	marked := markedLines(lines, absentInlineRe, absentOpenRe)
+	for n := range fenceLines(lines) {
+		marked[n] = true
+	}
+	return marked
+}
+
+// fenceLines returns the lines a fence covers. A line in the fence phrasing
+// covers itself. When it ends in a colon it also covers the list under it:
+// list items and continuations indented deeper than the fence line when that
+// line is a list item (its sub-list, not its siblings), at least as deep when
+// it is not. A blank line, a heading, or any other line ends the fence — a
+// fence is a claim about the paths it lists, and unlike a Create: block it
+// never runs on past a paragraph.
+//
+// The colon is what makes a list "under" a line. Without it, boilerplate that
+// says "an unrelated failing gate is not yours" inside one bullet fenced the
+// whole rules list after it (q3harness:630, q3kvround:624), and "Do not touch
+// the trained probe." fenced its step's own sub-list (ctxslots:527).
+func fenceLines(lines []string) map[int]bool {
+	marked := map[int]bool{}
+	open, sub, indent := false, false, 0
+	for i, line := range lines {
+		n := i + 1
+		if fenceRe.MatchString(line) {
+			marked[n] = true
+			open = colonEndRe.MatchString(line)
+			sub = listItemRe.MatchString(line)
+			indent = leadingSpace(line)
+			continue
+		}
+		if !open {
+			continue
+		}
+		if strings.TrimSpace(line) == "" || headingRe.MatchString(line) ||
+			!(listItemRe.MatchString(line) || continuationRe.MatchString(line)) {
+			open = false
+			continue
+		}
+		d := leadingSpace(line)
+		if (sub && d <= indent) || d < indent {
+			open = false
+			continue
+		}
+		marked[n] = true
+	}
+	return marked
+}
+
+// leadingSpace counts a line's leading whitespace characters.
+func leadingSpace(line string) int {
+	n := 0
+	for _, r := range line {
+		if !isSpaceRune(r) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
 // stripEdges trims prose punctuation, but keeps a path's leading dots.
 //
 // A plain strip turned `.github/workflows/ci.yml` into
@@ -543,17 +727,148 @@ func creationLines(lines []string) map[int]bool {
 const edge = "`\"'()[]{}<>,;:.!?*|\\…—–«»“”‘’"
 
 func stripEdges(raw string) string {
-	tok := strings.Trim(raw, edge)
+	return stripEdgesOf(raw, edge)
+}
+
+// stripEdgesOf is stripEdges over a given punctuation set.
+func stripEdgesOf(raw, set string) string {
+	tok := strings.Trim(raw, set)
 	if tok == "" || !strings.Contains(tok, "/") {
 		return tok
 	}
 	// Re-attach as many leading dots as the raw token had before trimming.
-	head := raw[:len(raw)-len(strings.TrimLeft(raw, edge))]
+	head := raw[:len(raw)-len(strings.TrimLeft(raw, set))]
 	dots := len(head) - len(strings.TrimRight(head, "."))
 	if dots > 0 {
 		return strings.Repeat(".", dots) + tok
 	}
 	return tok
+}
+
+// ─── brace sets ──────────────────────────────────────────────────────────────
+
+// A spec abbreviates sibling files the way a shell does:
+// `crates/serve/src/{qwenxml,dsml,api,lib}.rs`. Read as one literal path it
+// is always missing, and the finding cannot say which of the four is wrong
+// (measured 2026-10-06: a re-lint of a spec that was right). A set is a
+// `{…}` pair holding at least one comma at its own depth; `{id}`, `{}` and
+// `${VAR}` are not sets and keep their old reading. Sets expand as bash
+// expands them — the cartesian product across sets, nested sets included —
+// and every expansion is classified and checked like a plain token.
+
+// maxBraceExpansions caps one token's expansions. Past it the token is one
+// "unchecked" finding: the linter vouched for none of those paths, and an
+// exit 0 would say it had.
+const maxBraceExpansions = 64
+
+// edgeKeepBraces is edge without the braces, for a token holding a set: a
+// set at either end of a token is part of the path, not prose punctuation.
+var edgeKeepBraces = strings.NewReplacer("{", "", "}", "").Replace(edge)
+
+// stripBraceEdges trims prose punctuation like stripEdges, leading dots
+// kept, but keeps braces that pair up; an unpaired brace at an edge is
+// still punctuation.
+func stripBraceEdges(raw string) string {
+	tok := stripEdgesOf(raw, edgeKeepBraces)
+	for {
+		open, closing := strings.Count(tok, "{"), strings.Count(tok, "}")
+		switch {
+		case open > closing && strings.HasPrefix(tok, "{"):
+			tok = stripEdgesOf(tok[1:], edgeKeepBraces)
+		case closing > open && strings.HasSuffix(tok, "}"):
+			tok = stripEdgesOf(tok[:len(tok)-1], edgeKeepBraces)
+		default:
+			return tok
+		}
+	}
+}
+
+// braceSet finds the leftmost set in s: the offsets of its braces and its
+// alternatives, split at the commas of its own depth. i is -1 when s holds
+// none. A pair without such a comma is literal text and the scan goes on
+// inside it, as bash's does.
+func braceSet(s string) (i, j int, alts []string) {
+	for i = 0; i < len(s); i++ {
+		if s[i] != '{' {
+			continue
+		}
+		depth, start := 0, i+1
+		for j = i; j < len(s); j++ {
+			switch s[j] {
+			case '{':
+				depth++
+			case ',':
+				if depth == 1 {
+					alts = append(alts, s[start:j])
+					start = j + 1
+				}
+			case '}':
+				depth--
+			}
+			if depth == 0 {
+				break
+			}
+		}
+		if depth == 0 && len(alts) > 0 {
+			return i, j, append(alts, s[start:j])
+		}
+		alts = nil
+	}
+	return -1, -1, nil
+}
+
+func hasBraceSet(s string) bool {
+	i, _, _ := braceSet(s)
+	return i >= 0
+}
+
+// expandBraces returns s's expansions in bash's order, stopping once there
+// are more than maxBraceExpansions; ok is false then, and the slice holds
+// the first maxBraceExpansions+1. Each step removes one brace pair, so the
+// walk ends, and every set has at least two alternatives, so the work is
+// bounded by the cap.
+func expandBraces(s string) (out []string, ok bool) {
+	var walk func(string) bool
+	walk = func(s string) bool {
+		i, j, alts := braceSet(s)
+		if i < 0 {
+			out = append(out, s)
+			return len(out) <= maxBraceExpansions
+		}
+		for _, a := range alts {
+			if !walk(s[:i] + a + s[j+1:]) {
+				return false
+			}
+		}
+		return true
+	}
+	return out, walk(s)
+}
+
+// appendBraceRefs appends one ref per path-shaped expansion of set. Past the
+// cap, it appends one unchecked ref — but only when the expansions it saw
+// were path-shaped: `{M2,M3,M5,M5b}` in prose is a set of names, not a claim
+// about the tree, at any size.
+func appendBraceRefs(refs []ref, lineno int, set string) []ref {
+	exps, ok := expandBraces(set)
+	if !ok {
+		for _, e := range exps {
+			if _, isPath := pathRef(lineno, e); isPath && !isTemplate(e) {
+				return append(refs, ref{lineno: lineno, tok: set, unchecked: true})
+			}
+		}
+		return refs
+	}
+	for _, e := range exps {
+		if e == "" || isTemplate(e) {
+			continue
+		}
+		if r, isPath := pathRef(lineno, e); isPath {
+			r.from = set
+			refs = append(refs, r)
+		}
+	}
+	return refs
 }
 
 // isTemplate reports the tokens that are not claims about the tree: URLs
