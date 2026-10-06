@@ -5,6 +5,14 @@
 // binary (process.run), the session id, sends, toasts and pane placement.
 // "Now" is fixed by mock.clock at NOW_MS, the instant the committed fixture's
 // timestamps were built against.
+//
+// The suite runs twice, once per copy of the panel (tests/panel-mod.test.sh):
+// `claude plugin test mods/outsource-panel` loads the standalone plugin
+// `outsource-panel`, `claude plugin test <repo root>` the root plugin
+// `outsource` that bundles the same module. Nothing here names the plugin
+// under test: boot reads it off the engine (`next.origin` of the calls the
+// plugin makes) into PLUGIN, and every name the model or a mount sees is
+// derived from it.
 
 import { test, expect, mock } from 'claude-code/testing'
 // The loader admits only code files, so the rows reach the test through a JS
@@ -12,11 +20,19 @@ import { test, expect, mock } from 'claude-code/testing'
 // serves) is pinned to it by a drift check in tests/panel-mod.test.sh.
 import { ROWS } from './fixtures/runs.js'
 import {
+  BUNDLED_NAME,
+  PANEL_NAME,
+  PANEL_OFF_TEXT,
+  PANEL_ON_TEXT,
+  binCandidates,
   charWidth,
   displayWidth,
+  logText,
+  offSectionText,
   roundsToolLine,
   secs,
   sectionText,
+  toolName,
   truncate,
   wakeText,
 } from '../hooks/view.js'
@@ -28,6 +44,22 @@ const NOW_MS = 1791300000000
 const BIN = '/fakehome/.claude/skills/outsource/bin/outsource'
 
 type Row = (typeof fixtureRows)[number]
+
+// The plugin under test, as the engine names it (boot sets it).
+let PLUGIN = ''
+
+// Every `$.ui.log` line of every test that did not go to the debug sink with
+// exactly one `outsource-panel: ` prefix, judged on the line as the debug log
+// writes it (measured 2026-10-06: `[<plugin>] $.ui.log (to debug): <text>`).
+// The last test asserts it is empty.
+const LOG_VIOLATIONS: string[] = []
+function checkLog(origin: string, text: string, to: string) {
+  const line = '[' + origin + '] $.ui.log (to ' + to + '): ' + text
+  const prefixes = line.match(/outsource-panel: /g) ?? []
+  if (to !== 'debug' || prefixes.length !== 1 || !text.startsWith('outsource-panel: ')) {
+    LOG_VIOLATIONS.push(JSON.stringify({ origin, text, to }))
+  }
+}
 
 // One rendered trail per row id the stubs serve, shaped as `outsource tail`
 // prints it: a `── ` header line, then entries.
@@ -59,9 +91,16 @@ const BAND_PROPS = (bodyColumns: number, hasSurvey = false) => ({
 })
 
 // Everything a test needs from one boot: mutable stub state and the recorders.
-async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any; store?: Record<string, unknown> } = {}) {
+// `env` replaces the environment the plugin reads; `exists` answers $.fs.exists
+// (every path exists when left out).
+async function boot(
+  $: any,
+  on: any,
+  rows: Row[],
+  opts: { uiOpen?: any; store?: Record<string, unknown>; env?: Record<string, string>; exists?: (path: string) => boolean } = {},
+) {
   const clock = mock.clock(on, { now: NOW_MS })
-  mock.env(on, { HOME: '/fakehome', OUTSOURCE_PANEL_BIN: BIN })
+  mock.env(on, opts.env ?? { HOME: '/fakehome', OUTSOURCE_PANEL_BIN: BIN })
 
   const state = {
     rows: JSON.parse(JSON.stringify(rows)) as Row[],
@@ -76,6 +115,13 @@ async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any; store?: 
     tailNs: [] as number[],
     prompts: [] as string[],
     tools: [] as string[],
+    registered: [] as string[], // full tool names, as the engine returns them
+    commands: [] as string[], // `<plugin>:<command>` per command.register
+    logEntries: [] as Array<{ origin: string; text: string; to: string }>,
+    existsAsked: [] as string[],
+    processCalls: 0, // every $.process.run, runs json and tail alike
+    closes: [] as any[],
+    bin: BIN, // the binary process.run answers for
     store: JSON.parse(JSON.stringify(opts.store ?? {})) as Record<string, unknown>,
     // The gate the engine's prompt intake stands behind: 'resolve' (default)
     // enters at once; 'never' hangs the submit (defect 1's frozen-tick
@@ -87,25 +133,45 @@ async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any; store?: 
   }
 
   on('session.start', () => ({ cwd: '/tmp/panel-test' })) // engine event: the result shape itself
-  on('session.id', ($) => ({ value: OWNER }))
-  on('command.register', ($, e: any) => ({ value: { command: e.name } }))
-  on('tool.register', ($, e: any) => {
+  // The panel's first call at session.start: whoever makes it is the plugin
+  // under test (a stand-in plugin never asks).
+  on('session.id', ($, e: any, next: any) => {
+    PLUGIN = next.origin.plugin
+    return { value: OWNER }
+  })
+  on('command.register', ($, e: any, next: any) => {
+    state.commands.push(next.origin.plugin + ':' + e.name)
+    return { value: { command: e.name } }
+  })
+  // The engine names a plugin's tool mcp__<plugin>__<name>; so does this stub,
+  // from the plugin that registered it.
+  on('tool.register', ($, e: any, next: any) => {
     state.tools.push(e.name)
-    return { value: { tool: 'mcp__outsource-panel__' + e.name } }
+    const tool = toolName(next.origin.plugin, e.name)
+    state.registered.push(tool)
+    return { value: { tool } }
   })
   on('ui.panes', () => ({ value: [] }))
-  on('ui.close', () => ({ value: undefined }))
+  on('ui.close', ($, e: any) => {
+    state.closes.push(e)
+    return { value: undefined }
+  })
   // What the engine draws when a render hook passes on: nothing of ours.
   // (ui.invalidate stays unstubbed: the kit's own implementation is what a
   // mounted drawing follows to redraw.)
   on('ui.render', () => ({ type: 'Box', props: {}, children: [] }))
-  on('fs.exists', () => ({ value: true }))
+  on('fs.exists', ($, e: any) => {
+    state.existsAsked.push(e.path)
+    return { value: opts.exists === undefined ? true : opts.exists(e.path) }
+  })
   on('ui.toast', ($, e: any) => {
     state.toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.log', ($, e: any) => {
+  on('ui.log', ($, e: any, next: any) => {
     state.logs.push(e.text)
+    state.logEntries.push({ origin: next.origin.plugin, text: e.text, to: e.to })
+    checkLog(next.origin.plugin, e.text, e.to)
     return { value: undefined }
   })
   on('ui.open', ($, e: any) => {
@@ -153,8 +219,9 @@ async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any; store?: 
   // answers with an empty base the plugin appends to.
   on('prompt.compose', () => ({ sections: [] }))
   on('process.run', ($, e: any) => {
+    state.processCalls += 1
     const argv: string[] = e.argv
-    if (argv[0] !== BIN) return { value: { exitCode: 64, stdout: '', stderr: 'unexpected binary', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (argv[0] !== state.bin) return { value: { exitCode: 64, stdout: '', stderr: 'unexpected binary', isStdoutTruncated: false, isStderrTruncated: false } }
     if (argv[1] === 'runs' && argv[2] === 'json') {
       state.runsCalls += 1
       if (state.runsFails) {
@@ -200,10 +267,10 @@ function allElements(node: any, into: any[] = []): any[] {
 }
 
 const mountPane = ($: any, bodyColumns: number, bodyRows = 30) =>
-  $.ui.mount({ plugin: 'outsource-panel', surface: 'terminal', component: 'Pane', props: PANE_PROPS(bodyColumns, bodyRows), requestId: 'outsource-rounds' })
+  $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', props: PANE_PROPS(bodyColumns, bodyRows), requestId: 'outsource-rounds' })
 
 const mountBand = ($: any, bodyColumns: number, hasSurvey = false) =>
-  $.ui.mount({ plugin: 'outsource-panel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS(bodyColumns, hasSurvey) })
+  $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS(bodyColumns, hasSurvey) })
 
 // 1. The visible set: order, the 8-row cap and `+k more`.
 test('visible rows: 10 visible in contract order, 8 drawn, +2 more', async ($, on) => {
@@ -363,7 +430,10 @@ test('sending: success, refusals, length cap, delivery failure', async ($, on) =
   expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/4242.sock')
   expect(state.sends[0].text).toBe('hello round')
   expect(state.toasts).toContain('sent to docs-sweep')
-  expect(state.logs.some((l) => l.startsWith('→ docs-sweep: hello round'))).toBe(true)
+  // Updated 2026-10-06 (bundle round), from startsWith('→ docs-sweep: …'): the
+  // line now goes through logText like every other panel log line, which
+  // leads it with the one `outsource-panel: ` prefix in both copies.
+  expect(state.logs).toContain(logText('→ docs-sweep: hello round'))
 
   const foreign = await $.command.run({ command: 'rounds', args: 'send panel-mod hi' })
   expect(foreign.text).toBe('refused: panel-mod is not one of your running rounds')
@@ -476,7 +546,7 @@ test('inline: the open asks for the whole tree and the trail fits it', async ($,
   // list = 8 rows + 4 activity lines + "+2 more" = 13; +1 blank +1 header +6 trail +1 controls +1 input
   expect(state.opens[0].rows).toBe(23)
   const ui = await $.ui.mount({
-    plugin: 'outsource-panel',
+    plugin: PLUGIN,
     component: 'Pane',
     requestId: 'outsource-rounds',
     surface: 'terminal',
@@ -857,7 +927,7 @@ test('rounds and round_send tools', async ($, on) => {
   const { clock, state } = await boot($, on, rows)
   await clock.advance(5000)
 
-  const list = (await $.tool.call({ tool: 'mcp__outsource-panel__rounds' })) as any
+  const list = (await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any
   const lines = String(list.result).split('\n')
   expect(lines).toHaveLength(3)
   expect(lines[0].startsWith(' ▶  docs-sweep')).toBe(true)
@@ -868,21 +938,21 @@ test('rounds and round_send tools', async ($, on) => {
   expect(lines[2].startsWith('⇄▶  panel-mod')).toBe(true)
   expect(lines[2].endsWith('inbox=no')).toBe(true)
 
-  const sent = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs-sweep', text: 'correction: re-read the spec' })) as any
+  const sent = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'docs-sweep', text: 'correction: re-read the spec' })) as any
   expect(sent.result).toBe('sent to docs-sweep')
   expect(state.sends).toHaveLength(1)
   expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/4242.sock')
 
-  const refused = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'panel-mod', text: 'hi' })) as any
+  const refused = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'panel-mod', text: 'hi' })) as any
   expect(refused.result).toBe('refused: panel-mod is not one of your running rounds')
   expect(refused.isError).toBe(true)
   expect(state.sends).toHaveLength(1)
 
-  const conflict = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs2', text: 'which one' })) as any
+  const conflict = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'docs2', text: 'which one' })) as any
   expect(conflict.result).toBe('refused: docs2 has two inbox sockets (shared hook settings)')
   expect(conflict.isError).toBe(true)
 
-  const long = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs-sweep', text: 'x'.repeat(4001) })) as any
+  const long = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'docs-sweep', text: 'x'.repeat(4001) })) as any
   expect(long.result).toBe('refused: message too long (4001 > 4000)')
   expect(long.isError).toBe(true)
   expect(state.sends).toHaveLength(1)
@@ -892,7 +962,7 @@ test('rounds and round_send tools', async ($, on) => {
 test('rounds tool with nothing visible says no rounds', async ($, on) => {
   const { clock } = await boot($, on, [])
   await clock.advance(5000)
-  const res = (await $.tool.call({ tool: 'mcp__outsource-panel__rounds' })) as any
+  const res = (await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any
   expect(res.result).toBe('no rounds')
 })
 
@@ -912,16 +982,16 @@ test('the system section follows the wake toggle', async ($, on) => {
   const onSections = (await $.prompt.compose(FACTS)) as any
   const onSection = onSections.sections.find((s: any) => s.id === 'outsource-panel')
   expect(onSection?.scope).toBe('session')
-  expect(onSection?.text).toBe(sectionText(true))
-  expect(sectionText(true).length).toBeLessThanOrEqual(900)
-  expect(sectionText(true)).toContain('never approval')
+  expect(onSection?.text).toBe(sectionText(true, PLUGIN))
+  expect(sectionText(true, PLUGIN).length).toBeLessThanOrEqual(900)
+  expect(sectionText(true, PLUGIN)).toContain('never approval')
 
   await $.command.run({ command: 'rounds', args: 'wake off' })
   const offSections = (await $.prompt.compose(FACTS)) as any
   const offSection = offSections.sections.find((s: any) => s.id === 'outsource-panel')
-  expect(offSection?.text).toBe(sectionText(false))
-  expect(sectionText(false).length).toBeLessThanOrEqual(900)
-  expect(sectionText(false)).toContain('wake is off')
+  expect(offSection?.text).toBe(sectionText(false, PLUGIN))
+  expect(sectionText(false, PLUGIN).length).toBeLessThanOrEqual(900)
+  expect(sectionText(false, PLUGIN)).toContain('wake is off')
 })
 
 // ---- defect fixes: the tick never waits on the wake; the known record ------
@@ -1063,4 +1133,463 @@ test('wake: a round that finished while wake was off never wakes', async ($, on)
   expect(state.prompts).toEqual([])
 })
 
+// ---- the bundle: one module, two plugins ---------------------------------------
+//
+// Added 2026-10-06 (bundle round). The root plugin `outsource` carries this
+// module (hooks/hooks.json at the repo root), so one marketplace install brings
+// the skill and the panel; the standalone `outsource-panel` keeps working.
 
+const COMPOSE_FACTS = {
+  model: 'glm-5.3',
+  promptModel: 'glm-5.3',
+  surfaces: ['terminal'],
+  tools: [],
+  outputStyle: null,
+  traits: [],
+}
+
+// 36. Binary discovery, the pure order: OUTSOURCE_PANEL_BIN, this plugin's own
+// folder (the root plugin: marketplace cache or a clone), the clone two levels
+// above a standalone copy, install.sh's place. FAIL-first: with the root and
+// standalone candidates swapped, the cache layout's list comes back reordered.
+test('binCandidates: the four layouts, most specific first', () => {
+  const H = '/Users/exmpl'
+  const tail = '/skills/outsource/bin/outsource'
+  const home = H + '/.claude' + tail
+  // marketplace install: the root plugin in the plugin cache
+  const cache = H + '/.claude/plugins/cache/outsource/outsource/0.20.0'
+  expect(binCandidates({ root: cache, home: H, envBin: undefined })).toEqual([
+    cache + tail,
+    H + '/.claude/plugins/cache/outsource' + tail,
+    home,
+  ])
+  // --plugin-dir <clone>: the root plugin in a clone
+  const clone = H + '/src/outsource'
+  expect(binCandidates({ root: clone, home: H, envBin: '' })).toEqual([clone + tail, H + tail, home])
+  // --plugin-dir <clone>/mods/outsource-panel: the standalone, its clone two up
+  // (spelled without `..`; a trailing slash on the root changes nothing)
+  const standalone = clone + '/mods/outsource-panel'
+  expect(binCandidates({ root: standalone, home: H })).toEqual([standalone + tail, clone + tail, home])
+  expect(binCandidates({ root: standalone + '/', home: H })[1]).toBe(clone + tail)
+  // install.sh's copy is the last resort; the override beats everything
+  expect(binCandidates({ root: standalone, home: H, envBin: '/opt/outsource' })).toEqual([
+    '/opt/outsource',
+    standalone + tail,
+    clone + tail,
+    home,
+  ])
+  // no HOME, no home candidate
+  expect(binCandidates({ root: clone, home: undefined })).toEqual([clone + tail, H + tail])
+})
+
+// 37. register.js asks in binCandidates' order and the first that exists wins;
+// the choice goes to the debug log once. Here only install.sh's copy exists.
+// FAIL-first: with the old `HOME`-only lookup, existsAsked is the home path
+// alone.
+test('binary: the first existing candidate wins, asked in order', async ($, on) => {
+  const { clock, state } = await boot($, on, fixtureRows, { env: { HOME: '/fakehome' }, exists: (p) => p === BIN })
+  const root = state.existsAsked[0].replace(/\/skills\/outsource\/bin\/outsource$/, '')
+  expect(state.existsAsked).toEqual(binCandidates({ root, home: '/fakehome' }))
+  // $.plugin.root is the folder holding this copy's plugin.json: the
+  // standalone's sits in mods/outsource-panel, its second candidate is the
+  // clone's binary.
+  if (PLUGIN === PANEL_NAME) {
+    expect(root.endsWith('/mods/outsource-panel')).toBe(true)
+    expect(state.existsAsked[1]).toBe(root.slice(0, -'/mods/outsource-panel'.length) + '/skills/outsource/bin/outsource')
+  } else {
+    expect(root.endsWith('/mods/outsource-panel')).toBe(false)
+  }
+  expect(state.logs.filter((l) => l.includes('binary'))).toEqual([logText('binary: ' + BIN)])
+  await clock.advance(5000)
+  expect(state.runsCalls).toBe(1) // `runs json` went to the binary that won
+})
+
+// 38. Where this plugin's own folder holds the binary (the root plugin), that
+// one wins and nothing past it is asked.
+test('binary: this plugin\'s own folder beats install.sh', async ($, on) => {
+  const { clock, state } = await boot($, on, fixtureRows, { env: { HOME: '/fakehome' } }) // every path exists
+  const own = state.existsAsked[0]
+  expect(own.endsWith('/skills/outsource/bin/outsource')).toBe(true)
+  expect(state.existsAsked).toEqual([own])
+  state.bin = own
+  await clock.advance(5000)
+  expect(state.runsCalls).toBe(1)
+  expect(state.logs).toContain(logText('binary: ' + own))
+})
+
+// 39. None found: every candidate is named, in the log and the pane, and
+// nothing polls.
+test('binary: none found names every candidate', async ($, on) => {
+  const { clock, state } = await boot($, on, fixtureRows, { exists: () => false })
+  expect(state.existsAsked).toHaveLength(4) // the override, two under this plugin's root, install.sh's
+  expect(state.existsAsked[0]).toBe(BIN)
+  expect(state.logs).toContain(logText('binary not found; tried ' + state.existsAsked.join(', ')))
+  await clock.advance(5000)
+  expect(state.runsCalls).toBe(0)
+  const ui = await mountPane($, 600)
+  expect((await texts(ui))[0]).toBe('outsource binary not found: ' + state.existsAsked.join(' · '))
+  await ui.unmount()
+  const tool = (await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any
+  expect(tool.result).toBe('outsource binary not found: ' + state.existsAsked.join(' · '))
+  expect(tool.isError).toBe(true)
+})
+
+// 40. The section names this copy's tools. Literal names on purpose: this is
+// the contract the model reads. FAIL-first: with the old hard-coded section,
+// the bundled text names mcp__outsource-panel__….
+test('sectionText names the tools of the copy it is given', () => {
+  for (const wake of [true, false]) {
+    const bundled = sectionText(wake, 'outsource')
+    expect(bundled).toContain('mcp__outsource__rounds')
+    expect(bundled).toContain('mcp__outsource__round_send')
+    expect(bundled).not.toContain('mcp__outsource-panel__')
+    const standalone = sectionText(wake, 'outsource-panel')
+    expect(standalone).toContain('mcp__outsource-panel__rounds')
+    expect(standalone).toContain('mcp__outsource-panel__round_send')
+    expect(standalone).not.toContain('mcp__outsource__')
+  }
+  // A missing name is a programming error, not a section naming mcp__undefined__.
+  expect(() => (sectionText as any)(true)).toThrow()
+})
+
+// 41. Names follow $.plugin.name in the running module: the registered tools,
+// which tool calls it answers (its own; the other copy's pass on), the
+// section. This test runs under both copies (see the header), so it is the
+// `outsource` and the `outsource-panel` case in turn. FAIL-first: against the
+// old literal matchers, the root run answers mcp__outsource-panel__rounds
+// itself instead of passing it on, and its section names the wrong tools.
+test('names follow $.plugin.name: registered tools, tool calls, section', async ($, on) => {
+  on('tool.call', ($, e: any) => ({ result: 'passed on: ' + e.tool })) // beneath every plugin
+  const { clock, state } = await boot($, on, [wakeRow()])
+  expect([BUNDLED_NAME, PANEL_NAME]).toContain(PLUGIN)
+  const other = PLUGIN === BUNDLED_NAME ? PANEL_NAME : BUNDLED_NAME
+  expect(state.registered).toEqual(['mcp__' + PLUGIN + '__rounds', 'mcp__' + PLUGIN + '__round_send'])
+  expect(state.logs).toContain(logText('tools: ' + state.registered.join(', ')))
+  await clock.advance(5000)
+
+  const own = (await $.tool.call({ tool: 'mcp__' + PLUGIN + '__rounds' })) as any
+  expect(String(own.result).startsWith(' ▶  api-fix')).toBe(true)
+  for (const tool of ['rounds', 'round_send']) {
+    const theirs = (await $.tool.call({ tool: 'mcp__' + other + '__' + tool, label: 'api-fix', text: 'x' } as any)) as any
+    expect(theirs.result).toBe('passed on: mcp__' + other + '__' + tool)
+  }
+  expect(state.sends).toHaveLength(0)
+
+  const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
+  const text = sections.sections.find((s: any) => s.id === 'outsource-panel')?.text ?? ''
+  expect(text).toContain('mcp__' + PLUGIN + '__rounds')
+  expect(text).toContain('mcp__' + PLUGIN + '__round_send')
+  expect(text).not.toContain('mcp__' + other + '__')
+})
+
+// 42. Every log site the session path reaches goes to the debug log alone,
+// prefixed once (checkLog). FAIL-first: with `{ to: 'debug' }` dropped from
+// the log helper, every entry is a violation.
+test('logs: every site goes to the debug log, prefixed once', async ($, on) => {
+  const rows = [
+    wakeRow({ messagingSocket: '/tmp/cc-socks/1.sock' }),
+    wakeRow({ id: 'w2', label: 'second-fix' }),
+    wakeRow({ id: 'w3', label: 'third-fix' }),
+  ]
+  const before = LOG_VIOLATIONS.length
+  const { clock, state } = await boot($, on, rows) // binary, tools
+  state.submitFails = 1
+  await clock.advance(5000) // first poll: no watermark
+  await $.command.run({ command: 'rounds', args: 'wake off' })
+  await $.command.run({ command: 'rounds', args: 'wake on' })
+  await $.command.run({ command: 'rounds', args: 'send api-fix hello' })
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // waking, then the refused submit
+  await clock.advance(5000) // the retry
+  state.submitDefers = []
+  flipDone(state.rows.find((r) => r.id === 'w2') as any)
+  await clock.advance(5000) // waking, held
+  flipDone(state.rows.find((r) => r.id === 'w3') as any)
+  await clock.advance(5000) // buffered
+  const stems = [
+    'binary: ',
+    'tools: ',
+    'no watermark for this session',
+    'wake off',
+    'wake on',
+    '→ api-fix: hello',
+    'waking the lead model',
+    'wake submit failed for api-fix',
+    'wake buffered while a submit is outstanding',
+  ]
+  for (const stem of stems) {
+    expect(state.logs.some((l) => l.startsWith(logText(stem))), stem).toBe(true)
+  }
+  expect(state.logEntries.every((l) => l.to === 'debug')).toBe(true)
+  expect(LOG_VIOLATIONS.slice(before)).toEqual([])
+})
+
+// A stand-in for the bundled copy: what `outsource` does at session.start
+// that a standalone copy could collide with. An inline plugin closes over
+// nothing of this file, so it cannot load the real module — this is a
+// simulation of the other copy; the live proof is the M4 capture.
+const BUNDLED_STANDIN = {
+  name: 'outsource',
+  register(on: any) {
+    on('session.start', async ($: any, e: any, next: any) => {
+      await $.command.register({ name: 'rounds', description: 'stand-in for the bundled panel' })
+      await $.tool.register({ name: 'rounds', description: 'stand-in for the bundled panel' })
+      return next(e)
+    })
+  },
+}
+
+// 43. Never two panels, the standalone-first half: an inline plugin of the
+// user tier is admitted after the plugin under test, so the standalone judges
+// the bundled copy's admission and stands down — no command, no tool, no
+// binary lookup, no poll, no section, no pane, no band, and every call it
+// would have answered passes on. The other half (the bundled copy admitted
+// first refuses the standalone) needs the root plugin under test:
+// tests/panel-bundle.test.ts. FAIL-first: without the stand-down, the
+// standalone registers rounds/round_send beside the stand-in.
+test('pair: a bundled copy admitted after the standalone makes it stand down', { plugins: [BUNDLED_STANDIN] }, async ($, on) => {
+  on('command.run', () => ({ text: 'passed on' }))
+  on('tool.call', () => ({ result: 'passed on' }))
+  let booted: Awaited<ReturnType<typeof boot>>
+  try {
+    booted = await boot($, on, fixtureRows)
+  } catch (err) {
+    // The root run: the plugin under test is itself `outsource`, and the
+    // harness loads no two plugins of one name. Nothing of the standalone
+    // half can run there; the refusing half does (panel-bundle.test.ts).
+    expect(String(err)).toContain('outsource is loaded twice')
+    return
+  }
+  const { clock, state } = booted
+  expect(state.commands).toEqual(['outsource:rounds']) // the stand-in's alone
+  expect(state.registered).toEqual(['mcp__outsource__rounds'])
+  const mine = state.logEntries.filter((l) => l.origin === PANEL_NAME)
+  expect(mine).toHaveLength(1)
+  expect(mine[0].to).toBe('debug')
+  expect(mine[0].text.startsWith(logText('standing down — the bundled outsource plugin ('))).toBe(true)
+  expect(state.existsAsked).toEqual([])
+  await clock.advance(20000)
+  expect(state.runsCalls).toBe(0)
+
+  const run = await $.command.run({ command: 'rounds', args: '' })
+  expect(run.text).toBe('passed on')
+  expect(state.opens).toEqual([])
+  const call = (await $.tool.call({ tool: 'mcp__outsource__rounds' })) as any
+  expect(call.result).toBe('passed on')
+  const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
+  expect(sections.sections.some((s: any) => s.id === 'outsource-panel')).toBe(false)
+  const pane = await $.ui.mount({ plugin: PANEL_NAME, surface: 'terminal', component: 'Pane', props: PANE_PROPS(120, 30), requestId: 'outsource-rounds' })
+  expect(await texts(pane)).toEqual([])
+  await pane.unmount()
+  const band = await $.ui.mount({ plugin: PANEL_NAME, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS(100) })
+  expect(await texts(band)).toEqual([])
+  await band.unmount()
+})
+
+// ---- the whole-panel switch: /rounds off|on -------------------------------------
+//
+// Added 2026-10-06 (bundle round, the person's decision): the panel is on by
+// default and `/rounds off` turns ALL of it off, `/rounds on` back on, kept in
+// the store ('enabled'). `/rounds wake off` stays the wake alone.
+
+// 44. Off: not one process across several periods, no toast, no submit, no
+// pane, no band; the section is the one off line; both tools answer the off
+// line as an error; every command but on/off/wake answers it too.
+// FAIL-first: with the timer left running after `/rounds off`, processCalls
+// grows by one `runs json` per period and the done row toasts.
+test('panel off: nothing polls, toasts, wakes or draws; the tools answer the off line', async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow(),
+    wakeRow({ id: 'w2', label: 'second-fix', messagingSocket: '/tmp/cc-socks/2.sock' }),
+  ])
+  await clock.advance(5000) // poll 1 seeds
+  const off = await $.command.run({ command: 'rounds', args: 'off' })
+  expect(off.text).toBe(PANEL_OFF_TEXT)
+  expect(state.store['enabled']).toBe(false)
+
+  const calls = state.processCalls
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000)
+  await clock.advance(5000)
+  await clock.advance(5000)
+  expect(state.processCalls).toBe(calls)
+  expect(state.toasts).toEqual([])
+  expect(state.prompts).toEqual([])
+
+  expect((await $.command.run({ command: 'rounds', args: '' })).text).toBe(PANEL_OFF_TEXT)
+  expect((await $.command.run({ command: 'rounds', args: 'api-fix' })).text).toBe(PANEL_OFF_TEXT)
+  expect((await $.command.run({ command: 'rounds', args: 'send second-fix hi' })).text).toBe(PANEL_OFF_TEXT)
+  expect(state.opens).toEqual([])
+  expect(state.sends).toEqual([])
+  const band = await mountBand($, 100)
+  expect(await texts(band)).toEqual([])
+  await band.unmount()
+  const pane = await mountPane($, 120)
+  expect(await texts(pane)).toEqual([])
+  await pane.unmount()
+
+  const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
+  const section = sections.sections.filter((s: any) => s.id === 'outsource-panel')
+  expect(section).toHaveLength(1)
+  expect(section[0].text).toBe(offSectionText(PLUGIN))
+  expect(section[0].text).toContain('no wake will come')
+  for (const tool of ['rounds', 'round_send']) {
+    const res = (await $.tool.call({ tool: toolName(PLUGIN, tool), label: 'second-fix', text: 'x' } as any)) as any
+    expect(res.result).toBe(PANEL_OFF_TEXT)
+    expect(res.isError).toBe(true)
+  }
+  expect(state.sends).toEqual([])
+  expect(state.processCalls).toBe(calls)
+})
+
+// 45. Back on: polling resumes, and the first poll seeds without waking for
+// what changed while off (seeded reset → baseline only; markKnown records the
+// row) — while a change after it toasts and wakes as ever, and a later resume
+// does not replay the off-time change. FAIL-first: without the seeded reset,
+// the first poll back toasts and wakes for api-fix, which finished while off.
+test('panel on: polling resumes, nothing that changed while off wakes', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow(), wakeRow({ id: 'w2', label: 'second-fix' })])
+  await clock.advance(5000) // poll 1 seeds
+  await $.command.run({ command: 'rounds', args: 'off' })
+  flipDone(state.rows.find((r) => r.id === 'w1') as any) // finishes while off
+  await clock.advance(10000)
+
+  const back = await $.command.run({ command: 'rounds', args: 'on' })
+  expect(back.text).toBe(PANEL_ON_TEXT)
+  expect(state.store['enabled']).toBe(true)
+  const before = state.runsCalls
+  await clock.advance(5000) // the first poll back
+  expect(state.runsCalls).toBe(before + 1)
+  expect(state.toasts).toEqual([])
+  expect(state.prompts).toEqual([])
+  expect((state.store['woken'] as any)[OWNER].w1).toBe('done') // known, never woken
+
+  flipDone(state.rows.find((r) => r.id === 'w2') as any) // finishes while on
+  await clock.advance(5000)
+  expect(state.toasts).toEqual(['✅ second-fix done · 1h01m'])
+  expect(state.prompts).toHaveLength(1)
+  expect(state.prompts[0]).toContain('second-fix')
+  expect(state.prompts[0]).not.toContain('api-fix')
+
+  await reRegister($) // a resume re-arms the catch-up against the store
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+})
+
+// 46. The rule when the panel was off from the start: a resumed session with
+// a watermark and an own round that finished unseen would wake through the
+// resume catch-up — but turning the panel on disarms it, so that round is
+// taken as baseline too. FAIL-first: without `catchupArmed = false` in the
+// switch, the first poll back wakes for late-fix.
+test('panel on after starting off: the resume catch-up is disarmed too', async ($, on) => {
+  const row = wakeRow({ id: 'late1', label: 'late-fix' })
+  flipDone(row as any, 3600) // finished 1 h ago
+  const { clock, state } = await boot($, on, [row], {
+    store: { enabled: false, seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 } },
+  })
+  await clock.advance(10000)
+  expect(state.processCalls).toBe(0) // off from the store: no poll at all
+  expect(state.logs).toContain(logText('the panel is off (store) — /rounds on turns it on'))
+  await $.command.run({ command: 'rounds', args: 'on' })
+  await clock.advance(5000)
+  expect(state.runsCalls).toBe(1)
+  expect(state.prompts).toEqual([])
+  expect(state.toasts).toEqual([])
+  expect(state.store['woken']).toEqual({ [OWNER]: { late1: 'done' } })
+})
+
+// 47. The switch lives in the store: a re-register (hot reload, resume) keeps
+// it off. `on`/`off` are subcommand words before labels, take no argument, and
+// `/rounds wake` stays independent of them. FAIL-first: with session.start not
+// reading 'enabled', the re-register turns polling back on.
+test('panel off survives a re-register; on/off are subcommand words; wake is its own switch', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow(), wakeRow({ id: 'loff', label: 'off' })])
+  await clock.advance(5000)
+  // A round labelled `off` does not take the word: the panel goes off.
+  expect((await $.command.run({ command: 'rounds', args: 'off' })).text).toBe(PANEL_OFF_TEXT)
+  expect(state.opens).toEqual([])
+  expect((await $.command.run({ command: 'rounds', args: 'on now' })).text).toBe('usage: /rounds on | /rounds off')
+
+  await reRegister($)
+  const calls = state.processCalls
+  await clock.advance(15000)
+  expect(state.processCalls).toBe(calls)
+  expect((await $.command.run({ command: 'rounds', args: '' })).text).toBe(PANEL_OFF_TEXT)
+  const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
+  expect(sections.sections.find((s: any) => s.id === 'outsource-panel')?.text).toBe(offSectionText(PLUGIN))
+
+  // The wake switch still answers while the panel is off, and changes only
+  // the wake; the panel stays off.
+  const wake = await $.command.run({ command: 'rounds', args: 'wake off' })
+  expect(wake.text).toBe('wake is off — toasts only (the panel itself is off — /rounds on turns it on)')
+  expect(state.store['wake']).toBe(false)
+  expect(state.store['enabled']).toBe(false)
+  await clock.advance(10000)
+  expect(state.processCalls).toBe(calls)
+  // Saying the state it is already in changes nothing.
+  expect((await $.command.run({ command: 'rounds', args: 'off' })).text).toBe(PANEL_OFF_TEXT)
+})
+
+// 48. Off while the pane is open closes it, and the close starts no timer.
+// FAIL-first: without the close in the switch, ui.close is never asked and the
+// pane stays up drawing a panel that is off.
+test('panel off while the pane is open closes it', async ($, on) => {
+  const { clock, state } = await boot($, on, fixtureRows)
+  await $.command.run({ command: 'rounds', args: '' }) // open
+  await clock.advance(2000)
+  expect(state.opens).toHaveLength(1)
+  await $.command.run({ command: 'rounds', args: 'off' })
+  expect(state.closes.map((c) => c.id)).toEqual(['outsource-rounds'])
+  const calls = state.processCalls
+  await clock.advance(10000)
+  expect(state.processCalls).toBe(calls)
+  // Back on, a bare /rounds opens it again.
+  await $.command.run({ command: 'rounds', args: 'on' })
+  await $.command.run({ command: 'rounds', args: '' })
+  expect(state.opens).toHaveLength(2)
+})
+
+// 49. A wake buffered behind an outstanding submit never leaves once the
+// panel is off: off means no wake submits, including the ones it held.
+// FAIL-first: without the switch emptying the buffer, the buffer leaves as a
+// second submit after the panel went off.
+test('panel off: a buffered wake never leaves', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow(), wakeRow({ id: 'w2', label: 'second-fix' })])
+  state.submitDefers = []
+  await clock.advance(5000) // poll 1 seeds
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // submit #1, held
+  flipDone(state.rows.find((r) => r.id === 'w2') as any)
+  await clock.advance(5000) // buffered
+  expect(state.prompts).toHaveLength(1)
+  await $.command.run({ command: 'rounds', args: 'off' })
+  state.submitDefers[0].resolve({ text: state.prompts[0] })
+  await clock.settle()
+  expect(state.prompts).toHaveLength(1)
+})
+
+// 50. A refused submit queued for retry is dropped by `/rounds off`, so the
+// first poll back on does not deliver it: it changed before the panel went
+// off and was never delivered, and back on seeds without waking. FAIL-first:
+// without the switch emptying the retry queue, the first poll back resubmits.
+test('panel off: a queued retry does not leave when the panel comes back', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  state.submitFails = 1
+  await clock.advance(5000) // poll 1 seeds
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // submit #1 refused: un-recorded, queued for retry
+  expect(state.prompts).toHaveLength(1)
+  await $.command.run({ command: 'rounds', args: 'off' })
+  await $.command.run({ command: 'rounds', args: 'on' })
+  await clock.advance(5000) // the first poll back
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } }) // known from the poll back
+})
+
+// Last, on purpose: every `$.ui.log` line any test above produced went to the
+// debug log with exactly one `outsource-panel: ` prefix. FAIL-first: with one
+// site logging to the transcript, its line is listed here.
+test('every $.ui.log above went to the debug log, prefixed once', () => {
+  expect(LOG_VIOLATIONS).toEqual([])
+})

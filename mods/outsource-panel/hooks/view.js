@@ -8,6 +8,79 @@
 //   at most 8 rows drawn with `+<k> more`, finished rounds visible for
 //   10800 s, ≤4 activity lines, trail 5–40 rows (10 inline).
 
+// ---- who this copy of the panel is -------------------------------------------
+
+// The panel ships twice from one source: inside the root plugin `outsource`
+// (the marketplace install, `--plugin-dir <clone>`) and as the standalone
+// plugin `outsource-panel` (`--plugin-dir <clone>/mods/outsource-panel`).
+// `$.plugin.name` says which copy is running; everything model-facing that
+// carries a plugin prefix is derived from it here.
+export const BUNDLED_NAME = 'outsource'
+export const PANEL_NAME = 'outsource-panel'
+
+// A plugin's tools reach the model as mcp__<plugin>__<tool>.
+export function toolName(pluginName, tool) {
+  if (typeof pluginName !== 'string' || pluginName === '') {
+    throw new Error('toolName: pluginName — $.plugin.name — is required')
+  }
+  return 'mcp__' + pluginName + '__' + tool
+}
+
+// What one copy does when the other one is about to join the session, as the
+// engine admits modules one at a time and every module already admitted
+// judges the next (`plugin.register`). Exactly one of any two is admitted
+// first, and each copy carries both halves of the rule, so whichever order
+// the engine picks, the bundled copy is the one that stays:
+//   'refuse'     — I am the bundled copy and the standalone is joining after
+//                  me: refuse it, so it never loads (no hook, tool, command);
+//   'stand-down' — I am the standalone and the bundled copy is joining after
+//                  me: let it in and register nothing myself;
+//   null         — anything else.
+export function pairVerdict(selfName, joiningName) {
+  if (selfName === BUNDLED_NAME && joiningName === PANEL_NAME) return 'refuse'
+  if (selfName === PANEL_NAME && joiningName === BUNDLED_NAME) return 'stand-down'
+  return null
+}
+
+// Where the outsource binary may be, most specific first; the first that
+// exists wins (register.js). `root` is `$.plugin.root`, the folder holding
+// this copy's plugin.json:
+//   envBin                  OUTSOURCE_PANEL_BIN, an explicit override;
+//   <root>/skills/…         the root plugin (marketplace cache, --plugin-dir <clone>);
+//   <root>/../../skills/…   the standalone mods/outsource-panel inside a clone,
+//                           spelled without the `..` (the engine resolves them
+//                           in $.fs.exists, so the path checked and the path
+//                           run — and the one the wake spells — stay one);
+//   <home>/.claude/skills/… where install.sh puts the skill.
+const BIN_TAIL = '/skills/outsource/bin/outsource'
+export function binCandidates({ root, home, envBin }) {
+  const out = []
+  if (typeof envBin === 'string' && envBin !== '') out.push(envBin)
+  if (typeof root === 'string' && root !== '') {
+    out.push(root + BIN_TAIL)
+    out.push(parentDir(parentDir(root)) + BIN_TAIL)
+  }
+  if (typeof home === 'string' && home !== '') out.push(home + '/.claude' + BIN_TAIL)
+  return out
+}
+
+function parentDir(path) {
+  const trimmed = path.replace(/\/+$/, '')
+  return trimmed.slice(0, trimmed.lastIndexOf('/'))
+}
+
+// A `$.ui.log` line as the panel writes it: one `outsource-panel: ` prefix,
+// whichever copy runs, so the debug log greps the same for both. Every line
+// goes to the debug log alone, never the transcript (where the host leads a
+// row with `<plugin>: ` and a prefix of ours doubled it, measured
+// 2026-10-06). The debug log leads it with `[<plugin>] $.ui.log (to debug): `
+// (measured 2026-10-06, both copies):
+//   [outsource-panel] $.ui.log (to debug): outsource-panel: <text>
+//   [outsource] $.ui.log (to debug): outsource-panel: <text>
+export function logText(text) {
+  return PANEL_NAME + ': ' + text
+}
+
 // ---- display width -----------------------------------------------------------
 
 // Width 2: East Asian Wide and Fullwidth code points (Unicode 16.0.0
@@ -429,11 +502,16 @@ export function roundsToolLine(row, ownerSession) {
 
 // The system-prompt section the panel appends while loaded (id
 // 'outsource-panel'). Only facts this mod makes true, and it changes only
-// when the wake toggle changes, so the engine can cache it.
-export function sectionText(wakeOn) {
+// when the wake toggle changes, so the engine can cache it. The tool names
+// carry this copy's plugin name ($.plugin.name): the bundled copy's tools are
+// mcp__outsource__…, the standalone's mcp__outsource-panel__….
+export function sectionText(wakeOn, pluginName) {
   const tools =
-    'The tools mcp__outsource-panel__rounds (list the rounds in flight) and ' +
-    'mcp__outsource-panel__round_send (message one of your running rounds) exist.'
+    'The tools ' +
+    toolName(pluginName, 'rounds') +
+    ' (list the rounds in flight) and ' +
+    toolName(pluginName, 'round_send') +
+    ' (message one of your running rounds) exist.'
   const seen = 'The person sees a /rounds pane, a band and toasts; you do not.'
   if (!wakeOn) {
     return 'Outsource panel: wake is off — arm bin/wait.sh as usual for rounds launched from this session. ' + tools + ' ' + seen
@@ -446,6 +524,29 @@ export function sectionText(wakeOn) {
     tools +
     ' ' +
     seen
+  )
+}
+
+// ---- the whole-panel switch ----------------------------------------------------
+
+// `/rounds off` turns the whole panel off (store 'enabled'), `/rounds on` back
+// on. Off, the two tools stay listed — the API has no way to take a
+// registered tool back — and answer PANEL_OFF_TEXT as an error.
+export const PANEL_OFF_TEXT = 'the outsource panel is off — /rounds on turns it on'
+export const PANEL_ON_TEXT = 'the outsource panel is on'
+
+// The section while the panel is off: one line, not none. The tools are still
+// listed, so without it the model could read their presence as "the panel
+// wakes me" and wait for a wake that never comes; the line says it will not,
+// and to arm wait.sh as a session without the panel does.
+export function offSectionText(pluginName) {
+  return (
+    'Outsource panel: off (the person turned it off; /rounds on turns it back on) — no wake will come, so arm ' +
+    'bin/wait.sh as usual for rounds launched from this session; ' +
+    toolName(pluginName, 'rounds') +
+    ' and ' +
+    toolName(pluginName, 'round_send') +
+    ' answer an error while it is off.'
   )
 }
 
