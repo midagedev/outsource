@@ -81,6 +81,7 @@ SHIMS=(
   "outsource-run.sh:outsource-run"
   "quota.sh:quota"
   "runs.sh:runs"
+  "slot.sh:slot"
   "spec-lint.sh:spec-lint"
   "statusline.sh:statusline"
   "tail.sh:tail"

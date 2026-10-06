@@ -30,6 +30,7 @@ import (
 	"github.com/midagedev/outsource/internal/quota"
 	"github.com/midagedev/outsource/internal/report"
 	"github.com/midagedev/outsource/internal/runs"
+	"github.com/midagedev/outsource/internal/slot"
 	"github.com/midagedev/outsource/internal/speclint"
 	"github.com/midagedev/outsource/internal/statusline"
 	"github.com/midagedev/outsource/internal/tail"
@@ -63,6 +64,7 @@ var tools = []tool{
 	{"last-report", noStdin(report.Main)},
 	{"quota", noStdin(quota.Main)},
 	{"runs", noStdin(runs.Main)},
+	{"slot", slot.Main},
 	{"spec-lint", noStdin(speclint.Main)},
 	{"statusline", statusline.Main},
 	{"tail", tail.Main},
