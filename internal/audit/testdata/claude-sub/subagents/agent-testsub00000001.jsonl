@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-10-06T02:00:02.000Z","message":{"role":"user","content":"look and report"}}
+{"type":"assistant","timestamp":"2026-10-06T02:00:03.000Z","message":{"role":"assistant","id":"msg_TESTDDDD00000000000001","model":"glm-5.3","usage":{"input_tokens":300,"output_tokens":10},"content":[{"type":"tool_use","id":"call_TESTd0001","name":"Read","input":{"file_path":"/tmp/round/notes.txt"}}]}}
+{"type":"user","timestamp":"2026-10-06T02:00:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_TESTd0001","content":"one line of notes","is_error":false}]}}
+{"type":"assistant","timestamp":"2026-10-06T02:00:05.000Z","message":{"role":"assistant","id":"msg_TESTDDDD00000000000002","model":"glm-5.3","usage":{"input_tokens":400,"output_tokens":12},"content":[{"type":"text","text":"report"}]}}

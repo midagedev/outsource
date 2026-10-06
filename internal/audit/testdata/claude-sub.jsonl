@@ -1,0 +1,4 @@
+{"type":"user","timestamp":"2026-10-06T02:00:00.000Z","message":{"role":"user","content":"the task spec"}}
+{"type":"assistant","timestamp":"2026-10-06T02:00:01.000Z","message":{"role":"assistant","id":"msg_TESTCCCC00000000000001","model":"glm-5.3","usage":{"input_tokens":1500,"output_tokens":40},"content":[{"type":"tool_use","id":"call_TESTc0001","name":"Agent","input":{"description":"check one thing","prompt":"look and report","run_in_background":false,"subagent_type":"general-purpose","model":"opus"}}]}}
+{"type":"user","timestamp":"2026-10-06T02:00:10.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_TESTc0001","content":[{"type":"text","text":"[Subagent hand-back] result text"}],"is_error":false}]}}
+{"type":"assistant","timestamp":"2026-10-06T02:00:11.000Z","message":{"role":"assistant","id":"msg_TESTCCCC00000000000002","model":"glm-5.3","usage":{"input_tokens":1600,"output_tokens":20},"content":[{"type":"text","text":"done"}]}}

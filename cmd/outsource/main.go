@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/midagedev/outsource/internal/audit"
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/gitshim"
 	"github.com/midagedev/outsource/internal/guard"
@@ -52,6 +53,7 @@ func noStdin(f func(args []string, stdout, stderr io.Writer) int) func([]string,
 var tools = []tool{
 	{"credential", noStdin(cred.Main)},
 	{"verify-key", func(a []string, in io.Reader, out, err io.Writer) int { return cred.VerifyMain(a, out, err, in) }},
+	{"audit", noStdin(audit.Main)},
 	{"guard", guard.Main},
 	{"git-shim", gitshim.Main},
 	{"grok-run", noStdin(launch.GrokMain)},
