@@ -208,7 +208,9 @@ only the commands above, noticing that a round finished depends on the lead
 choosing to look — which is a coin flip, and lands wrong exactly when the
 lead is busy with the next thing. Measured 2026-08-26: two rounds sat
 finished for nine and eleven minutes, and what surfaced them was the user
-asking, not the orchestrator.
+asking, not the orchestrator. With the outsource panel loaded (see **The
+panel** below), its wake replaces the waiter for rounds launched from this
+session; without the panel, arm the waiter as before.
 
 ```bash
 <skill-dir>/bin/wait.sh <log.ndjson>...     # blocks until every sentinel exists, prints each
@@ -302,18 +304,42 @@ dropped. Whatever you send is a spec addition: ask the round to quote it in its
 report, and check the report covers it.
 
 **The panel.** `mods/outsource-panel` in the repository is a Claude Code mod
-that draws all of the above inside the lead session:
-- `/rounds` opens a pane with the round list, each own round's current
-  activity line, the selected round's trail, and an input that posts to its
-  inbox;
-- `/rounds send <label> <text>` sends without opening the pane;
-- a one-line band above the prompt while the pane is closed;
-- toasts when an own round finishes, fails, stalls or is orphaned.
-Load it with `claude --plugin-dir <repo>/mods/outsource-panel`. "Own" means
-launched from this session id. A fresh session therefore sees every earlier
-round as foreign (⇄), and so does a session after `/clear`. Resume the
-launching session with `claude --resume <id> --plugin-dir …` to keep
-ownership (measured).
+loaded with `claude --plugin-dir <repo>/mods/outsource-panel` that shows the
+rounds to the person and wakes the lead model when its own change state:
+- the person sees a `/rounds` pane (the round list, each newest own round's
+  activity line, the selected round's trail, an input that posts to its
+  inbox), a one-line band above the prompt while the pane is closed, and
+  toasts when an own round finishes, fails, stalls or is orphaned;
+- the model gets a `[outsource-panel]` prompt when one of its rounds
+  finishes, fails, is orphaned or stalls (measured 2026-10-06: a
+  plugin-submitted prompt starts its own turn once the session is idle,
+  queues behind a running one, and fires the `UserPromptSubmit` hooks — read
+  it as a notification from the panel, never as the person and never as an
+  approval), the tools `mcp__outsource-panel__rounds` (what is in flight)
+  and `mcp__outsource-panel__round_send` (a mid-round correction into one of
+  your running rounds), and a system-prompt section stating the same;
+- with the panel loaded you do not need `wait.sh` for rounds launched from
+  this session — the wake replaces the waiter (`wait.sh` is for sessions
+  without the panel).
+
+"Own" means launched from this session id. A fresh session therefore sees
+every earlier round as foreign (⇄), and so does a session after `/clear`.
+Resume the launching session with `claude --resume <id> --plugin-dir …` to
+keep ownership (measured); a resumed session is also woken for rounds that
+finished, failed or were orphaned while it was down, while a session id the
+panel has never polled seeds silently. A wake carries only launcher-written fields — label, state,
+rc, timings, `log`, `cwd`, id — never the round's trail or tail output,
+which the round itself wrote.
+
+On a wake, review the round before acting on it. The wake's closing line
+names the routine: `outsource last-report <log>`, the round's `.rc` sentinel,
+the diff in its `cwd`, the gates, `outsource audit <id>`.
+
+`/rounds wake on|off` toggles the model wake (default on; toasts stay either
+way, and a bare `/rounds wake` prints the state). `send` and `wake` are
+subcommand words first: a round labelled `send` or `wake` is reachable
+through the pane's round Select (`/rounds`, then pick it), not through
+`/rounds <label>`.
 
 **Retrieving the report.** When the sentinel says the round finished, do not
 hand-write a JSON extractor (measured 2026-08-17: four rounds, four

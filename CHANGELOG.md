@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **The panel now tells the lead model, not only the person.** When one of
+  the session's rounds finishes, fails, is orphaned or stalls, the
+  outsource-panel mod submits one `[outsource-panel]` prompt, so a lead with
+  the panel loaded needs no `wait.sh` for rounds launched from that session
+  (measured 2026-10-06 with a live probe: a plugin-submitted prompt starts
+  its own turn once idle, queues behind a running one, and fires the
+  UserPromptSubmit hooks). The wake is deduplicated per (round, state) in
+  the mod's store, a restarted lead is caught up on rounds that finished,
+  failed or were orphaned while it was down (a session id the panel never polled seeds silently),
+  and the text carries only launcher-written fields — never the round's
+  trail. The model also gets the `rounds` and `round_send` tools plus a
+  system-prompt section, and `/rounds wake [on|off]` toggles the wake
+  (toasts stay). `install.sh` no longer refuses on a `*_test.go` newer than
+  the committed binary (STD-11; a non-test `.go` still refuses).
+
 - **A round with two inbox sockets is called out, and the panel will not send
   into it.** A second socket parked on a record (shared hook settings) was
   recorded but shown nowhere. `outsource runs` now prints an `inbox CONFLICT`
