@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/midagedev/outsource/internal/audit"
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/runs"
 	"github.com/midagedev/outsource/internal/telemetry"
@@ -368,7 +369,16 @@ func analyzeRun(logPath, requested, ccHome string) analysis {
 					continue
 				}
 				if m, ok := o["message"].(map[string]any); ok {
-					if s, ok := m["model"].(string); ok && s != "" {
+					// <synthetic> is Claude Code's own label for the assistant
+					// lines it writes itself (an API error such as a 429, an
+					// interruption): no model answered them. Counted, a round
+					// resumed after a limit death failed identity with exit 70
+					// (measured 2026-10-06, model_actual=glm-5.3,<synthetic>).
+					// Only with Claude Code's own isApiErrorMessage flag beside it:
+					// a model string alone is the endpoint's to set, and must not
+					// be able to opt a response out of this check.
+					apiErr, _ := o["isApiErrorMessage"].(bool)
+					if s, ok := m["model"].(string); ok && s != "" && !(s == audit.SyntheticModel && apiErr) {
 						answered = append(answered, s)
 					}
 				}

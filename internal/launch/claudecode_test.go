@@ -230,3 +230,46 @@ func TestRunSpecificHooksDoNotGoInTheSharedSettingsFile(t *testing.T) {
 		t.Fatalf("round B's settings do not name round B alone:\n%s", cb)
 	}
 }
+
+// A round resumed after an API error (a 429 from a plan limit) carries a
+// <synthetic> assistant line in its transcript. That is Claude Code's own
+// message, so it must not count as an answering model. Added 2026-10-06 by the
+// lead: a resumed round finished with model_actual=glm-5.3,<synthetic> and
+// exit 70. FAIL-first: without the SyntheticModel guard in analyzeRun the
+// verdict reads mismatch and actual reads "glm-5.3,<synthetic>".
+func TestSyntheticLinesAreNotAnAnsweringModel(t *testing.T) {
+	home := t.TempDir()
+	proj := filepath.Join(home, "projects", "-tmp-round")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sid := "11111111-2222-4333-8444-555555555555"
+	transcript := `{"type":"assistant","message":{"id":"m1","model":"glm-5.3","content":[{"type":"text","text":"ok"}]}}
+{"type":"assistant","isApiErrorMessage":true,"error":"rate_limit","message":{"id":"m2","model":"<synthetic>","content":[{"type":"text","text":"API Error: Request rejected (429)"}]}}
+`
+	if err := os.WriteFile(filepath.Join(proj, sid+".jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(home, "run.log")
+	if err := os.WriteFile(logPath, []byte(`{"session_id":"`+sid+`","usage":{"output_tokens":1}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := analyzeRun(logPath, "glm-5.3", home)
+	if a.verdict != "ok" || a.actual != "glm-5.3" {
+		t.Fatalf("want verdict ok and actual glm-5.3, got verdict %q actual %q", a.verdict, a.actual)
+	}
+
+	// The exception needs Claude Code's own flag: a "<synthetic>" model string
+	// with no isApiErrorMessage beside it still counts as an answering model.
+	// FAIL-first: matching on the model string alone reads verdict ok here.
+	unflagged := `{"type":"assistant","message":{"id":"m1","model":"glm-5.3","content":[{"type":"text","text":"ok"}]}}
+{"type":"assistant","message":{"id":"m3","model":"<synthetic>","content":[{"type":"text","text":"from the endpoint"}]}}
+`
+	if err := os.WriteFile(filepath.Join(proj, sid+".jsonl"), []byte(unflagged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := analyzeRun(logPath, "glm-5.3", home)
+	if b.verdict != "mismatch" || b.actual != "glm-5.3,<synthetic>" {
+		t.Fatalf("an unflagged <synthetic> must still count: got verdict %q actual %q", b.verdict, b.actual)
+	}
+}
