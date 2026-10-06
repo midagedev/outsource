@@ -340,10 +340,17 @@ export const WAKE_MAX_COLUMNS = 200
 //
 // Provenance rule: a prompt is read with more authority than a tool result,
 // so only launcher-written fields reach it — label, state (the kind), rc,
-// elapsedSeconds, idleSeconds, log, cwd, id. Never the trail path, the
-// messaging socket, an activity line or any tail output: those are written
-// by the round.
-export function wakeText(transitions) {
+// elapsedSeconds, idleSeconds, log, cwd, id — plus the panel's own `bin`,
+// the absolute path of the binary register.js runs, so the commands the
+// wake spells are runnable as written (the `outsource` command is not on
+// PATH; measured 2026-10-06). Never the trail path, the messaging socket,
+// an activity line or any tail output: those are written by the round.
+export function wakeText(transitions, bin) {
+  if (typeof bin !== 'string' || bin === '') {
+    // A missing bin is a programming error (register.js owns the path), not
+    // a wake that quietly spells broken commands.
+    throw new Error('wakeText: bin — the panel binary path — is required')
+  }
   const n = transitions.length
   const shown = transitions.slice(0, WAKE_MAX_ROUNDS)
   const more = n - shown.length
@@ -353,41 +360,51 @@ export function wakeText(transitions) {
       WAKE_MAX_COLUMNS,
     ),
   ]
-  for (const t of shown) lines.push(truncate(wakeLine(t), WAKE_MAX_COLUMNS))
+  for (const t of shown) lines.push(wakeLine(t, bin))
   if (more > 0) lines.push('+' + more + ' more')
-  // The review pointer names the first finished round; a stall is still
+  // The review block names the first finished round; a stall is still
   // running, so a stall-only wake has nothing to review yet.
   const review = transitions.find((t) => t.kind !== 'stalled')
-  if (review !== undefined) {
-    lines.push(
-      truncate(
-        'Review a finished round: outsource last-report ' +
-          (review.row.log ?? '') +
-          ' · its .rc sentinel · the diff in ' +
-          (review.row.cwd ?? '') +
-          ' · the gates · outsource audit ' +
-          (review.row.id ?? ''),
-        WAKE_MAX_COLUMNS,
-      ),
-    )
-  }
+  if (review !== undefined) lines.push(...reviewBlock(review, bin))
   return lines.join('\n')
 }
 
-function wakeLine(t) {
+// The review routine as commands a model can copy verbatim, one per line:
+// `<bin>` because outsource is not on PATH, `cat` and `git` because they
+// are. Command lines are NEVER truncated — a cut mid-path breaks the
+// command, and real log paths plus the binary path run past the 200-column
+// prose budget — while the header and the closing line are prose and stay
+// within it.
+function reviewBlock(t, bin) {
+  const row = t.row
+  return [
+    truncate('Review ' + (row.label ?? '') + ':', WAKE_MAX_COLUMNS),
+    '  ' + bin + ' last-report ' + (row.log ?? ''),
+    '  cat ' + (row.log ?? '') + '.rc',
+    '  git -C ' + (row.cwd ?? '') + ' diff --stat',
+    '  ' + bin + ' audit ' + (row.id ?? ''),
+    'Then re-run the gates that cover the diff.',
+  ]
+}
+
+// One per-round line. The done/failed/orphan lines are prose and cut to
+// WAKE_MAX_COLUMNS; the stalled line ends in a command (`<bin> tail <id>`),
+// and a command is never cut, so it is returned whole.
+function wakeLine(t, bin) {
   const label = t.row.label ?? ''
   if (t.kind === 'done') {
-    return '- ' + label + ': done rc=0 · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? '')
+    return truncate('- ' + label + ': done rc=0 · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? ''), WAKE_MAX_COLUMNS)
   }
   if (t.kind === 'failed') {
-    return (
-      '- ' + label + ': failed rc=' + (t.row.rc ?? '?') + ' · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? '')
+    return truncate(
+      '- ' + label + ': failed rc=' + (t.row.rc ?? '?') + ' · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? ''),
+      WAKE_MAX_COLUMNS,
     )
   }
   if (t.kind === 'orphan') {
-    return '- ' + label + ': orphan — pid gone · log=' + (t.row.log ?? '')
+    return truncate('- ' + label + ': orphan — pid gone · log=' + (t.row.log ?? ''), WAKE_MAX_COLUMNS)
   }
-  return '- ' + label + ': stalled ' + secs(t.row.idleSeconds) + ' without output · outsource tail ' + (t.row.id ?? '')
+  return '- ' + label + ': stalled ' + secs(t.row.idleSeconds) + ' without output · ' + bin + ' tail ' + (t.row.id ?? '')
 }
 
 // One `rounds` tool line: the pane's row line plus the fields a reviewing

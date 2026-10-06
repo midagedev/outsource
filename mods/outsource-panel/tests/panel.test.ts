@@ -570,40 +570,95 @@ const flipDone = (row: any, atSec = 10) => {
 }
 
 // 16. The wake text contract: header naming n, one line per transition, the
-// Review pointer only when something finished, the 10-row cap with +N more.
-// FAIL-first: without the cap the 12-row case draws 12 lines and no '+2 more'.
+// review block — one command per line, spelled with the binary's absolute
+// path because `outsource` is not on PATH — only when something finished, the
+// 10-row cap with +N more. FAIL-first: without the cap the 12-row case draws
+// 12 rows and no '+2 more'; without `bin` the review commands come out wrong
+// (or the call throws).
 test('wakeText matches the contract', () => {
   const done = wakeRow({ id: 'w1', label: 'api-fix', state: 'done', rc: 0, finishedAt: NOW_MS / 1000 - 10, elapsedSeconds: 3665, idleSeconds: null })
   const failed = wakeRow({ id: 'w2', label: 'web-polish', state: 'failed', rc: 2, finishedAt: NOW_MS / 1000 - 30, elapsedSeconds: 120, idleSeconds: null, log: '/tmp/panel-fixtures/logs/w2.log' })
   const orphan = wakeRow({ id: 'w3', label: 'night-sweep', state: 'orphan', pid: null, startedAt: NOW_MS / 1000 - 7200, elapsedSeconds: 7200, idleSeconds: null, log: '/tmp/panel-fixtures/logs/w3.log' })
-  const lines = wakeText([
-    { row: done, kind: 'done' },
-    { row: failed, kind: 'failed' },
-    { row: orphan, kind: 'orphan' },
-  ]).split('\n')
-  expect(lines[0]).toBe('[outsource-panel] 3 of your rounds changed state (a notification from the panel, not from the person):')
-  expect(lines[1]).toBe('- api-fix: done rc=0 · 1h01m · log=/tmp/panel-fixtures/logs/w1.log')
-  expect(lines[2]).toBe('- web-polish: failed rc=2 · 2m · log=/tmp/panel-fixtures/logs/w2.log')
-  expect(lines[3]).toBe('- night-sweep: orphan — pid gone · log=/tmp/panel-fixtures/logs/w3.log')
-  expect(lines[4]).toBe('Review a finished round: outsource last-report /tmp/panel-fixtures/logs/w1.log · its .rc sentinel · the diff in /tmp/panel-fixtures/wt-w1 · the gates · outsource audit w1')
-  expect(lines).toHaveLength(5)
-  for (const line of lines) expect(displayWidth(line), JSON.stringify(line)).toBeLessThanOrEqual(200)
+  const lines = wakeText(
+    [
+      { row: done, kind: 'done' },
+      { row: failed, kind: 'failed' },
+      { row: orphan, kind: 'orphan' },
+    ],
+    BIN,
+  ).split('\n')
+  expect(lines).toEqual([
+    '[outsource-panel] 3 of your rounds changed state (a notification from the panel, not from the person):',
+    '- api-fix: done rc=0 · 1h01m · log=/tmp/panel-fixtures/logs/w1.log',
+    '- web-polish: failed rc=2 · 2m · log=/tmp/panel-fixtures/logs/w2.log',
+    '- night-sweep: orphan — pid gone · log=/tmp/panel-fixtures/logs/w3.log',
+    'Review api-fix:',
+    '  ' + BIN + ' last-report /tmp/panel-fixtures/logs/w1.log',
+    '  cat /tmp/panel-fixtures/logs/w1.log.rc',
+    '  git -C /tmp/panel-fixtures/wt-w1 diff --stat',
+    '  ' + BIN + ' audit w1',
+    'Then re-run the gates that cover the diff.',
+  ])
 
-  // A stall is still running: no Review line.
+  // A missing bin is a programming error (register.js owns the path), not a
+  // wake that quietly spells broken commands.
+  expect(() => wakeText([{ row: done, kind: 'done' }])).toThrow()
+
+  // A stall is still running: no review block; its own command (`<bin> tail
+  // <id>`) is spelled with the binary's path too.
   const stalled = wakeRow({ label: 'api-fix', stalled: true, idleSeconds: 720 })
-  expect(wakeText([{ row: stalled, kind: 'stalled' }]).split('\n')).toEqual([
+  expect(wakeText([{ row: stalled, kind: 'stalled' }], BIN).split('\n')).toEqual([
     '[outsource-panel] 1 of your rounds changed state (a notification from the panel, not from the person):',
-    '- api-fix: stalled 12m without output · outsource tail w1',
+    '- api-fix: stalled 12m without output · ' + BIN + ' tail w1',
   ])
 
   const many = Array.from({ length: 12 }, (_, i) => ({
     row: wakeRow({ id: 'm' + i, label: 'row-' + i, state: 'done', rc: 0, finishedAt: NOW_MS / 1000 - (i + 1), elapsedSeconds: 60, idleSeconds: null, log: '/tmp/panel-fixtures/logs/m' + i + '.log' }),
     kind: 'done' as const,
   }))
-  const manyLines = wakeText(many).split('\n')
-  expect(manyLines).toHaveLength(13) // header + 10 rows + "+2 more" + Review
+  const manyLines = wakeText(many, BIN).split('\n')
+  expect(manyLines).toHaveLength(18) // header + 10 rows + "+2 more" + 6 review lines
   expect(manyLines[11]).toBe('+2 more')
   expect(manyLines[0]).toContain('12 of your rounds')
+  expect(manyLines[12]).toBe('Review row-0:') // the first finished round, as ever
+})
+
+// 16b. Command lines are never truncated, however long the paths: with a
+// real 51-character binary path and a 140-character log path the
+// last-report line runs past the 200-column prose budget and must still
+// arrive whole — a model copies wake lines verbatim, and a mid-path `…`
+// breaks the command. Everything that is not a command is prose and stays
+// within the budget. FAIL-first: against a truncate-everything wake the
+// command lines come back cut (a `…` where the path continued).
+test('wake commands arrive whole, prose stays within 200 columns', () => {
+  const BIN51 = '/Users/hckim/.claude/skills/outsource/bin/outsource'
+  expect(BIN51.length).toBe(51)
+  const longLog = '/tmp/panel-fixtures/logs/' + 'x'.repeat(111) + '.log'
+  expect(longLog.length).toBe(140)
+
+  const done = wakeRow({ id: 'w1', label: 'api-fix', state: 'done', rc: 0, finishedAt: NOW_MS / 1000 - 10, elapsedSeconds: 3665, idleSeconds: null, log: longLog })
+  const lines = wakeText([{ row: done, kind: 'done' }], BIN51).split('\n')
+  const commands = [
+    '  ' + BIN51 + ' last-report ' + longLog,
+    '  cat ' + longLog + '.rc',
+    '  git -C /tmp/panel-fixtures/wt-w1 diff --stat',
+    '  ' + BIN51 + ' audit w1',
+  ]
+  expect(displayWidth(commands[0])).toBeGreaterThan(200) // the case the prose budget cannot hold
+  for (const cmd of commands) expect(lines).toContain(cmd) // whole: equal to the expected string
+
+  // The stall line carries a command too, so a long label cannot get it cut.
+  const stalled = wakeRow({ id: 'w1', label: 's'.repeat(160), stalled: true, idleSeconds: 720 })
+  const stallLines = wakeText([{ row: stalled, kind: 'stalled' }], BIN51).split('\n')
+  const stallLine = '- ' + 's'.repeat(160) + ': stalled 12m without output · ' + BIN51 + ' tail w1'
+  expect(displayWidth(stallLine)).toBeGreaterThan(200)
+  expect(stallLines).toContain(stallLine)
+
+  const commandSet = new Set([...commands, stallLine])
+  for (const line of [...lines, ...stallLines]) {
+    if (commandSet.has(line)) continue
+    expect(displayWidth(line), JSON.stringify(line)).toBeLessThanOrEqual(200)
+  }
 })
 
 // 17. One $.prompt.submit per poll that saw transitions — never one per
@@ -617,7 +672,7 @@ test('wake: exactly one submit per transitioning poll, none after', async ($, on
   flipDone(done)
   await clock.advance(5000) // poll 2: the running→done transition
   expect(state.prompts).toHaveLength(1)
-  expect(state.prompts[0]).toBe(wakeText([{ row: done, kind: 'done' }]))
+  expect(state.prompts[0]).toBe(wakeText([{ row: done, kind: 'done' }], BIN))
   expect(state.toasts).toEqual(['✅ api-fix done · 1h01m']) // the toast still fires
   expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } })
 
@@ -666,7 +721,7 @@ test('wake: resume catch-up wakes for finished-after-watermark rounds', async ($
   })
   await clock.advance(5000)
   expect(state.prompts).toHaveLength(1)
-  expect(state.prompts[0]).toBe(wakeText([{ row: state.rows[0] as any, kind: 'done' }]))
+  expect(state.prompts[0]).toBe(wakeText([{ row: state.rows[0] as any, kind: 'done' }], BIN))
   expect(state.store['woken']).toEqual({ [OWNER]: { late1: 'done' } })
   await clock.advance(5000) // one wake, not one per poll
   expect(state.prompts).toHaveLength(1)
@@ -918,10 +973,13 @@ test('wake: transitions found while a submit is outstanding coalesce into one', 
   await clock.settle()
   expect(state.prompts).toHaveLength(2) // one more, not two
   expect(state.prompts[1]).toBe(
-    wakeText([
-      { row: state.rows.find((r) => r.id === 'w2') as any, kind: 'done' },
-      { row: state.rows.find((r) => r.id === 'w3') as any, kind: 'done' },
-    ]),
+    wakeText(
+      [
+        { row: state.rows.find((r) => r.id === 'w2') as any, kind: 'done' },
+        { row: state.rows.find((r) => r.id === 'w3') as any, kind: 'done' },
+      ],
+      BIN,
+    ),
   )
 })
 
@@ -937,7 +995,7 @@ test('wake: a rejected submit is retried on the next poll', async ($, on) => {
   expect(state.prompts).toHaveLength(1)
   await clock.advance(5000) // poll 3: the retry
   expect(state.prompts).toHaveLength(2)
-  expect(state.prompts[1]).toBe(wakeText([{ row: state.rows.find((r) => r.id === 'w1') as any, kind: 'done' }]))
+  expect(state.prompts[1]).toBe(wakeText([{ row: state.rows.find((r) => r.id === 'w1') as any, kind: 'done' }], BIN))
   expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } })
 })
 

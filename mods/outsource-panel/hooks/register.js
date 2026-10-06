@@ -532,7 +532,7 @@ function sendWake($, fresh) {
     'outsource-panel: waking the lead model — ' +
       fresh.map((t) => (t.row.label ?? t.row.id) + ' → ' + t.kind).join(', '),
   )
-  void Promise.resolve($.prompt.submit({ text: wakeText(fresh) }))
+  void Promise.resolve($.prompt.submit({ text: wakeText(fresh, bin) }))
     .catch((err) => {
       // The prompt did not enter: it was not delivered. Un-record these so a
       // later poll can offer them again, and queue the retry.
