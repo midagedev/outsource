@@ -57,6 +57,10 @@ export XDG_STATE_HOME="$TMP/state"
 export OUTSOURCE_RUNS_DIR="$TMP/runs"
 export GROK_RUN_STARTUP_GRACE=10
 export ZAI_API_KEY="test-key-not-a-real-credential"
+# The launch warning reads the zai plan quota before a round starts. Point
+# that read at a closed local port, so no launch in this suite reaches
+# api.z.ai (a failed read is silent; the warning itself is pinned in Go).
+export ZAI_QUOTA_BASE="http://127.0.0.1:1" ZAI_QUOTA_KEY="test-key-not-a-real-credential"
 LIVE_PATH="$PATH"
 
 MARKER="DONE-MARKER-CONTRACT"
