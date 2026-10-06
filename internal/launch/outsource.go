@@ -457,6 +457,7 @@ func (r *round) run() int {
 	if label == "" {
 		label = defaultLabel(r.o.spec)
 	}
+	exportSlotEnv(label) // every harness child gets OUTSOURCE_SLOT + OUTSOURCE_RUN_LABEL (slot_env.go)
 	// Registered once the round is actually going to be attempted — after the
 	// guards, before the harness is dispatched. A guard that refuses to launch has
 	// not started a round, and recording one would make the registry lie.
