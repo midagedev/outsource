@@ -2,6 +2,7 @@ package runs
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -348,5 +349,142 @@ func TestSetTrailAppendsAndRefusesUnknownRuns(t *testing.T) {
 	}
 	if err := SetTrail(id, ""); err == nil {
 		t.Fatal("an empty path must be refused")
+	}
+}
+
+// SetMessagingSocket mirrors SetTrail's contract exactly — the socket is
+// revealed by the same SessionStart hook, so anything SetTrail guarantees
+// about appends, conflicts and refusals holds here too.
+//
+// FAIL-first (verbatim, with SetMessagingSocket's body replaced by
+// `return nil`): the round's own socket must survive a foreign one, got
+// MessagingSocket:""
+func TestSetMessagingSocketMirrorsSetTrail(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "reachme",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/b.log"}, &out, os.Stderr)
+	id := strings.TrimSpace(out.String())
+
+	first := "/tmp/cc-socks/4242.sock"
+	if err := SetMessagingSocket(id, first); err != nil {
+		t.Fatal(err)
+	}
+	// The same hook firing twice is not a conflict.
+	if err := SetMessagingSocket(id, first); err != nil {
+		t.Fatal(err)
+	}
+	// A second, DIFFERENT socket is another round's hook writing here — the
+	// shared-settings signature, as with trails. The first is kept, the
+	// intruder parked where it is visible.
+	if err := SetMessagingSocket(id, "/tmp/cc-socks/9999.sock"); err != nil {
+		t.Fatal(err)
+	}
+	r := FindByID(id)
+	if r == nil || r.MessagingSocket != first {
+		t.Fatalf("the round's own socket must survive a foreign one, got %+v", r)
+	}
+	if r.MessagingSocketConflict != "/tmp/cc-socks/9999.sock" {
+		t.Fatalf("the foreign socket must be recorded as a conflict, got %+v", r)
+	}
+	if r.Label != "reachme" || r.Log != "/tmp/b.log" {
+		t.Fatalf("the append rewrote start fields: %+v", r)
+	}
+	if err := SetMessagingSocket(id, ""); err == nil {
+		t.Fatal("an empty path must be refused")
+	}
+	if err := SetMessagingSocket("1-999999999", "/tmp/cc-socks/1.sock"); err == nil {
+		t.Fatal("an unknown run id must be an error, not a new file")
+	}
+}
+
+// runs json carries the socket raw (no uds: prefix — a consumer builds its own
+// address) and emits "" rather than null when there is nothing, so a reader
+// can branch on the field without a nil check.
+//
+// FAIL-first (verbatim, with MessagingSocket dropped from the jsonRecord
+// literal): run without a socket must emit "", got <nil>
+func TestJSONEmitsTheMessagingSocket(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "withsock",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/c.log"}, &out, os.Stderr)
+	withSock := strings.TrimSpace(out.String())
+	out.Reset()
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "nosock",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/d.log"}, &out, os.Stderr)
+	without := strings.TrimSpace(out.String())
+	if err := SetMessagingSocket(withSock, "/tmp/cc-socks/7.sock"); err != nil {
+		t.Fatal(err)
+	}
+	var jout bytes.Buffer
+	if rc := Main([]string{"json"}, &jout, os.Stderr); rc != 0 {
+		t.Fatalf("json rc=%d", rc)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(jout.Bytes(), &rows); err != nil {
+		t.Fatalf("runs json is not a JSON array: %v\n%s", err, jout.String())
+	}
+	got := map[string]any{}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		got[id] = row["messagingSocket"]
+	}
+	if got[withSock] != "/tmp/cc-socks/7.sock" {
+		t.Fatalf("the socket must be carried raw, got %v\n%s", got[withSock], jout.String())
+	}
+	if got[without] != "" {
+		t.Fatalf("a record without a socket must emit \"\", got %v", got[without])
+	}
+}
+
+// The inbox address is offered exactly while it works: the socket dies with
+// the round's process, so a finished round's address would be a copyable dead
+// end on the line a lead copies addresses from.
+//
+// FAIL-first (verbatim, with the inbox append removed from render.go's
+// Running arm): a running round's inbox address must ride its trail line —
+// the full expected fragment is absent from the listing.
+func TestListShowsTheInboxOnlyWhileRunning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "live",
+		"--provider", "zai", "--harness", "claude-code",
+		"--trail-format", "claude-transcript", "--log", "/tmp/e.log"}, &out, os.Stderr)
+	live := strings.TrimSpace(out.String())
+	if err := SetTrail(live, "/tmp/cfg/claude/projects/x/1.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(live, "/tmp/cc-socks/100.sock"); err != nil {
+		t.Fatal(err)
+	}
+	// A finished round: rc on the record flips the state to done whatever the
+	// pid says, and its socket is dead.
+	out.Reset()
+	Main([]string{"start", "--pid", "999999", "--label", "dead",
+		"--provider", "zai", "--harness", "claude-code",
+		"--trail-format", "claude-transcript", "--log", "/tmp/f.log"}, &out, os.Stderr)
+	dead := strings.TrimSpace(out.String())
+	if err := SetTrail(dead, "/tmp/cfg/claude/projects/x/2.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(dead, "/tmp/cc-socks/200.sock"); err != nil {
+		t.Fatal(err)
+	}
+	Main([]string{"finish", dead, "--rc", "0"}, &bytes.Buffer{}, os.Stderr)
+
+	var list bytes.Buffer
+	if rc := Main([]string{"list"}, &list, os.Stderr); rc != 0 {
+		t.Fatalf("list rc=%d", rc)
+	}
+	s := list.String()
+	if !strings.Contains(s, "trail=/tmp/cfg/claude/projects/x/1.jsonl (follow: outsource tail "+live+")  inbox=uds:/tmp/cc-socks/100.sock") {
+		t.Fatalf("a running round's inbox address must ride its trail line:\n%s", s)
+	}
+	if strings.Contains(s, "200.sock") {
+		t.Fatalf("a finished round must not offer its dead socket:\n%s", s)
 	}
 }

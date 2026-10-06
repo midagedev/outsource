@@ -467,29 +467,30 @@ func cmdDismiss(args []string, stdout, stderr io.Writer) int {
 // jsonRecord fixes the key order the shell version emitted, because a
 // downstream consumer reads this shape.
 type jsonRecord struct {
-	ID             string `json:"id"`
-	Pid            *int64 `json:"pid"`
-	Label          string `json:"label"`
-	Provider       string `json:"provider"`
-	Harness        string `json:"harness"`
-	Model          string `json:"model"`
-	Cwd            string `json:"cwd"`
-	Spec           string `json:"spec"`
-	Log            string `json:"log"`
-	ProgressDir    string `json:"progressDir"`
-	Trail          string `json:"trail"`
-	TrailFormat    string `json:"trailFormat"`
-	OwnerSession   string `json:"ownerSession"`
-	OwnerClaudePid string `json:"ownerClaudePid"`
-	StartedAt      *int64 `json:"startedAt"`
-	RC             *int64 `json:"rc"`
-	FinishedAt     *int64 `json:"finishedAt"`
-	Session        string `json:"session"`
-	ModelActual    string `json:"modelActual"`
-	State          string `json:"state"`
-	ElapsedSeconds *int64 `json:"elapsedSeconds"`
-	IdleSeconds    *int64 `json:"idleSeconds"`
-	Stalled        bool   `json:"stalled"`
+	ID              string `json:"id"`
+	Pid             *int64 `json:"pid"`
+	Label           string `json:"label"`
+	Provider        string `json:"provider"`
+	Harness         string `json:"harness"`
+	Model           string `json:"model"`
+	Cwd             string `json:"cwd"`
+	Spec            string `json:"spec"`
+	Log             string `json:"log"`
+	ProgressDir     string `json:"progressDir"`
+	Trail           string `json:"trail"`
+	TrailFormat     string `json:"trailFormat"`
+	MessagingSocket string `json:"messagingSocket"`
+	OwnerSession    string `json:"ownerSession"`
+	OwnerClaudePid  string `json:"ownerClaudePid"`
+	StartedAt       *int64 `json:"startedAt"`
+	RC              *int64 `json:"rc"`
+	FinishedAt      *int64 `json:"finishedAt"`
+	Session         string `json:"session"`
+	ModelActual     string `json:"modelActual"`
+	State           string `json:"state"`
+	ElapsedSeconds  *int64 `json:"elapsedSeconds"`
+	IdleSeconds     *int64 `json:"idleSeconds"`
+	Stalled         bool   `json:"stalled"`
 }
 
 func numOrNull(s string) *int64 {
@@ -513,8 +514,9 @@ func cmdJSON(f filter, stdout io.Writer) int {
 			ID: r.ID, Pid: numOrNull(r.Pid), Label: r.Label, Provider: r.Provider,
 			Harness: r.Harness, Model: r.Model, Cwd: r.Cwd, Spec: r.Spec, Log: r.Log,
 			ProgressDir: r.ProgressDir, Trail: r.Trail, TrailFormat: r.TrailFormat,
-			OwnerSession:   r.OwnerSession,
-			OwnerClaudePid: r.OwnerClaudePid, StartedAt: numOrNull(r.StartedAt),
+			MessagingSocket: r.MessagingSocket,
+			OwnerSession:    r.OwnerSession,
+			OwnerClaudePid:  r.OwnerClaudePid, StartedAt: numOrNull(r.StartedAt),
 			RC: numOrNull(r.RC), FinishedAt: numOrNull(r.FinishedAt),
 			Session: r.Session, ModelActual: r.ModelActual,
 			State: string(r.State()), ElapsedSeconds: &el,

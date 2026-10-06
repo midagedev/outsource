@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,17 +140,27 @@ func record(args []string, stdin io.Reader, stderr io.Writer) int {
 	}
 	if err := json.Unmarshal(b, &payload); err != nil {
 		note("hook payload is not JSON: %v", err)
-		return 0
-	}
-	if payload.TranscriptPath == "" {
+	} else if payload.TranscriptPath == "" {
 		note("hook payload carries no transcript_path")
-		return 0
-	}
-	if err := runs.SetTrail(id, payload.TranscriptPath); err != nil {
+	} else if err := runs.SetTrail(id, payload.TranscriptPath); err != nil {
 		note("%v", err)
-		return 0
+	} else {
+		note("recorded trail for run %s: %s", id, payload.TranscriptPath)
 	}
-	note("recorded trail for run %s: %s", id, payload.TranscriptPath)
+	// The messaging socket is a fact about the session, not the payload: every
+	// Claude Code session binds an inbox socket and exports its path to hooks
+	// as CLAUDE_CODE_MESSAGING_SOCKET (measured 2026-10-06, CLI 2.1.290), so it
+	// is recorded whatever the payload carried — the two facts are independent,
+	// and a payload with no transcript_path still belongs to a reachable round.
+	// Only an absolute path is recorded; anything else is not an address a
+	// sender on this machine could use.
+	if sock := os.Getenv("CLAUDE_CODE_MESSAGING_SOCKET"); sock != "" && filepath.IsAbs(sock) {
+		if err := runs.SetMessagingSocket(id, sock); err != nil {
+			note("%v", err)
+		} else {
+			note("recorded messaging socket for run %s: %s", id, sock)
+		}
+	}
 	return 0
 }
 

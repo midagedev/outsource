@@ -292,7 +292,18 @@ func writeHookSettings(path, runID, runsDir string) error {
 			},
 		}
 	}
-	settings := map[string]any{"hooks": hooks}
+	settings := map[string]any{
+		"hooks": hooks,
+		// A `-p` round runs unattended in bypassPermissions, and a sender that
+		// is not also in bypass mode has its cross-session message HELD for
+		// five minutes and then dropped (measured 2026-10-06, CLI 2.1.290) —
+		// an unattended worker would never see the lead's mid-flight
+		// correction. "accept" is the documented setting for exactly this
+		// worker shape. Written in every case, the empty run id included:
+		// accepting mail does not depend on the registry having taken the
+		// round.
+		"crossSessionInbound": "accept",
+	}
 	b, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err

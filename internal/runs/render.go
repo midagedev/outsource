@@ -78,14 +78,27 @@ func cmdList(f filter, stdout io.Writer) int {
 		case Orphan:
 			fmt.Fprintf(stdout, "         started but never finished — pid %s is gone; log=%s%s\n", r.Pid, logOr("none"), trailNote)
 		case Running:
+			// The inbox address is printed for a running round because that is
+			// the only state in which it works — the socket dies with the
+			// process, so a finished round's address would be a copyable
+			// dead end. uds: is the prefix the SendMessage tool takes.
+			inbox := ""
+			if r.MessagingSocket != "" {
+				inbox = "  inbox=uds:" + r.MessagingSocket
+			}
 			switch {
 			case r.Trail != "":
-				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)%s\n", r.Trail, r.ID, conflictNote(r))
+				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)%s%s\n", r.Trail, r.ID, inbox, conflictNote(r))
 			case r.TrailFormat != "":
 				// A claude-code round learns its own transcript path only when
 				// its first turn starts, so "pending" is the honest word here —
 				// not "none".
-				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)%s\n", r.ID, conflictNote(r))
+				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)%s%s\n", r.ID, inbox, conflictNote(r))
+			case r.MessagingSocket != "":
+				// The two reveals are independent (the socket comes from the
+				// hook's environment, the trail from its payload), so a round
+				// can have an inbox before it has a trail.
+				fmt.Fprintf(stdout, "         inbox=uds:%s\n", r.MessagingSocket)
 			}
 			if idleKnown && idle >= StallSeconds() {
 				// Deliberately not a kill instruction. A stall is a reason to

@@ -147,6 +147,17 @@ type Record struct {
 	FinishedAt     string
 	Session        string
 	ModelActual    string
+	// MessagingSocket is the round's cross-session inbox socket, revealed the
+	// same way Trail is (a SessionStart hook writing during the round). Every
+	// Claude Code session binds one and exports its path to hooks as
+	// CLAUDE_CODE_MESSAGING_SOCKET — value shape /tmp/cc-socks/<pid>.sock —
+	// but discovery is split by config dir: a sender in a different
+	// CLAUDE_CONFIG_DIR cannot find the round at all (measured 2026-10-06,
+	// CLI 2.1.290), so recording the path is what makes the round reachable.
+	// MessagingSocketConflict parks a second, different socket the same way
+	// TrailConflict parks a second trail.
+	MessagingSocket         string
+	MessagingSocketConflict string
 }
 
 // sanitize flattens newlines so one value stays one line.
@@ -243,6 +254,10 @@ func Read(path string) (*Record, error) {
 			r.Session = v
 		case "modelActual":
 			r.ModelActual = v
+		case "messagingSocket":
+			r.MessagingSocket = v
+		case "messagingSocketConflict":
+			r.MessagingSocketConflict = v
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -291,25 +306,42 @@ func FindByID(id string) *Record {
 // registry that cannot be written must not be able to break the round whose
 // progress it was only trying to describe.
 func SetTrail(id, path string) error {
+	return appendReveal(id, path, "trail", "trailConflict", "SetTrail")
+}
+
+// SetMessagingSocket records where a running round's messaging inbox socket
+// turned out to be. Same contract as SetTrail, because it is the same event:
+// the round's own SessionStart hook, reading CLAUDE_CODE_MESSAGING_SOCKET out
+// of its environment — a registry that cannot be written must not be able to
+// break the round it was only trying to describe.
+func SetMessagingSocket(id, path string) error {
+	return appendReveal(id, path, "messagingSocket", "messagingSocketConflict", "SetMessagingSocket")
+}
+
+// appendReveal is the one implementation behind SetTrail and SetMessagingSocket
+// (a hook revealing a fact about a running round after start), so the two
+// cannot drift: both arguments required, an unknown id an error, the same value
+// twice a no-op, and the value sanitized to one line. A record already carrying
+// a DIFFERENT value is not a second reveal — nothing reveals twice. It is
+// another round's hook writing here, so the first value is kept and the
+// intruder is recorded where it can be seen instead of silently becoming the
+// answer.
+func appendReveal(id, path, key, conflictKey, caller string) error {
 	if id == "" || path == "" {
-		return fmt.Errorf("SetTrail needs both a run id and a path")
+		return fmt.Errorf("%s needs both a run id and a path", caller)
 	}
 	file, err := recordPath(id)
 	if err != nil {
 		return err
 	}
-	// A record already carrying a DIFFERENT trail is not a second reveal of this
-	// round's transcript — nothing reveals twice. It is another round's hook
-	// writing here, so the first value is kept and the intruder is recorded
-	// where it can be seen instead of silently becoming the answer.
-	key := "trail"
+	writeKey := key
 	if b, err := os.ReadFile(file); err == nil {
 		for _, line := range strings.Split(string(b), "\n") {
-			if v, ok := strings.CutPrefix(line, "trail="); ok && v != "" {
+			if v, ok := strings.CutPrefix(line, key+"="); ok && v != "" {
 				if v == sanitize(path) {
 					return nil // idempotent: the same hook fired twice
 				}
-				key = "trailConflict"
+				writeKey = conflictKey
 			}
 		}
 	}
@@ -318,7 +350,7 @@ func SetTrail(id, path string) error {
 		return err
 	}
 	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s=%s\n", key, sanitize(path))
+	_, err = fmt.Fprintf(f, "%s=%s\n", writeKey, sanitize(path))
 	return err
 }
 

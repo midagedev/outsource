@@ -126,6 +126,55 @@ func TestNoRunIDMeansNoRecorderHook(t *testing.T) {
 	}
 }
 
+// The per-round settings accept inbound cross-session messages. Measured
+// 2026-10-06 (CLI 2.1.290): a `-p` session in bypassPermissions holds a
+// message from a sender that is not also in bypass mode for five minutes and
+// then drops it — an unattended round would never see the lead's mid-flight
+// correction, which is the whole point of an inbox. "accept" is the documented
+// setting for this worker shape, and it is written even when the registry
+// refused the round: accepting mail does not depend on recording.
+//
+// FAIL-first (verbatim, with the key removed from writeHookSettings):
+//
+//	run "": crossSessionInbound = "", want "accept"
+func TestRoundSettingsAcceptInboundMessages(t *testing.T) {
+	dir := t.TempDir()
+	for _, runID := range []string{"1789448829-4242", ""} {
+		path := filepath.Join(dir, "settings-"+runID+".json")
+		if err := writeHookSettings(path, runID, "/state/runs"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			CrossSessionInbound string                     `json:"crossSessionInbound"`
+			Hooks               map[string]json.RawMessage `json:"hooks"`
+		}
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatalf("settings for run %q are not JSON: %v\n%s", runID, err, b)
+		}
+		if doc.CrossSessionInbound != "accept" {
+			t.Fatalf("run %q: crossSessionInbound = %q, want \"accept\"", runID, doc.CrossSessionInbound)
+		}
+		if runID == "" && len(doc.Hooks) != 0 {
+			t.Fatalf("an unregistered round must still get no recorder hooks: %v", doc.Hooks)
+		}
+	}
+	// The shared file stays exactly as it was. It is one file per config dir
+	// that every concurrent round rewrites; the key belongs to the round's
+	// own file, and this pins that it did not leak into the shared one.
+	shared := filepath.Join(dir, "settings.json")
+	if err := writeSharedSettings(shared); err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := os.ReadFile(shared)
+	if strings.Contains(string(sb), "crossSessionInbound") {
+		t.Fatalf("the shared settings file must not carry crossSessionInbound:\n%s", sb)
+	}
+}
+
 func TestShellQuote(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"/plain/path", `'/plain/path'`},

@@ -120,6 +120,61 @@ func TestRecorderWritesIntoTheRunsDirItWasGiven(t *testing.T) {
 	}
 }
 
+// The socket half of the reveal. CLAUDE_CODE_MESSAGING_SOCKET arrives through
+// the hook's environment, not its payload, so the two facts are independent:
+// a payload with no transcript_path still belongs to a round the lead can
+// reach, and only an absolute path is an address a sender could use.
+//
+// FAIL-first (verbatim, with the recorder's socket block removed):
+//
+//	no transcript_path: MessagingSocket = "", want /tmp/cc-socks/4242.sock
+func TestRecorderWritesTheMessagingSocket(t *testing.T) {
+	cases := []struct {
+		name   string
+		socket string
+		// wantSocket: what the record must carry afterwards.
+		wantSocket string
+		// wantTrail: "" means the trail must NOT have been recorded.
+		wantTrail string
+		payload   string
+	}{
+		{"with a transcript path", "/tmp/cc-socks/4242.sock", "/tmp/cc-socks/4242.sock",
+			"/tmp/cfg/claude/projects/-Users-hckim-repo-toktape/c78a2726-d0ad-4194-bdc7-24bade1b05e6.jsonl", sessionStartPayload},
+		{"no transcript_path", "/tmp/cc-socks/4242.sock", "/tmp/cc-socks/4242.sock", "", `{"session_id":"x"}`},
+		{"relative path", "cc-socks/4242.sock", "",
+			"/tmp/cfg/claude/projects/-Users-hckim-repo-toktape/c78a2726-d0ad-4194-bdc7-24bade1b05e6.jsonl", sessionStartPayload},
+		{"unset", "", "",
+			"/tmp/cfg/claude/projects/-Users-hckim-repo-toktape/c78a2726-d0ad-4194-bdc7-24bade1b05e6.jsonl", sessionStartPayload},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			id := startRun(t, dir)
+			t.Setenv("CLAUDE_CODE_MESSAGING_SOCKET", c.socket)
+			var stdout, stderr bytes.Buffer
+			if rc := Main([]string{"--record-from-hook", id, "--runs-dir", dir},
+				strings.NewReader(c.payload), &stdout, &stderr); rc != 0 {
+				t.Fatalf("rc=%d, want 0", rc)
+			}
+			// The recorder's contract is unchanged: silent and exit 0 whatever
+			// it is handed — its stdout lands in the model's first turn.
+			if stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("the recorder must stay silent (stdout=%q stderr=%q)", stdout.String(), stderr.String())
+			}
+			r := runs.FindByID(id)
+			if r == nil {
+				t.Fatal("the record went missing")
+			}
+			if r.MessagingSocket != c.wantSocket {
+				t.Fatalf("MessagingSocket = %q, want %q", r.MessagingSocket, c.wantSocket)
+			}
+			if r.Trail != c.wantTrail {
+				t.Fatalf("Trail = %q, want %q — the two reveals are independent", r.Trail, c.wantTrail)
+			}
+		})
+	}
+}
+
 // A claude-code transcript, in the shape analyzeRun already reads: one JSON
 // object per line, message.content a part array.
 const transcriptFixture = `{"type":"user","message":{"role":"user","content":"the spec text"}}
