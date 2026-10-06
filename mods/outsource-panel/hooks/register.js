@@ -12,14 +12,19 @@ import {
   NO_TRAIL,
   PANEL_OFF_TEXT,
   PANEL_ON_TEXT,
+  PRE_TOKEN_NOTE,
   activityLine,
   activityRows,
   bandLine,
   bandRow,
   binCandidates,
   findTarget,
+  inboxReason,
   inlineRowsWanted,
+  isLeadStop,
+  isLive,
   isOwn,
+  leadMessage,
   logText,
   offSectionText,
   pairVerdict,
@@ -357,7 +362,16 @@ export const register = (on) => {
         }),
       )
     } else {
-      nodes.push(h(Text, { dimColor: true }, 'no inbox for this round'))
+      // The reason, when there is one to give (inboxReason). A foreign row
+      // whose inbox works is not missing one: it is another session's round.
+      const reason = selected === undefined ? null : inboxReason(selected)
+      const why =
+        reason !== null
+          ? 'no inbox: ' + reason
+          : selected !== undefined && !isOwn(selected, sessionId)
+            ? 'not your round'
+            : 'no inbox for this round'
+      nodes.push(h(Text, { dimColor: true }, truncate(why, bodyColumns)))
     }
 
     paneMetrics = { bodyColumns, bodyRows, placement, listLines: entries.length }
@@ -369,7 +383,7 @@ export const register = (on) => {
     if (standingDown || !enabled || paneOpen || e.props.hasSurvey) return next(e)
     const row = bandRow(rows, sessionId)
     if (row === null) return next(e)
-    const others = rows.filter((r) => r !== row && r.state === 'running' && isOwn(r, sessionId)).length
+    const others = rows.filter((r) => r !== row && isLive(r) && isOwn(r, sessionId)).length
     const { Text } = $.ui.resolve(e)
     return h(Text, { dimColor: true }, bandLine(row, bandEntry ?? NO_TRAIL, others, e.props.bodyColumns))
   })
@@ -670,16 +684,23 @@ async function deliverWake($, transitions) {
   woken[sessionId] = delivered
   await $.store.set('woken', woken)
   if (!wakeOn) return // off: toasts only; the recording above still marks them seen
+  // A round the lead stopped itself is recorded as seen above and never
+  // submitted: the lead already knows (isLeadStop).
+  const news = fresh.filter((t) => !isLeadStop(t))
+  if (news.length < fresh.length) {
+    log($, "no wake for the lead's own stop — " + fresh.filter(isLeadStop).map((t) => t.row.label ?? t.row.id).join(', '))
+  }
+  if (news.length === 0) return
   if (wakePending) {
-    wakeBuffer.push(...fresh)
+    wakeBuffer.push(...news)
     log(
       $,
       'wake buffered while a submit is outstanding — ' +
-        fresh.map((t) => (t.row.label ?? t.row.id) + ' → ' + t.kind).join(', '),
+        news.map((t) => (t.row.label ?? t.row.id) + ' → ' + t.kind).join(', '),
     )
     return
   }
-  sendWake($, fresh)
+  sendWake($, news)
 }
 
 // At most one submit outstanding: transitions that arrive while it is in
@@ -821,14 +842,16 @@ async function sendToLabel($, label, text) {
   if (text.length > 4000) return 'refused: message too long (' + text.length + ' > 4000)'
   let result
   try {
-    result = await $.session.send({ to: 'uds:' + target.messagingSocket, text })
+    // The token line makes the note the lead's in the round's eyes
+    // (leadMessage); the log and the toast below carry the person's text only.
+    result = await $.session.send({ to: 'uds:' + target.messagingSocket, text: leadMessage(target, text) })
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     result = { isDelivered: false, reason }
   }
   log($, '→ ' + label + ': ' + text.slice(0, 80))
   const line = result.isDelivered
-    ? 'sent to ' + label
+    ? 'sent to ' + label + (target.leadToken ? '' : ' · ' + PRE_TOKEN_NOTE)
     : 'not delivered to ' + label + ': ' + (result.reason ?? '')
   $.ui.toast(line)
   return line

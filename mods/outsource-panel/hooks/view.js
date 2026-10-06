@@ -207,8 +207,9 @@ function timeOf(row, field) {
   return typeof v === 'number' ? v : -Infinity
 }
 
-// Every running row (own and foreign), plus own orphan/failed/done rows whose
-// finishedAt (startedAt for an orphan) is within RECENT_SECONDS of now.
+// Every live row (running or waiting — isLive — own and foreign), plus own
+// orphan/failed/done rows whose finishedAt (startedAt for an orphan) is
+// within RECENT_SECONDS of now.
 export function visibleRows(rows, ownerSession, nowMs) {
   const nowS = Math.floor(nowMs / 1000)
   const recent = (t) => t !== -Infinity && nowS - t <= RECENT_SECONDS
@@ -219,7 +220,7 @@ export function visibleRows(rows, ownerSession, nowMs) {
   const ownDone = []
   for (const row of rows) {
     const own = isOwn(row, ownerSession)
-    if (row.state === 'running') {
+    if (isLive(row)) {
       ;(own ? ownRunning : foreignRunning).push(row)
     } else if (own && row.state === 'orphan' && recent(timeOf(row, 'startedAt'))) {
       ownOrphan.push(row)
@@ -239,20 +240,20 @@ export function visibleRows(rows, ownerSession, nowMs) {
   return [...ownRunning, ...foreignRunning, ...ownOrphan, ...ownFailed, ...ownDone]
 }
 
-// The ≤4 own running rows that get an activity line, in draw order (visible
-// rows are ordered own running first, so this is the newest four).
+// The ≤4 own live rows that get an activity line, in draw order (visible
+// rows are ordered own live first, so this is the newest four).
 export function activityRows(visible, ownerSession) {
   return visible
-    .filter((r) => r.state === 'running' && isOwn(r, ownerSession))
+    .filter((r) => isLive(r) && isOwn(r, ownerSession))
     .slice(0, MAX_ACTIVITY)
 }
 
-// The band's row: the own running row with the smallest idleSeconds (a null
+// The band's row: the own live row with the smallest idleSeconds (a null
 // idle is the least recently active, so it loses to any measured row).
 export function bandRow(rows, ownerSession) {
   let best = null
   for (const row of rows) {
-    if (row.state !== 'running' || !isOwn(row, ownerSession)) continue
+    if (!isLive(row) || !isOwn(row, ownerSession)) continue
     if (best === null) {
       best = row
       continue
@@ -266,10 +267,15 @@ export function bandRow(rows, ownerSession) {
 
 // ---- one row line ------------------------------------------------------------
 
-// The same glyphs as internal/runs/render.go cmdLine.
+// The same glyphs as internal/runs/render.go cmdLine, ■ and ✗ included.
 export function glyphFor(row) {
   if (row.state === 'running') return row.stalled ? '⏳' : '▶'
+  if (row.state === 'waiting') return '⏸'
   if (row.state === 'orphan') return '⚠'
+  const ending = endingOf(row)
+  if (ending === 'stopped') return '■'
+  if (ending === 'quota') return '⛔'
+  if (ending === 'external') return '✗'
   if (row.state === 'done') return '✅'
   if (row.state === 'failed') return '❌'
   return ' '
@@ -277,7 +283,12 @@ export function glyphFor(row) {
 
 function tailText(row) {
   if (row.state === 'running') return 'idle ' + secs(row.idleSeconds)
+  if (row.state === 'waiting') return 'quota → ' + localHHMM(row.waitingUntil)
   if (row.state === 'orphan') return 'pid gone'
+  const ending = endingOf(row)
+  if (ending === 'stopped') return 'stopped'
+  if (ending === 'quota') return 'resets ' + localHHMM(row.resetAt)
+  if (ending === 'external') return row.harnessSignal + ' ext'
   if (row.state === 'failed') return 'rc=' + (row.rc ?? '?')
   if (row.state === 'done') return 'rc=0'
   return ''
@@ -372,12 +383,14 @@ export function bandLine(row, activity, otherRunning, bodyColumns) {
 // The transition kinds worth telling the session about, between two good
 // polls of the same own row: finish, fail, orphan, and the first stall.
 // The single owner of this rule — the toast and the model wake both draw
-// their kinds from here, so they can never diverge.
+// their kinds from here, so they can never diverge. A waiting row is live:
+// running→waiting is no news (it resumes itself at the reset), and
+// waiting→done/failed/orphan is news exactly as running→… is.
 export function transitionFor(prev, cur) {
   if (prev === undefined) return null
-  if (prev.state === 'running' && cur.state === 'done') return 'done'
-  if (prev.state === 'running' && cur.state === 'failed') return 'failed'
-  if (prev.state === 'running' && cur.state === 'orphan') return 'orphan'
+  if (isLive(prev) && cur.state === 'done') return 'done'
+  if (isLive(prev) && cur.state === 'failed') return 'failed'
+  if (isLive(prev) && cur.state === 'orphan') return 'orphan'
   if (prev.state === 'running' && cur.state === 'running' && !prev.stalled && cur.stalled) {
     return 'stalled'
   }
@@ -391,6 +404,10 @@ export function toastFor(prev, cur) {
   if (kind === null) return null
 
   const label = cur.label ?? ''
+  const ending = endingOf(cur)
+  if (ending === 'stopped') return '■ ' + label + ' stopped'
+  if (ending === 'quota') return '⛔ ' + label + ' cut by the plan limit (429), resets ' + localHHMM(cur.resetAt)
+  if (ending === 'external') return '✗ ' + label + ' killed by an external ' + cur.harnessSignal
   if (kind === 'done') {
     return '✅ ' + label + ' done · ' + secs(cur.elapsedSeconds)
   }
@@ -413,7 +430,9 @@ export const WAKE_MAX_COLUMNS = 200
 //
 // Provenance rule: a prompt is read with more authority than a tool result,
 // so only launcher-written fields reach it — label, state (the kind), rc,
-// elapsedSeconds, idleSeconds, log, cwd, id — plus the panel's own `bin`,
+// elapsedSeconds, idleSeconds, log, cwd, id, the wrapper's
+// harnessSignal/signalSource and quotaExhausted/resetAt (endingOf) — plus
+// the panel's own `bin`,
 // the absolute path of the binary register.js runs, so the commands the
 // wake spells are runnable as written (the `outsource` command is not on
 // PATH; measured 2026-10-06). Never the trail path, the messaging socket,
@@ -465,6 +484,18 @@ function reviewBlock(t, bin) {
 // and a command is never cut, so it is returned whole.
 function wakeLine(t, bin) {
   const label = t.row.label ?? ''
+  if (t.kind !== 'stalled' && endingOf(t.row) === 'quota') {
+    return truncate(
+      '- ' + label + ': cut by the plan limit (429), resets ' + localHHMM(t.row.resetAt) + ' · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? ''),
+      WAKE_MAX_COLUMNS,
+    )
+  }
+  if (t.kind !== 'stalled' && endingOf(t.row) === 'external') {
+    return truncate(
+      '- ' + label + ': killed by an external ' + t.row.harnessSignal + ' · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? ''),
+      WAKE_MAX_COLUMNS,
+    )
+  }
   if (t.kind === 'done') {
     return truncate('- ' + label + ': done rc=0 · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? ''), WAKE_MAX_COLUMNS)
   }
@@ -484,7 +515,8 @@ function wakeLine(t, bin) {
 // model needs. A tool result may carry round-written data (the trail path,
 // the socket) — the wake may not.
 export function roundsToolLine(row, ownerSession) {
-  const inbox = row.messagingSocketConflict ? 'conflict' : row.messagingSocket ? 'yes' : 'no'
+  const reason = inboxReason(row)
+  const inbox = row.messagingSocketConflict ? 'conflict' : reason === null ? 'yes' : 'no (' + reason + ')'
   return (
     rowLine(row, ownerSession, WAKE_MAX_COLUMNS) +
     ' · state=' +
@@ -565,9 +597,91 @@ export function findTarget(rows, ownerSession, label) {
   )
   if (matches.length === 0) return 'refused: ' + label + ' is not one of your running rounds'
   if (matches.length > 1) return 'refused: ' + label + ' names ' + matches.length + ' rounds'
-  if (!matches[0].messagingSocket) return 'refused: ' + label + ' has no inbox'
+  const reason = inboxReason(matches[0])
+  if (reason !== null) return 'refused: ' + label + ': ' + reason
   if (matches[0].messagingSocketConflict) {
     return 'refused: ' + label + ' has two inbox sockets (shared hook settings)'
   }
   return matches[0]
+}
+
+// ---- the lead's voice ----------------------------------------------------------
+
+// Why a row cannot take a message, or null when it can — the one owner of
+// that answer for the `round_send` refusal, the pane's detail line and the
+// `rounds` tool line, so "this harness has no inbox", "launched by an older
+// launcher" and "not running" never collapse into one bare "no". Checked in
+// this order: a harness with no inbox at all, a round that is not running,
+// then the two claude-code cases told apart by the launch-time leadToken.
+// There is no "attach an inbox later": the launcher writes
+// crossSessionInbound "accept" into the round's own settings at launch
+// (internal/launch/claudecode.go, writeHookSettings), and a round launched
+// without it holds a message instead of delivering it.
+export const INBOX_OLDER_LAUNCH = 'launched before inbox support — cannot receive; stop it and resume with --session'
+export function inboxReason(row) {
+  const harness = row.harness ?? '?'
+  if (harness !== 'claude-code') return 'harness ' + harness + ' has no inbox'
+  if (row.state !== 'running') return 'round not running'
+  if (row.messagingSocket) return null
+  if (!row.leadToken) return INBOX_OLDER_LAUNCH
+  return 'inbox not revealed yet'
+}
+
+// What a note leaves as. The round's launcher notice names a message whose
+// first line is `lead-token: <token>` as its lead's (an amendment with the
+// spec's authority); the token survives a lead restart, the sender socket
+// does not. A row with no token was launched before the notice existed.
+export function leadMessage(row, text) {
+  return row.leadToken ? 'lead-token: ' + row.leadToken + '\n' + text : text
+}
+
+// Added to a delivered send when the row has no token: the round got the
+// note, but nothing told it the note is its lead's.
+export const PRE_TOKEN_NOTE =
+  "this round was launched before lead tokens — it may treat the note as a peer's; relaunch with --session for a binding correction"
+
+// ---- how a finished round ended -----------------------------------------------
+
+// What ended a finished row, read off the fields `runs json` carries (the
+// Go side is ending() in internal/runs/record_lead.go): 'stopped' when the
+// lead's own `runs stop` asked for it (stopRequested, or the wrapper's
+// signalSource lead-stop), 'external' when a signal nobody on record sent
+// ended the harness (harnessSignal with signalSource external), null for
+// every other ending — the rc carries those. A stop the lead made is not
+// news: it draws ■ and wakes nobody (isLeadStop). An external kill is news,
+// and says so instead of "failed rc=143".
+//
+// 'quota' (track quota's fields): a FAILED row whose plan limit cut it
+// (quotaExhausted) — drawn ⛔ with its reset time, and woken as "cut by the
+// plan limit (429)" rather than "failed rc=1". A done row is a success even
+// if a 429 cut it once and --resume-on-reset carried it home. The lead's
+// own stop still comes first: a waiting round the lead stopped is not news.
+export function endingOf(row) {
+  if (row.state !== 'done' && row.state !== 'failed') return null
+  if (row.stopRequested || row.signalSource === 'lead-stop') return 'stopped'
+  if (row.state === 'failed' && (row.quotaExhausted === true || row.quotaExhausted === 'true')) return 'quota'
+  if (row.harnessSignal && row.signalSource === 'external') return 'external'
+  return null
+}
+
+export function isLeadStop(t) {
+  return t.kind !== 'stalled' && endingOf(t.row) === 'stopped'
+}
+
+// ---- the plan-limit wait (track quota) ----------------------------------------
+
+// A row is live while it is running, or waiting: a round its plan limit cut
+// that --resume-on-reset is holding until the reset. Live rows are listed,
+// get activity lines and the band, and their endings are news.
+export function isLive(row) {
+  return row.state === 'running' || row.state === 'waiting'
+}
+
+// hh:mm of an RFC3339 time in this machine's local zone, '?' when absent or
+// unparseable — the reset a person waits for is on their own clock.
+export function localHHMM(iso) {
+  const t = typeof iso === 'string' ? Date.parse(iso) : NaN
+  if (!Number.isFinite(t)) return '?'
+  const d = new Date(t)
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
 }

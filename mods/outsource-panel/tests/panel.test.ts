@@ -21,16 +21,26 @@ import { test, expect, mock } from 'claude-code/testing'
 import { ROWS } from './fixtures/runs.js'
 import {
   BUNDLED_NAME,
+  INBOX_OLDER_LAUNCH,
   PANEL_NAME,
   PANEL_OFF_TEXT,
   PANEL_ON_TEXT,
+  PRE_TOKEN_NOTE,
   binCandidates,
   charWidth,
+  activityRows,
+  bandRow,
   displayWidth,
+  endingOf,
+  inboxReason,
+  isLive,
+  localHHMM,
   logText,
   offSectionText,
   roundsToolLine,
+  rowLine,
   secs,
+  visibleRows,
   sectionText,
   toolName,
   truncate,
@@ -407,15 +417,20 @@ test('input gating by messaging socket', async ($, on) => {
   expect(await ui.find({ type: 'Input', key: 'msg' })).toBeDefined()
   expect((await ui.find({ text: 'no inbox for this round' }))?.type).toBe(undefined)
 
+  // Re-pinned 2026-10-06 (voice round), from 'no inbox for this round': the
+  // line now gives the reason (inboxReason), which is the point of the
+  // change — "no inbox" alone could not tell an older launch from a harness
+  // with no inbox or a finished round. Both rows are claude-code, running,
+  // with neither a socket nor a lead token: launched before inbox support.
   await ui.select({ key: 'round', value: 'r05' }) // quota-report: no socket
   await clock.settle()
   expect(await ui.find({ type: 'Input', key: 'msg' })).toBeUndefined()
-  expect(await ui.find({ text: 'no inbox for this round' })).toBeDefined()
+  expect(await ui.find({ text: 'no inbox: ' + INBOX_OLDER_LAUNCH })).toBeDefined()
 
   await ui.select({ key: 'round', value: 'r06' }) // foreign running
   await clock.settle()
   expect(await ui.find({ type: 'Input', key: 'msg' })).toBeUndefined()
-  expect(await ui.find({ text: 'no inbox for this round' })).toBeDefined()
+  expect(await ui.find({ text: 'no inbox: ' + INBOX_OLDER_LAUNCH })).toBeDefined()
   await ui.unmount()
 })
 
@@ -424,12 +439,17 @@ test('sending: success, refusals, length cap, delivery failure', async ($, on) =
   const { clock, state } = await boot($, on, fixtureRows)
   await clock.advance(5000) // one poll loads the rows the send resolves against
 
+  // Re-pinned 2026-10-06 (voice round), from 'sent to docs-sweep': the
+  // fixture row carries no lead token (an older launch), so the send goes out
+  // as before — the text unchanged — and the result now says the round may
+  // read it as a peer's (PRE_TOKEN_NOTE). The token case is 'round_send
+  // prefixes the lead token' below.
   const ok = await $.command.run({ command: 'rounds', args: 'send docs-sweep hello round' })
-  expect(ok.text).toBe('sent to docs-sweep')
+  expect(ok.text).toBe('sent to docs-sweep · ' + PRE_TOKEN_NOTE)
   expect(state.sends).toHaveLength(1)
   expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/4242.sock')
   expect(state.sends[0].text).toBe('hello round')
-  expect(state.toasts).toContain('sent to docs-sweep')
+  expect(state.toasts).toContain('sent to docs-sweep · ' + PRE_TOKEN_NOTE)
   // Updated 2026-10-06 (bundle round), from startsWith('→ docs-sweep: …'): the
   // line now goes through logText like every other panel log line, which
   // leads it with the one `outsource-panel: ` prefix in both copies.
@@ -439,8 +459,10 @@ test('sending: success, refusals, length cap, delivery failure', async ($, on) =
   expect(foreign.text).toBe('refused: panel-mod is not one of your running rounds')
   expect(state.sends).toHaveLength(1) // refused before any session.send
 
+  // Re-pinned 2026-10-06 (voice round), from 'refused: gate-authoring has no
+  // inbox': the refusal names the reason (inboxReason).
   const noInbox = await $.command.run({ command: 'rounds', args: 'send gate-authoring hi' })
-  expect(noInbox.text).toBe('refused: gate-authoring has no inbox')
+  expect(noInbox.text).toBe('refused: gate-authoring: ' + INBOX_OLDER_LAUNCH)
 
   const long = await $.command.run({ command: 'rounds', args: 'send docs-sweep ' + 'x'.repeat(4001) })
   expect(long.text).toBe('refused: message too long (4001 > 4000)')
@@ -936,10 +958,15 @@ test('rounds and round_send tools', async ($, on) => {
   expect(lines[0]).toContain('trail=/tmp/panel-fixtures/trails/w1.jsonl')
   expect(lines[0].endsWith('inbox=yes')).toBe(true)
   expect(lines[2].startsWith('⇄▶  panel-mod')).toBe(true)
-  expect(lines[2].endsWith('inbox=no')).toBe(true)
+  // Re-pinned 2026-10-06 (voice round), from endsWith('inbox=no'): the tool
+  // line carries the reason (inboxReason), and the delivered send says the
+  // tokenless round may read the note as a peer's (PRE_TOKEN_NOTE). The
+  // `sent to ` prefix is what keeps the result from being an error.
+  expect(lines[2].endsWith('inbox=no (' + INBOX_OLDER_LAUNCH + ')')).toBe(true)
 
   const sent = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'docs-sweep', text: 'correction: re-read the spec' })) as any
-  expect(sent.result).toBe('sent to docs-sweep')
+  expect(sent.result).toBe('sent to docs-sweep · ' + PRE_TOKEN_NOTE)
+  expect(sent.isError).toBeFalsy()
   expect(state.sends).toHaveLength(1)
   expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/4242.sock')
 
@@ -1585,6 +1612,281 @@ test('panel off: a queued retry does not leave when the panel comes back', async
   await clock.advance(5000)
   expect(state.prompts).toHaveLength(1)
   expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } }) // known from the poll back
+})
+
+// ---- the lead's voice -------------------------------------------------------
+//
+// A round's prompt opens with a launcher notice naming its lead two ways: the
+// socket it was launched from, and a per-launch token. A message whose first
+// line is `lead-token: <token>` is an amendment with the spec's authority;
+// anything else from another session is information only. Rows are built
+// inline (the fixture is pinned by the capture checks and carries no token).
+
+const TOKEN = '00112233445566778899aabbccddeeff'
+
+// The token goes out as the note's first line; the log and the toast carry
+// the person's text only, and the 4000 cap is on that text. FAIL-first: with
+// register.js sending `text` instead of leadMessage(target, text),
+// sends[0].text reads 'drop the 9-minute cap'.
+test('round_send prefixes the lead token', async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow({ id: 't1', label: 'tok-round', messagingSocket: '/tmp/cc-socks/7001.sock', leadToken: TOKEN } as any),
+  ])
+  await clock.advance(5000)
+  const res = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'tok-round', text: 'drop the 9-minute cap' })) as any
+  expect(res.result).toBe('sent to tok-round')
+  expect(res.isError).toBeFalsy()
+  expect(state.sends).toHaveLength(1)
+  expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/7001.sock')
+  expect(state.sends[0].text).toBe('lead-token: ' + TOKEN + '\ndrop the 9-minute cap')
+  expect(state.toasts).toEqual(['sent to tok-round'])
+  expect(state.logs.some((l) => l.includes(TOKEN))).toBe(false)
+
+  const atCap = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'tok-round', text: 'x'.repeat(4000) })) as any
+  expect(atCap.result).toBe('sent to tok-round') // the cap counts the person's text, not the prefix
+  expect(state.sends[1].text).toBe('lead-token: ' + TOKEN + '\n' + 'x'.repeat(4000))
+})
+
+// A row with no token (launched before lead tokens) sends exactly as before,
+// and a delivered send says the round may read it as a peer's; a send that
+// was not delivered says only that. FAIL-first: without the PRE_TOKEN_NOTE
+// branch the result reads 'sent to old-round'.
+test("round_send to an older launch says the note may read as a peer's", async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow({ id: 'o1', label: 'old-round', messagingSocket: '/tmp/cc-socks/7002.sock' }),
+  ])
+  await clock.advance(5000)
+  const res = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'old-round', text: 'fix the path' })) as any
+  expect(res.result).toBe(
+    "sent to old-round · this round was launched before lead tokens — it may treat the note as a peer's; relaunch with --session for a binding correction",
+  )
+  expect(res.isError).toBeFalsy()
+  expect(state.sends[0].text).toBe('fix the path')
+
+  state.sendResult = { isDelivered: false, reason: 'nobody home' }
+  const failed = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label: 'old-round', text: 'again' })) as any
+  expect(failed.result).toBe('not delivered to old-round: nobody home')
+})
+
+// The four reasons a row cannot take a message, their order, and the three
+// places they show: the round_send refusal, the `rounds` tool line, the
+// pane's line under the selected round. FAIL-first: with findTarget back to
+// its bare 'has no inbox', the refusal lines read 'refused: crush-round has
+// no inbox'.
+test('inbox reasons: the four cases and where they show', async ($, on) => {
+  const crush = wakeRow({ id: 'i1', label: 'crush-round', harness: 'crush' })
+  const done = wakeRow({ id: 'i2', label: 'done-round', state: 'done', rc: 0, pid: null, finishedAt: NOW_MS / 1000 - 10, idleSeconds: null, leadToken: 'ab' } as any)
+  const older = wakeRow({ id: 'i3', label: 'older-round' })
+  const pending = wakeRow({ id: 'i4', label: 'pending-round', leadToken: 'cd' } as any)
+  const live = wakeRow({ id: 'i5', label: 'live-round', leadToken: 'ef', messagingSocket: '/tmp/cc-socks/7003.sock' } as any)
+  expect(inboxReason(crush)).toBe('harness crush has no inbox')
+  expect(inboxReason(done)).toBe('round not running')
+  expect(inboxReason(older)).toBe('launched before inbox support — cannot receive; stop it and resume with --session')
+  expect(INBOX_OLDER_LAUNCH).toBe(inboxReason(older))
+  expect(inboxReason(pending)).toBe('inbox not revealed yet')
+  expect(inboxReason(live)).toBe(null)
+  expect(inboxReason({ ...crush, state: 'done' })).toBe('harness crush has no inbox') // the harness comes first
+
+  const { clock, state } = await boot($, on, [crush, done, older, pending, live])
+  await clock.advance(5000)
+  for (const [label, reason] of [
+    ['crush-round', 'harness crush has no inbox'],
+    ['older-round', INBOX_OLDER_LAUNCH],
+    ['pending-round', 'inbox not revealed yet'],
+  ]) {
+    const res = (await $.tool.call({ tool: toolName(PLUGIN, 'round_send'), label, text: 'hi' })) as any
+    expect(res.result).toBe('refused: ' + label + ': ' + reason)
+    expect(res.isError).toBe(true)
+  }
+  expect(state.sends).toHaveLength(0)
+
+  const list = String(((await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any).result).split('\n')
+  const lineOf = (label: string) => list.find((l) => l.includes(label)) ?? ''
+  expect(lineOf('crush-round').endsWith('inbox=no (harness crush has no inbox)')).toBe(true)
+  expect(lineOf('done-round').endsWith('inbox=no (round not running)')).toBe(true)
+  expect(lineOf('older-round').endsWith('inbox=no (' + INBOX_OLDER_LAUNCH + ')')).toBe(true)
+  expect(lineOf('pending-round').endsWith('inbox=no (inbox not revealed yet)')).toBe(true)
+  expect(lineOf('live-round').endsWith('inbox=yes')).toBe(true)
+
+  await $.command.run({ command: 'rounds', args: '' })
+  const ui = await mountPane($, 120)
+  await ui.select({ key: 'round', value: 'i4' })
+  await clock.settle()
+  expect(await ui.find({ text: 'no inbox: inbox not revealed yet' })).toBeDefined()
+  await ui.select({ key: 'round', value: 'i5' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Input', key: 'msg' })).toBeDefined()
+  await ui.unmount()
+})
+
+// ---- how a finished round ended ---------------------------------------------
+//
+// `runs json` carries what the wrapper learned (harnessSignal, signalSource)
+// and what `runs stop` recorded (stopRequested). A stop the lead made itself
+// is not news: ■, no wake. A signal nobody on record sent is: ✗, and the wake
+// says "killed by an external TERM" rather than "failed rc=143".
+
+const ended = (row: any, extra: Record<string, unknown> = {}, atSec = 10) =>
+  Object.assign(row, {
+    state: 'failed',
+    rc: 143,
+    pid: null,
+    finishedAt: NOW_MS / 1000 - atSec,
+    elapsedSeconds: 3665,
+    idleSeconds: null,
+    ...extra,
+  })
+const LEAD_STOP = { stopRequested: '2026-10-06T08:00:00Z', stopBy: OWNER, stopReason: 'wrong premise', harnessSignal: 'TERM', signalSource: 'lead-stop' }
+const EXTERNAL = { harnessSignal: 'TERM', signalSource: 'external' }
+
+// FAIL-first: with glyphFor's ■ branch removed, the stopped row draws ❌.
+test('endings: a lead stop draws ■, an external kill ✗, any other failure ❌', () => {
+  const stopped = ended(wakeRow({ id: 'e1', label: 'halted' }), LEAD_STOP)
+  const shot = ended(wakeRow({ id: 'e2', label: 'shot' }), EXTERNAL)
+  const plain = ended(wakeRow({ id: 'e3', label: 'plain' }))
+  expect(endingOf(stopped)).toBe('stopped')
+  expect(endingOf(shot)).toBe('external')
+  expect(endingOf(plain)).toBe(null)
+  expect(endingOf(wakeRow({ ...EXTERNAL } as any))).toBe(null) // still running: no ending yet
+  const lines = [stopped, shot, plain].map((r) => rowLine(r, OWNER, 120))
+  expect(lines[0].startsWith(' ■  halted')).toBe(true)
+  expect(lines[0].endsWith(' stopped')).toBe(true)
+  expect(lines[1].startsWith(' ✗  shot')).toBe(true)
+  expect(lines[1].endsWith(' TERM ext')).toBe(true)
+  expect(lines[2].startsWith(' ❌ plain')).toBe(true)
+  expect(lines[2].endsWith(' rc=143')).toBe(true)
+})
+
+// The lead's own stop: a toast for the person, nothing for the model, and the
+// round recorded as seen. An external TERM in the same session: one wake,
+// worded as a kill, with the review block. FAIL-first: without deliverWake's
+// isLeadStop filter the stop submits a prompt; without wakeLine's external
+// branch the kill reads '- web-polish: failed rc=143 · …'.
+test("wake: the lead's own stop wakes nobody; an external TERM wakes as a kill", async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow({ id: 'w1', label: 'api-fix' }),
+    wakeRow({ id: 'w2', label: 'web-polish', log: '/tmp/panel-fixtures/logs/w2.log' }),
+  ])
+  await clock.advance(5000) // seed
+  ended(state.rows.find((r) => r.id === 'w1') as any, LEAD_STOP)
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.toasts).toEqual(['■ api-fix stopped'])
+  expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'failed' } })
+
+  ended(state.rows.find((r) => r.id === 'w2') as any, EXTERNAL)
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  const lines = state.prompts[0].split('\n')
+  expect(lines[0]).toContain('1 of your rounds changed state')
+  expect(lines[1]).toBe('- web-polish: killed by an external TERM · 1h01m · log=/tmp/panel-fixtures/logs/w2.log')
+  expect(lines[2]).toBe('Review web-polish:')
+  expect(state.toasts).toEqual(['■ api-fix stopped', '✗ web-polish killed by an external TERM'])
+})
+
+// A lead stop that ended while the session was down stays silent at the
+// resume catch-up too, and is recorded as seen. FAIL-first: without the
+// isLeadStop filter the catch-up submits one prompt.
+test("wake: a lead stop found at the resume catch-up stays silent", async ($, on) => {
+  const row = ended(wakeRow({ id: 'late2', label: 'late-stop' }), LEAD_STOP, 3600)
+  const { clock, state } = await boot($, on, [row], {
+    store: { seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 } },
+  })
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.store['woken']).toEqual({ [OWNER]: { late2: 'failed' } })
+})
+
+// A foreign round whose inbox works is not missing one: the line under it
+// says whose it is. FAIL-first: with the pane's foreign branch removed, the
+// line reads 'no inbox for this round'.
+test('pane: a foreign round with an inbox says not your round', async ($, on) => {
+  const { clock } = await boot($, on, [
+    wakeRow({ id: 'g1', label: 'mine' }),
+    wakeRow({ id: 'g2', label: 'theirs', ownerSession: OTHER, messagingSocket: '/tmp/cc-socks/7004.sock', leadToken: 'ab' } as any),
+  ])
+  await $.command.run({ command: 'rounds', args: '' })
+  await clock.advance(2000)
+  const ui = await mountPane($, 120)
+  await ui.select({ key: 'round', value: 'g2' })
+  await clock.settle()
+  expect(await ui.find({ type: 'Input', key: 'msg' })).toBeUndefined()
+  expect(await ui.find({ text: 'not your round' })).toBeDefined()
+  expect(await ui.find({ text: 'no inbox for this round' })).toBeUndefined()
+  await ui.unmount()
+})
+
+// ---- the plan-limit wait (track quota's `waiting` state) -------------------
+//
+// Track quota adds the registry state `waiting` (a round its plan limit cut,
+// held by --resume-on-reset until the reset) and the fields quotaExhausted,
+// resetAt and waitingUntil (RFC3339). This tree has no such state yet, so the
+// rows are built inline. Times are built in the local zone, so hh:mm is the
+// same on any machine: the panel shows a person their own clock.
+
+const localISO = (h: number, m: number) => new Date(2026, 9, 6, h, m).toISOString()
+const WAIT = { state: 'waiting', waitingUntil: localISO(21, 5), quotaExhausted: true, resetAt: localISO(21, 5) }
+const CUT = { state: 'failed', rc: 1, pid: null, finishedAt: NOW_MS / 1000 - 10, elapsedSeconds: 3665, idleSeconds: null, quotaExhausted: true, resetAt: localISO(21, 5) }
+
+// FAIL-first: with glyphFor's waiting branch removed, the waiting row draws
+// a blank glyph and the ⏸ check fails.
+test('quota: a waiting row draws ⏸ with its reset, a cut row ⛔, a resumed success ✅', () => {
+  const waiting = wakeRow({ id: 'q1', label: 'held', ...WAIT } as any)
+  const cut = wakeRow({ id: 'q2', label: 'cut', ...CUT } as any)
+  const resumed = wakeRow({ id: 'q3', label: 'resumed', ...CUT, state: 'done', rc: 0 } as any)
+  expect(isLive(waiting)).toBe(true)
+  expect(endingOf(cut)).toBe('quota')
+  expect(endingOf(resumed)).toBe(null)
+  const [w, c, r] = [waiting, cut, resumed].map((row) => rowLine(row, OWNER, 120))
+  expect(w.startsWith(' ⏸  held')).toBe(true)
+  expect(w.endsWith(' quota → 21:05')).toBe(true)
+  expect(c.startsWith(' ⛔ cut')).toBe(true)
+  expect(c.endsWith(' resets 21:05')).toBe(true)
+  expect(r.startsWith(' ✅ resumed')).toBe(true)
+  expect(localHHMM(undefined)).toBe('?')
+  expect(localHHMM('not a time')).toBe('?')
+})
+
+// A waiting row is live: listed with the running ones, given an activity
+// line, eligible for the band. FAIL-first: with visibleRows back to
+// state === 'running', the waiting row is not listed at all.
+test('quota: a waiting row is live for the list, the activity lines and the band', () => {
+  const waiting = wakeRow({ id: 'q1', label: 'held', ...WAIT } as any)
+  const foreign = wakeRow({ id: 'q4', label: 'theirs', ownerSession: OTHER, ...WAIT } as any)
+  const visible = visibleRows([waiting, foreign], OWNER, NOW_MS)
+  expect(visible.map((r: any) => r.id)).toEqual(['q1', 'q4'])
+  expect(activityRows(visible, OWNER).map((r: any) => r.id)).toEqual(['q1'])
+  expect(bandRow([waiting, foreign], OWNER)?.id).toBe('q1')
+})
+
+// running→waiting is no news (the round resumes itself); waiting→failed by
+// the plan limit wakes as a cut with its reset, waiting→done as done.
+// FAIL-first: with transitionFor's live test back to prev.state ===
+// 'running', the waiting→… transitions never wake; with wakeLine's quota
+// branch removed, the cut reads '- api-fix: failed rc=1 · …'.
+test('quota: running→waiting is silent, waiting→cut and waiting→done wake', async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow({ id: 'w1', label: 'api-fix' }),
+    wakeRow({ id: 'w2', label: 'web-polish', log: '/tmp/panel-fixtures/logs/w2.log' }),
+  ])
+  await clock.advance(5000) // seed
+  for (const id of ['w1', 'w2']) Object.assign(state.rows.find((r) => r.id === id) as any, WAIT)
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.toasts).toEqual([])
+  const listed = String(((await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any).result).split('\n')
+  expect(listed[0].startsWith(' ⏸  api-fix')).toBe(true)
+  expect(listed[0]).toContain('quota → 21:05')
+
+  Object.assign(state.rows.find((r) => r.id === 'w1') as any, CUT)
+  flipDone(state.rows.find((r) => r.id === 'w2') as any)
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  const lines = state.prompts[0].split('\n')
+  expect(lines[0]).toContain('2 of your rounds changed state')
+  expect(lines[1]).toBe('- api-fix: cut by the plan limit (429), resets 21:05 · 1h01m · log=/tmp/panel-fixtures/logs/w1.log')
+  expect(lines[2]).toBe('- web-polish: done rc=0 · 1h01m · log=/tmp/panel-fixtures/logs/w2.log')
+  expect(state.toasts).toEqual(['⛔ api-fix cut by the plan limit (429), resets 21:05', '✅ web-polish done · 1h01m'])
 })
 
 // Last, on purpose: every `$.ui.log` line any test above produced went to the
