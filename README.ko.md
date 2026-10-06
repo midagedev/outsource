@@ -111,6 +111,8 @@ orphan   docs-sweep       xai    crush     1h07m   /tmp/sp/spec-docs.md
 
 이게 있는 이유는 `orphan`입니다. 죽임을 당했거나 머신이 잠들어 끊긴 라운드는 **프로세스를 아예 남기지 않습니다** — 그래서 `ps` grep은 "깨끗이 끝났다"와 "한 시간 전에 워크트리를 쥔 채 죽었다"에 똑같이 아무것도 답하지 않습니다. 시작했는데 끝나지 않았다는 상태는 기록만이 담을 수 있습니다. 스크립트용으로는 `bin/runs.sh json`.
 
+플랜 한도(HTTP 429)에 걸려 끊긴 라운드는 `rc=1`만 덩그러니 보이지 않습니다. `runs.sh`는 `⛔quota resets 20:32 (plan)`처럼 리셋 시각을 보여 줍니다. 라운드가 죽은 순간 런처가 플랜 quota API를 읽었다면 그 리셋 시각을 쓰고, 못 읽었다면 429 메시지에 적힌 시각을 쓰며 `(429 text)`로 표시합니다. `--resume-on-reset`이 붙잡고 있는 라운드는 `waiting` 상태이고 `⏸quota → 17:24`처럼 늦어도 언제 깨어날지를 보여 줍니다. `runs.sh json`에는 `quotaExhausted`, `resetAt`, `resetSource`, `waitingUntil`이 들어갑니다. 모두 센티널과 레지스트리 기록에서 읽으며, `runs`는 trail을 읽지 않습니다.
+
 ### 라운드가 일하는 것을 지켜보기
 
 `runs.sh`는 라운드가 살아 있는지를 말해 줍니다. 무엇을 *하고 있는지* 보려면 살아 있는 흔적을 따라갑니다:
@@ -171,6 +173,32 @@ Claude Code의 SendMessage 도구로 이 주소(`to` = 그 주소)에 지시를 
 
 라운드 설정에는 `crossSessionInbound: accept`를 넣습니다. 이 설정이 없으면 bypass 모드의 `-p` 라운드는 bypass가 아닌 리드가 보낸 메시지를 보류했다가 5분 뒤 버립니다.
 
+라운드는 실행될 때 자기 리드가 누구인지도 듣습니다. 라운드 프롬프트는 "Launcher notice: your lead" 단락으로 시작합니다. 라운드를 띄운 세션의 소켓에서 온 메시지, 또는 첫 줄이 `lead-token: <token>`인 메시지는 스펙과 같은 권한을 가진 스펙 수정입니다. 다만 preamble의 금지(git 쓰기, 라운드 띄우기, 에이전트 만들기)는 풀 수 없습니다. 다른 세션에서 온 메시지는 참고 정보일 뿐입니다.
+
+토큰은 실행마다 새로 만들고(16바이트 난수), 그 라운드의 레지스트리 기록에 저장합니다. 이 기록은 본인만 읽을 수 있습니다(모드 0600). `outsource runs json`에는 `leadToken`으로 나오고, 센티널에는 `lead_socket=`만 남습니다. 패널의 `round_send`는 보내는 글 앞에 토큰 줄을 붙입니다. 직접 보내려면 `outsource runs json`에서 `messagingSocket`과 `leadToken`을 읽은 뒤, SendMessage로 `to` = `uds:<messagingSocket>`, 첫 줄 `lead-token: <leadToken>`인 메시지를 보내십시오. 리드를 재시작하면 소켓은 바뀌지만 토큰은 그대로 통합니다.
+
+리드 토큰이 생기기 전에 띄운 라운드도 메시지는 받지만, 다른 세션의 요청으로 읽을 수 있습니다. 반드시 따르게 하려면 `--session <id>`로 다시 띄우십시오. inbox 기능이 생기기 전에 띄운 라운드는 아예 받지 못합니다. `crossSessionInbound: accept`는 실행할 때 설정에 써 넣는 값이라, 예전 라운드는 메시지를 전달하지 않고 보류합니다. 이런 라운드는 멈춘 뒤 `--session`으로 이어서 돌리십시오. 어느 경우인지는 패널과 `mcp__outsource__rounds`가 `inbox=no (<이유>)`로 알려 줍니다.
+
+### 라운드 멈추기
+
+`outsource runs stop <label|id> [--reason <text>]`은 돌고 있는 라운드를 멈춥니다.
+
+- 런처가 하네스를 띄울 때 기록한 pid에 TERM을 보냅니다. 보내기 전에 그 프로세스가 살아 있는지, 부모가 그 라운드의 래퍼인지 확인합니다.
+- 20초 뒤에도 살아 있으면(`--kill-after N`으로 조정) 하네스의 프로세스 그룹에 KILL을 보냅니다.
+- 그다음 최대 30초 동안 센티널을 기다렸다가 `rc=` 줄을 출력합니다. 센티널에는 `stopped_by=lead`와 `stop_reason=`이 남습니다.
+
+하네스가 도는 동안 `outsource-run` 래퍼에 TERM을 보내면 일부러 아무 일도 일어나지 않습니다. 호출한 쪽의 타임아웃에도 센티널이 살아남도록 래퍼가 신호를 붙잡아 두기 때문입니다. `--resume-on-reset`으로 리셋을 기다리는 라운드에는 하네스가 없으므로, `runs stop`은 래퍼에 TERM을 보내고 래퍼는 기다림을 끝낸 뒤 센티널을 씁니다.
+
+거부하는 경우도 있습니다.
+
+- 같은 라벨의 라운드가 여럿 돌고 있으면 후보를 보여 주고 거부합니다.
+- 다른 세션의 라운드(`⇄`)를 멈추려면 `--any-owner`가 필요합니다.
+- 예전 `outsource-run`이나 `grok-run`으로 띄운 라운드는 기록된 하네스 pid가 없어 거부합니다.
+
+종료 코드는 0 멈춤, 3 그런 라운드 없음, 64 사용법·모호함·다른 세션·pid 불일치, 1 그 밖입니다.
+
+신호로 하네스가 끝났으면 센티널이 어떤 신호였고 어디서 왔는지 남깁니다. `harness_signal=<이름>`과 `signal_source=lead-stop|watchdog|wrapper|external`이고, `watchdog`은 `--max-seconds`가 보낸 것입니다. `runs`는 이런 라운드를 `■<label> stopped` 또는 `✗<label> TERM ext`로 보여 줍니다. `claude` CLI는 TERM을 받으면 스스로 143으로 종료합니다(2.1.291에서 측정). 그래서 `rc=143`에 `harness_signal=TERM`이면 TERM을 받아 끝난 것이고, `rc=-1`이면 신호에 바로 죽은 것입니다. 신호를 보낸 pid는 알 수 없습니다. 그래서 `external`은 "정지 요청도, 감시 타이머도, 래퍼가 받은 신호도 없었다"는 뜻입니다.
+
 ### 라운드가 실제로 한 일 감사하기
 
 보고서는 라운드가 주장하는 것이고, diff는 라운드가 남긴 것입니다. 라운드가 실제로 *무엇을 실행했는지*는 둘 다 말해 주지 않습니다. `bin/audit.sh <round>`(`tail`과 같은 선택자)는 claude-code 트랜스크립트(서브에이전트 포함)나 agy 로그를 읽어 검토용 요약을 냅니다.
@@ -220,6 +248,8 @@ claude --plugin-dir <clone>/mods/outsource-panel
 - 재시작한 리드는 꺼져 있던 동안 끝나거나, 실패하거나, 프로세스를 잃은 라운드에 대해 깨워집니다. 패널이 한 번도 확인하지 않은 세션 id는 조용히 시작하므로, 처음 로드할 때 지난 라운드가 한꺼번에 몰려오지 않습니다.
 - 깨우는 글에는 런처가 쓴 값(라벨, 상태, rc, 시간, log, cwd, id)만 들어갑니다. 라운드가 직접 쓴 trail 내용은 넣지 않습니다. 끝에는 검토 명령이 한 줄에 하나씩 붙습니다: last-report, `.rc` 센티널, diff, audit, 그다음 게이트. `outsource`가 PATH에 없어서 명령마다 설치된 바이너리의 절대 경로를 쓰고, 명령 줄은 길어도 자르지 않습니다.
 - 모델은 도구 `mcp__outsource__rounds`와 `mcp__outsource__round_send`도 받습니다(패널을 단독으로 불러왔다면 `mcp__outsource-panel__rounds`, `mcp__outsource-panel__round_send`). 이 내용을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
+
+플랜 한도에 걸려 `--resume-on-reset`이 붙잡고 있는 라운드는 `⏸`와 `quota → <hh:mm>`(늦어도 깨어날 시각)로 보입니다. 이 라운드는 살아 있는 라운드로 셉니다. 돌고 있는 라운드와 함께 목록에 나오고, 기다리기 시작할 때는 깨우지 않으며, 마지막에 끝나거나 실패하거나 프로세스를 잃었을 때 깨웁니다. 한도에 걸린 채 끝난 라운드는 `⛔ resets <hh:mm>`로 보이고, 깨우는 줄은 "cut by the plan limit (429), resets hh:mm"입니다.
 
 데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다.
 
@@ -503,11 +533,12 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 | z.ai가 모델명 없는 `claude-*` 요청에 플랜 기본값으로 조용히 답함 | **모델 정체성 단언, exit 70** — 세션 트랜스크립트의 턴별 `message.model`에서 읽습니다. `modelUsage`가 **아닙니다**. 그건 실측 결과 **요청한 id를 되비추기만** 해서 일치를 증명할 수 없습니다. 트랜스크립트가 없으면 "검증 불가"이고 그것도 실패입니다. |
 | 싼 팔이 만족 불가능한 계약 앞에서 멈추지 않음 | **발사 전 리드 체크리스트 항목.** 이에 해당하는 위임자 측 규칙은 preamble에 **이미 있었고 발동하지 않았습니다.** 그래서 문장을 더 쓰는 대신 검사를 리드 쪽으로 옮겼습니다. |
 | preamble이 없으면 공개가 사라짐 | **`references/spec-preamble-core.md`** — 사라진 그 절반만 정확히 되가져오는 짧은 대체본. |
-| 스펙에 실린 틀린 전제 (한 세션에 다섯 — 없는 툴, 없는 컬럼, 없는 픽스처, 틀린 실행 디렉터리, 틀린 매니페스트 경로) | **`bin/spec-lint.sh`**, 발사 전: 모든 `path:line` 인용과 경로꼴 참조를 해석하고 실패하면 exit 1. 맨 파일명은 `:줄번호`가 붙었을 때만 검사하고, 그럴듯한 베이스 어디서든 해석되면 잡지 않습니다 — **무시당하는 린터는 없느니만 못하니까요.** |
+| 스펙에 실린 틀린 전제 (한 세션에 다섯 — 없는 툴, 없는 컬럼, 없는 픽스처, 틀린 실행 디렉터리, 틀린 매니페스트 경로) | **`bin/spec-lint.sh`**, 발사 전: 모든 `path:line` 인용과 경로꼴 참조를 해석하고 실패하면 exit 1. 맨 파일명은 `:줄번호`가 붙었을 때만 검사하고, 그럴듯한 베이스 어디서든 해석되면 잡지 않습니다 — **무시당하는 린터는 없느니만 못하니까요.** 중괄호 집합은 펼쳐서 검사하고, `Create:`와 `Absent-ok:`(또는 "do not touch:" 목록)는 일부러 트리에 없는 경로를 선언합니다. |
 | 린터가 검사할 수 없는 부정 전제("이 파일은 없다") | **리드 체크리스트: 부재는 경로 하나씩 확인.** zsh에서 패턴 두 개짜리 `ls`가 아무것도 출력하지 않았는데, **두 번째** glob이 매치에 실패해 명령 전체가 중단됐기 때문이었습니다 — 존재하는 파일이 없는 것으로 스펙에 들어갔습니다. |
 | grok이 자기가 내야 할 증거를 못 만들게 막혀 있었음 | **서브커맨드 단위 git 차단.** 전면 `git worktree*` 차단이 모든 스펙이 보고 첫 줄로 요구하는 `git worktree list`까지 막고 있었습니다. |
 | 라운드 도중 플랜이 바닥남 | **`--require-quota N`, exit 66** — **가장 짧은** 창이 아니라 **가장 빡빡한** 창 기준(실측: 주간 81.7% 남았을 때 5시간은 83.8%). 닫히는 쪽으로 실패합니다. |
-| 위임받은 쪽의 "완료"가 완료가 아님 | **완료 센티넬 `<log>.rc`** — `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. 하네스의 수명 신호는 완료 증거가 아닙니다. |
+| 위임받은 쪽의 "완료"가 완료가 아님 | **완료 센티넬 `<log>.rc`** — `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. claude-code에서는 `quota_exhausted`도 남기고(1이면 `reset_at`, `quota_reset_at`, `api_error`도), `--resume-on-reset`이면 `resumed_after_reset`도 남깁니다. 하네스의 수명 신호는 완료 증거가 아닙니다. |
+| 플랜의 5시간 한도(HTTP 429)에 걸려 끊긴 라운드가 `rc=1`로만 보였고, `last-report`는 API 오류 줄을 보고서로 출력했음 | **센티널이 그렇다고 말합니다.** `quota_exhausted=1`, `reset_at`(429 메시지의 리셋, RFC3339 UTC 또는 `unknown`), `quota_reset_at`(죽은 시점에 읽은 플랜 quota API의 리셋), `api_error=429 […]`. `last-report`는 `no report: rate-limited (429) at 15:30, plan resets at 20:32 (plan); resume with --session <sid>`를 내고 65로 끝납니다. `--resume-on-reset`(claude-code)은 5분마다 플랜을 읽다가 창이 다시 열리면(가장 빠듯한 창이 1% 이상 남으면) 같은 세션을 바로 이어 돌리며, 최대 두 번입니다. 429 메시지의 리셋 + 60초는 상한일 뿐입니다. 실측: 06:32:00Z의 429는 08:23:45Z를 리셋으로 적었지만, 이어 돌린 세션은 06:33:39Z에 응답을 받았습니다. |
 | 표식 없이 깨끗이 끝난 라운드 | **`--done-marker`, exit 72** — 두 런처 동일. 예전에는 grok이 70(모델 정체성 단언과 충돌), GLM은 조용한 rc=0이라 같은 사실이 자매에 따라 실패 또는 완료로 보였습니다. 72는 표식 부재만 이름 붙이고, 판정은 여전히 트리에 있습니다. |
 | 위임받은 쪽의 저장소 상태 변경 | **`bin/git-guard.sh`**, 실제 명령 문자열을 파싱하는 `PreToolUse` 훅 — `git -C … commit`, `env … git push`, `sudo git …`, 체인된 변경 전부 차단, 읽기 전용 git은 의도적으로 개방. 파일 하나가 두 하네스의 호출 규약을 모두 처리합니다. 바이너리를 마련하지 못하면 훅이 차단(종료 코드 2)으로 끝나므로, git 금지는 닫힌 쪽으로 실패합니다. |
 | z.ai가 `glm-5.2` 요청에 glm-5.3으로 조용히 답함 (2회 측정 — 응답 `model` 필드가 요청과 달라 에코가 아님) | **발사 시점에 거부, exit 70.** crush에는 정체성 단언이 없어 이 오배정은 영원히 조용했을 것입니다. `OUTSOURCE_ALLOW_MAPPED_MODEL=1`은 재측정용이지 라우팅용이 아닙니다. |
@@ -566,7 +597,10 @@ endpoints itself, so there is no Anthropic-compatible URL and no cred row for op
 ```bash
 bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 깨끗 · 1 발견
 bin/outsource-run.sh --require-quota 15 …            # 플랜이 부족하면 66
+bin/outsource-run.sh --resume-on-reset …             # 429가 나면 플랜이 풀릴 때까지 기다렸다가 같은 세션을 이어 돌림(최대 2번)
 ```
+
+z.ai로 띄울 때마다 플랜 quota도 한 번 읽고(3초 안에), 가장 빠듯한 창이 25% 미만이면 경고 한 줄을 냅니다. 그래도 라운드는 띄웁니다. 거부하는 것은 여전히 `--require-quota`뿐입니다. `--resume-on-reset`과 함께 쓰면 `--max-seconds`는 실행 전체가 아니라 시도 하나의 상한입니다. 한 번 실행에서 시도는 최대 세 번이고, 그 사이에 기다린 시간은 세지 않습니다. 둘을 함께 주면 런처가 이 점을 한 줄로 알려 줍니다.
 
 **라운드 후** — 모델 정체성 단언(exit 70), 완료 표식 검사(깨끗이 끝났는데 표식이 없으면 exit 72), 완료 센티넬, 그리고 로그 `usage`의 토큰 수를 담은 비용 한 줄. 그 옆의 `total_cost_usd`는 Anthropic 단가라 여기 있는 어느 프로바이더에도 맞지 않습니다. 그리고 `bin/wait.sh <log>`는 센티넬이 떨어질 때까지 블록합니다 — 발사 시점에 백그라운드로 걸어 두면 완료가 폴링 대상이 아니라 알림이 됩니다.
 
@@ -581,6 +615,23 @@ z.ai coding plan: level max — GLM Coding Max (status VALID, valid 2026-08-15~0
 $ bin/quota.sh --provider grok
 1w window: exact counts not exposed by this API, 98.0% used / 2.0% left, resets at 15:13 (in 6h 36m)
 ```
+
+## 무거운 단계는 기계를 나눠 씁니다
+
+한 기계에서 여러 라운드가 저마다 프로젝트의 전체 빌드, 테스트, 린트를 돌리면 같은 코어를 두고 다툽니다. 2026-10-06 10코어 Mac에서 측정했습니다. 라운드 약 6개가 동시에 돌자 부하가 23–28까지 올랐고, 모든 검증 단계가 기어갔습니다. `outsource slot`은 이런 단계가 차례를 지키게 하는 기계 전체의 카운팅 세마포어입니다.
+
+```bash
+"$OUTSOURCE_SLOT" -- npm test          # 라운드 안: 런처가 경로를 넣어 줍니다
+bin/slot.sh --max 2 -- make check      # 손으로
+bin/slot.sh --status                   # 모든 풀: 쥔 쪽(pid, 라벨, 경과)과 기다리는 쪽
+```
+
+- **풀**은 `--name <pool>`이 없으면 `heavy`입니다. 슬롯은 `${XDG_CACHE_HOME:-~/.cache}/outsource/slots/<pool>/` 아래의 락 파일입니다. 슬롯은 `flock`으로 쥐므로, 쥔 프로세스가 죽으면(SIGKILL이라도) 바로 풀립니다. 치워야 할 낡은 락이 없습니다.
+- **N**(동시에 도는 수)은 `--max N`, 없으면 `OUTSOURCE_SLOTS`, 없으면 max(1, 코어 수/4)입니다. 10코어 기계라면 2입니다. N은 부르는 쪽이 정합니다. N=1로 부르면 풀의 첫 슬롯만 쓰므로, N을 서로 다르게 부르더라도 각자의 예산을 넘지 않습니다.
+- **기다리는 동안** 슬롯을 쥔 쪽을 적은 줄을 하나 출력하고, 슬롯을 얻으면 한 줄을 더 출력합니다. 종료 코드는 감싼 명령의 것을 그대로 돌려줍니다(신호로 죽었으면 128+n). TERM, INT, HUP은 명령에 전달하고, 명령이 끝나야 함께 끝납니다. 이 도구가 SIGKILL을 받으면 슬롯은 풀리고 명령은 계속 돕니다.
+- **중첩 호출**은 그대로 통과합니다. slot으로 감싼 검사 스크립트가 안에서 다시 slot을 부르면, 부모가 쥔 슬롯을 기다리지 않고 바로 실행합니다.
+- **라운드는** `OUTSOURCE_SLOT`(스킬의 `bin/slot.sh`)으로 이 도구를 찾고, 슬롯 기록에는 `OUTSOURCE_RUN_LABEL`(라운드의 `--label`)로 이름이 남습니다. `outsource-run`이 두 변수를 모든 하네스에 넣어 줍니다.
+- **git은 거부합니다**(종료 코드 64). 그냥 부르든 `env`, `nice`, `command` 뒤에 붙이든 마찬가지입니다. git은 무거운 단계가 아니고, 이 래퍼가 git 가드를 피해 가는 길이 되어서는 안 됩니다.
 
 ## 안에 무엇이 있나
 
@@ -602,6 +653,7 @@ $ bin/quota.sh --provider grok
 | `spec-lint` · `quota` | 발사 전 스펙 검사; `--require-window` 로 게이트화되는 플랜 쿼터 |
 | `runs` | 실행 레지스트리: 어떤 라운드가 무엇 위에서 얼마나 오래 살아 있는지 — 그리고 시작만 하고 끝나지 않은 것 |
 | `wait` | 라운드의 센티넬이 나타날 때까지 블록 — 발사 시점에 백그라운드로 걸어 두면, 끝난 라운드가 폴링할 대상이 아니라 알림이 됩니다 |
+| `slot` | 라운드가 무거운 검증 단계를 감싸는 기계 전체의 카운팅 세마포어 — 동시에 도는 라운드가 다 함께 기어가는 대신 차례를 지킵니다. `--status`가 누가 쥐고 누가 기다리는지 보여 줍니다 |
 | `last-report` | 두 로그 형태 어느 쪽에서든 라운드의 최종 보고 추출, 없으면 exit 65 |
 | `statusline` | Claude Code 스테이터스라인: 세션 한도, 플랜 쿼터, 진행 중 라운드 — 렌더 7ms |
 | `telemetry` | 도구 호출·종료코드·이유의 로컬 기록과 요약. 로컬 전용, 업로드 없음, `OUTSOURCE_TELEMETRY=0` 로 끔 |
@@ -638,6 +690,19 @@ $ bin/quota.sh --provider grok
 **선언형**은 한 레포의 체크아웃이 한 머신에 여러 개일 때 씁니다 — 클론 여러 벌 + 워크트리, 각자 다른 브랜치. 체크인된 오버레이는 브랜치 수만큼 갈라지는 사본이 되고, 리드가 그때 서 있던 클론에서 고치면 나머지 전부의 규칙이 조용히 포크됩니다. 실측: 체크아웃 16개인 레포에서 몇 달 간격으로 쓰인 오버레이 두 벌이 서로를 모른 채 공존했고 게이트 표가 서로 달랐습니다.
 
 `outsource overlays --root <repo>` 가 적용 대상을 조립 순서대로 출력합니다 — 사용자 → 선언형 → 인레포 순이라 체크인된 파일이 충돌 시 이깁니다. `--explain` 은 종류와 매칭된 패턴을 같이 찍고, paths 가 아무것도 못 맞추는 선언은 조용히 빠지는 대신 stderr 로 이름이 나옵니다.
+
+**프로젝트 자체의 무거운 단계 실행기.** 프로젝트 오버레이가 무거운 단계용 실행기를 지정하면, 그 프로젝트의 라운드는 `$OUTSOURCE_SLOT` 대신 그것을 씁니다. 예를 들어 테스트를 노트북이 아니라 빌드 서버에서 돌려야 하는 프로젝트라면 오버레이에 이렇게 적습니다.
+
+```markdown
+## Heavy steps
+Run every heavy proof step (full build, `just test`, `just lint`) as
+`tools/remote-run.sh -- <cmd>`: it syncs this worktree to the build box, runs
+the step there under that machine's own slot, and streams the output back with
+the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
+(one test, `git diff`) still run locally.
+```
+
+실행기는 그 프로젝트의 스크립트이므로, 작업을 다른 기계나 그 기계의 대기열로 옮기는 것처럼 slot이 못 하는 일을 할 수 있습니다. preamble 규칙도 이미 이런 실행기를 우선합니다.
 
 ## 알려진 한계
 
