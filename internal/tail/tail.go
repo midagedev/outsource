@@ -253,7 +253,7 @@ func view(args []string, stdout, stderr io.Writer) int {
 		}
 		waited := time.Now()
 		for rec.Trail == "" {
-			if rec.State() != runs.Running {
+			if !rec.State().Live() {
 				fmt.Fprintf(stderr, "tail: run %s ended (%s) without ever revealing a trail; log=%s\n", rec.ID, rec.State(), rec.Log)
 				return ExitNoTrail
 			}
@@ -320,7 +320,9 @@ func view(args []string, stdout, stderr io.Writer) int {
 			followProbe()
 		}
 		cur := runs.FindByID(rec.ID)
-		if cur == nil || cur.State() != runs.Running {
+		// Live, not Running: a --resume-on-reset round sleeping through a plan
+		// limit is waiting, and its resumed turns land in this same trail.
+		if cur == nil || !cur.State().Live() {
 			// One last read, so the final turn is never lost to the poll gap.
 			if lines, err := f.next(); err == nil {
 				for _, l := range r.render(lines) {
