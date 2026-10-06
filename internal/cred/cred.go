@@ -318,7 +318,17 @@ func sourceLabel(note string) string {
 	return note
 }
 
+// setupKeyPath finds the one tool that is still a hand-written script. See
+// siblingScript in internal/quota for the OUTSOURCE_SKILL_DIR case: a binary
+// the dispatcher ran from its download cache has no files beside it, and the
+// skill's bin/ — exported by the dispatcher — is where setup-key.sh lives.
 func setupKeyPath() string {
+	if dir := os.Getenv("OUTSOURCE_SKILL_DIR"); dir != "" {
+		p := filepath.Join(dir, "bin", "setup-key.sh")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return "setup-key.sh"

@@ -237,8 +237,9 @@ func absDir(p string) (string, error) {
 }
 
 // resolveSkillDir derives the installed skill directory from this binary's
-// location (`<skill>/bin/outsource`), so the resolver works the same whether it
-// was invoked through a shim, by path, or from PATH.
+// location (`<skill>/bin/outsource-<os>-<arch>`, which the bin/outsource
+// dispatcher execs), so the resolver works the same whether it was invoked
+// through a shim, by path, or from PATH.
 func resolveSkillDir(override string) (string, error) {
 	if override != "" {
 		return absDir(override)

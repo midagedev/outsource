@@ -102,7 +102,10 @@ func run(t *tool, args []string) {
 
 func main() {
 	// argv[0] first: invoked through one of its tool names, every argument
-	// belongs to that tool.
+	// belongs to that tool. Through bin/outsource (the sh dispatcher) argv[0]
+	// is this file's own name, outsource-<os>-<arch>, which names no tool, so
+	// that path falls through to argv[1]. A tool-named link only works when
+	// it points at a per-arch binary, because sh cannot set argv[0] on exec.
 	if t := toolFor(os.Args[0]); t != nil {
 		run(t, os.Args[1:])
 	}

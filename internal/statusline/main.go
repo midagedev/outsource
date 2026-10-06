@@ -29,7 +29,20 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // siblingScript resolves a tool that still lives beside the binary. During the
 // port some tools are Go and some are still shell; this is the seam, and it
 // disappears as each one moves.
+//
+// The dispatcher runs this binary from its download cache when there is no
+// local build (no binary is committed to git), and beside a cached executable
+// there are no shims — they live in the skill's bin/, which the dispatcher
+// exports as OUTSOURCE_SKILL_DIR for exactly this case. The executable's own
+// directory stays the fallback, so a local build beside the shims behaves as
+// before.
 func siblingScript(name string) string {
+	if dir := os.Getenv("OUTSOURCE_SKILL_DIR"); dir != "" {
+		p := filepath.Join(dir, "bin", name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return name
