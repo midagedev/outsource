@@ -27,11 +27,13 @@ DOCS = (["README.md", "README.ko.md", "skills/outsource/SKILL.md"]
 # A reference is a path into one of this repo's directories, ending in an
 # extension a doc would recommend running or reading. The lookbehind keeps
 # paths inside *other* trees (~/.grok/bundled/skills/..., data/logs/...) from
-# matching on their tail.
+# matching on their tail. The lookahead keeps an extension from matching the
+# head of a longer one: without it bin/outsource.sha256 (the committed
+# manifest) was read as a missing bin/outsource.sh (measured 2026-10-06).
 PAT = re.compile(
     r"(?<![\w./~-])"
     r"((?:skills/outsource/|bin/|scripts/|references/|tests/|assets/|\.claude-plugin/)"
-    r"[\w./-]+\.(?:sh|py|md|mjs|json))")
+    r"[\w./-]+\.(?:sh|py|md|mjs|json|sha256)(?!\w))")
 
 # Named by the docs on purpose, shipped never: the user-authored overlay.
 ALLOWED_MISSING = {"references/local-overlay.md"}
