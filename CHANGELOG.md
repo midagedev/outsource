@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **A round with two inbox sockets is called out, and the panel will not send
+  into it.** A second socket parked on a record (shared hook settings) was
+  recorded but shown nowhere. `outsource runs` now prints an `inbox CONFLICT`
+  line in the trail conflict's shape, `runs json` carries `trailConflict` and
+  `messagingSocketConflict`, and the panel refuses the send.
+
+- **The test suites are hermetic to the shell that runs them.** A delegated
+  round's harness child inherits `OUTSOURCE_ROUND=1`, `OUTSOURCE_DETACHED=1`
+  and a real `ANTHROPIC_AUTH_TOKEN`, so `tests/run-all.sh` was red inside
+  every round and green in the lead's shell (measured 2026-10-06: five suites
+  red, and two round reports spent their time proving "this red is not
+  mine"). The round's marker names now live in one list,
+  `tests/hermetic-env.sh`, every suite that launches launchers scrubs it
+  before its first assertion, `TestMain` scrubs the same names for a direct
+  `go test` (with a test-binary-owned re-exec bound replacing the nesting
+  guard that used to limit recursion), and `run-all.sh` poisons its own
+  environment with the markers — so a future suite that forgets the scrub is
+  red in the lead's ordinary run, not only inside rounds.
+
 - **A lead can talk to a running round.** Every Claude Code session binds an
   inbox socket, and `claude -p` rounds do too. But discovery is split by
   config dir, so a round (always on its own `CLAUDE_CONFIG_DIR`) never shows
