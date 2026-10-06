@@ -323,7 +323,10 @@ export function toastFor(prev, cur) {
 export const MAX_MESSAGE = 4000
 
 // The target must be exactly one own running row with that label, carrying a
-// messagingSocket. Returns the row, or the refusal line.
+// messagingSocket. Returns the row, or the refusal line. A row with a
+// messagingSocketConflict is refused too: two recorded sockets means a shared
+// hook settings file parked a foreign one here, and nobody — not the panel,
+// not the sender — can say which round the first belongs to.
 export function findTarget(rows, ownerSession, label) {
   const matches = rows.filter(
     (r) => r.state === 'running' && isOwn(r, ownerSession) && r.label === label,
@@ -331,5 +334,8 @@ export function findTarget(rows, ownerSession, label) {
   if (matches.length === 0) return 'refused: ' + label + ' is not one of your running rounds'
   if (matches.length > 1) return 'refused: ' + label + ' names ' + matches.length + ' rounds'
   if (!matches[0].messagingSocket) return 'refused: ' + label + ' has no inbox'
+  if (matches[0].messagingSocketConflict) {
+    return 'refused: ' + label + ' has two inbox sockets (shared hook settings)'
+  }
   return matches[0]
 }

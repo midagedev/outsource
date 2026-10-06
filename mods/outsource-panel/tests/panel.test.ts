@@ -438,3 +438,23 @@ test('inline: an open before the first tick still asks for the whole tree', asyn
   expect(state.opens[0].rows).toBe(23)
 })
 
+// 15. An ambiguous inbox: a row carrying messagingSocketConflict (a second,
+// foreign socket parked by a shared hook settings file) must be refused with
+// no send — the first socket may belong to a different round, so a send that
+// goes through is a silent wrong delivery. The fixture stays shared (capture
+// checks pin it), so the conflict row is built inline from r02, the own
+// running row with a socket. FAIL-first: without the refusal the send goes
+// through and res.text reads 'sent to docs-sweep'.
+test('send refuses a row with two inbox sockets', async ($, on) => {
+  const rows = fixtureRows.map((r: any) =>
+    r.id === 'r02' ? { ...r, messagingSocketConflict: '/tmp/cc-socks/9999.sock' } : r,
+  )
+  const { clock, state } = await boot($, on, rows)
+  await clock.advance(5000) // one poll loads the rows the send resolves against
+
+  const res = await $.command.run({ command: 'rounds', args: 'send docs-sweep which one' })
+  expect(res.text).toBe('refused: docs-sweep has two inbox sockets (shared hook settings)')
+  expect(state.sends).toHaveLength(0) // refused before any session.send
+})
+
+
