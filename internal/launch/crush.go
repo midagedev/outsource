@@ -28,6 +28,7 @@ func (r *round) runChild(cmd *exec.Cmd, closers ...*os.File) int {
 		fmt.Fprintf(r.stderr, "outsource: could not start %s: %v\n", r.o.harness, err)
 		return ExitHarnessMissing
 	}
+	r.spawned(cmd)
 	done := make(chan struct{})
 	r.startWatchdog(cmd, done)
 	err := cmd.Wait()

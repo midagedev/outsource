@@ -3,6 +3,7 @@ package launch
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -100,6 +101,18 @@ func (r *round) runClaudeCode() int {
 	}
 	defer specf.Close()
 
+	// The launcher notice (leadNotice): who may amend this spec mid-round.
+	// The socket is read from THIS process's environment, before the child's
+	// is built (nestedEnv drops it there); the token is minted per launch, so
+	// a resume (--session) gets a notice of its own. Prepended to the prompt,
+	// never to the spec file: spec-lint and the done-marker check read the
+	// file and keep seeing the spec alone.
+	r.leadSocket, r.leadNoticed = leadSocketFromEnv(), true
+	token := mintLeadToken()
+	if r.runID != "" {
+		_ = runs.SetLead(r.runID, r.leadSocket, token)
+	}
+
 	cmdArgs := []string{"-p"}
 	if r.o.session != "" {
 		cmdArgs = append(cmdArgs, "--resume", r.o.session)
@@ -112,7 +125,7 @@ func (r *round) runClaudeCode() int {
 	}
 	cmd := exec.Command("claude", cmdArgs...)
 	cmd.Dir = r.o.cwd
-	cmd.Stdin = specf
+	cmd.Stdin = io.MultiReader(strings.NewReader(leadNotice(r.leadSocket, token)), specf)
 	cmd.Stdout = logf
 	if errf != nil {
 		cmd.Stderr = errf
