@@ -1,0 +1,3 @@
+── harness-fix · zai·claude-code · running · /tmp/panel-fixtures/trails/r04.jsonl
+10:52:20 🔧 Bash sed -n '470,500p' internal/runs/cli.go
+10:55:41 💬 Row fields confirmed against the jsonRecord struct.

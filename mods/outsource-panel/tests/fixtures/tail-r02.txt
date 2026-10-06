@@ -1,0 +1,5 @@
+── docs-sweep · zai·claude-code · running · /tmp/panel-fixtures/trails/r02.jsonl
+10:58:02 💬 Reading internal/runs/cli.go to port the row fields for the panel.
+10:58:44 🔧 Read internal/runs/cli.go
+10:59:31 🔧 Write mods/outsource-panel/hooks/view.js
+11:00:38 💬 Width table generated from Unicode 16 EastAsianWidth data.

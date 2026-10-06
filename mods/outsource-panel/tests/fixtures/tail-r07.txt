@@ -1,0 +1,2 @@
+── inbox-bridge · agy·claude-code · running · /tmp/panel-fixtures/trails/r07.jsonl
+10:36:04 💬 Investigating the messaging socket hand-off.

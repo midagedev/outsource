@@ -1,0 +1,3 @@
+── panel-mod · zai·claude-code · running · /tmp/panel-fixtures/trails/r06.jsonl
+10:47:33 🔧 Write mods/outsource-panel/hooks/register.js
+10:51:19 💬 Pane render now reads module state only.

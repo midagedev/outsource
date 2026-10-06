@@ -1,0 +1,5 @@
+── api-migration · zai·claude-code · running · /tmp/panel-fixtures/trails/r01.jsonl
+09:12:40 💬 Starting the API migration round: endpoints first, then the tests.
+09:31:02 🔧 Read internal/api/routes.go
+09:58:17 🔧 Bash go test ./internal/api/... 
+10:44:05 💬 Routes migrated; moving to the client wrappers now.

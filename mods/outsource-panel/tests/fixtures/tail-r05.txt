@@ -1,0 +1,4 @@
+── quota-report · zai·claude-code · running · /tmp/panel-fixtures/trails/r05.jsonl
+10:59:12 💬 Querying the plan quota endpoint.
+10:59:58 🔧 Bash bin/quota.sh
+11:00:12 🔧 Bash awk -F, '{print $3}' /tmp/panel-fixtures/quota.csv
