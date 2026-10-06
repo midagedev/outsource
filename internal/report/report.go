@@ -49,7 +49,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/midagedev/outsource/internal/human"
+	"github.com/midagedev/outsource/internal/planlimit"
 	"github.com/midagedev/outsource/internal/runs"
 )
 
@@ -353,7 +356,24 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	defer f.Close()
 
 	rep, ok := Extract(f)
+	// A round cut by a plan limit leaves Claude Code's API-error line as the
+	// log's result, and that line is not the delegate's report (2026-10-06:
+	// it was printed as one). Decided here, not in Extract: the done-marker
+	// verdict reads Extract and quotes this line as what the report ended with.
+	apiErr := ""
+	if ok && planlimit.IsAPIErrorText(rep) {
+		apiErr, ok = rep, false
+	}
 	if !ok {
+		if line := quotaNoReport(path, reportNow()); line != "" {
+			fmt.Fprintln(stderr, line)
+			return ExitNoReport
+		}
+		if apiErr != "" {
+			fmt.Fprintf(stderr, "last-report: no report in %s — its only result is an API error: %s\n", path, apiErr)
+			diagnoseNoReport(path, stderr)
+			return ExitNoReport
+		}
 		// Exit 65 rather than printing nothing, so a died-mid-run round is a
 		// branch a caller can take and not a silence it has to interpret.
 		// Measured 2026-08-22: a lead asked for the report of a round the
@@ -382,6 +402,12 @@ func diagnoseNoReport(logPath string, stderr io.Writer) {
 	if b, err := os.ReadFile(rcPath); err == nil {
 		kv := parseSentinel(string(b))
 		rc, finished, sig := kv["rc"], kv["finished"], kv["wrapper_signal"]
+		// Local wall-clock time first, like every other time a lead reads
+		// here, then the sentinel's own UTC value, so the line still greps
+		// against the .rc file.
+		if t, err := time.Parse(time.RFC3339, finished); err == nil {
+			finished = human.Clock(t, reportNow()) + " local, " + finished
+		}
 		if sig != "" {
 			fmt.Fprintf(stderr, "no report: the round was killed (%s) at %s (rc=%s); see %s\n",
 				sig, finished, rc, rcPath)
