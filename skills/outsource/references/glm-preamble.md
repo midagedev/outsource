@@ -92,6 +92,13 @@ with its log cut (measured 2026-10-04, a 30-minute batch). Start a run that
 can outlast a few minutes detached, `nohup <cmd> > <log> 2>&1 & echo $! >
 <pidfile>`, then poll it with `kill -0 $(cat <pidfile>)` and read the log.
 
+Never poll for a lock, lease or box window yourself. Start each long job
+detached (`nohup <cmd> > <log> 2>&1 & echo $! > <pidfile>`) through the
+project's own runner, which waits for the lock, and check it with `kill -0`
+in foreground calls of at most 9 minutes each. A round that polls a lock on
+its own interval loses the window to the runner's waiters (measured: polling
+every 75–360 s starved a round for 40 minutes).
+
 ## 5. Working directory
 
 `--cwd` points at the tree you may edit. Bash keeps its own cwd between
