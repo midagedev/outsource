@@ -242,11 +242,12 @@ func newQuotaRig(t *testing.T, outcomes ...string) *quotaRig {
 			}
 		}
 		if g.sleeps == g.stopAtSleep {
+			// The writer `runs stop` itself uses (track voice), so this test
+			// covers the two tracks' seam: the request, then the wrapper's
+			// reading of it, with no TERM yet.
 			if rec := runs.FindByLog(g.log); rec != nil {
-				f, err := os.OpenFile(filepath.Join(os.Getenv("OUTSOURCE_RUNS_DIR"), rec.ID+".run"), os.O_APPEND|os.O_WRONLY, 0o644)
-				if err == nil {
-					f.WriteString("stopRequested=1791273402\n")
-					f.Close()
+				if err := runs.RequestStop(rec.ID, "test-lead", "stopped while waiting", g.now); err != nil {
+					t.Errorf("RequestStop: %v", err)
 				}
 			}
 		}
@@ -748,7 +749,10 @@ func TestStopRequestedBeforeRespawn(t *testing.T) {
 		t.Fatalf("rc=%d attempts=%d, want 1 and 1; stderr:\n%s", rc, g.attempts(), errb)
 	}
 	mustContain(t, "stderr", errb, "not resuming — a stop was requested for this run (runs stop)")
-	mustContain(t, "sentinel", g.sentinel(), "rc=1\n", "quota_exhausted=1\n", "resumed_after_reset=0\n")
+	// The seam with `runs stop`: the wrapper's finish reads the same request
+	// and names the lead in the sentinel (lead integration, 2026-10-06).
+	mustContain(t, "sentinel", g.sentinel(), "rc=1\n", "quota_exhausted=1\n", "resumed_after_reset=0\n",
+		"stopped_by=lead\n", "stop_reason=stopped while waiting\n")
 }
 
 // The rig's own guard: a claude anywhere on PATH but the fake's directory is
@@ -854,5 +858,35 @@ func TestNoHarnessCLIIsReachable(t *testing.T) {
 		if p, err := exec.LookPath(b); err == nil {
 			t.Fatalf("harness CLI %q is reachable at %s", b, p)
 		}
+	}
+}
+
+// A resumed attempt is the same launch continuing the same session, so it
+// keeps the lead token its first prompt named: a second token in the record
+// would make round_send prefix one the round never saw (lead integration of
+// tracks voice and quota, 2026-10-06). FAIL-first: minting on every attempt
+// leaves two leadToken lines and a record token that differs from the first.
+func TestResumeKeepsTheLaunchLeadToken(t *testing.T) {
+	g := newQuotaRig(t, "429 2026-10-06 16:23:45", "ok")
+	rc, _, errb := g.launch("--resume-on-reset")
+	if rc != 0 || g.attempts() != 2 {
+		t.Fatalf("rc=%d attempts=%d, want 0 and 2; stderr:\n%s", rc, g.attempts(), errb)
+	}
+	rec := runs.FindByLog(g.log)
+	if rec == nil {
+		t.Fatal("no run record")
+	}
+	b, err := os.ReadFile(filepath.Join(os.Getenv("OUTSOURCE_RUNS_DIR"), rec.ID+".run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokens []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "leadToken="); ok {
+			tokens = append(tokens, v)
+		}
+	}
+	if len(tokens) != 1 || tokens[0] == "" || rec.LeadToken != tokens[0] {
+		t.Fatalf("leadToken lines = %q, record token %q; want exactly one, kept across the resume", tokens, rec.LeadToken)
 	}
 }

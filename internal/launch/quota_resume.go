@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -375,17 +374,8 @@ func stopRequested(runID string) bool {
 	if runID == "" {
 		return false
 	}
-	b, err := os.ReadFile(filepath.Join(runs.Dir(), runID+".run"))
-	if err != nil {
-		return false
-	}
-	v := ""
-	for _, line := range strings.Split(string(b), "\n") {
-		if s, ok := strings.CutPrefix(line, "stopRequested="); ok {
-			v = s
-		}
-	}
-	return v != ""
+	rec := runs.FindByID(runID)
+	return rec != nil && rec.StopRequested != ""
 }
 
 // quotaLines renders the plan-limit fields for the sentinel.
