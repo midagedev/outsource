@@ -38,6 +38,14 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
+# Hermetic: scrub the delegate round's markers before any assertion. This is
+# load-bearing for the token check near the end — with ANTHROPIC_AUTH_TOKEN
+# scrubbed here, a token found there can only have come from the refusal
+# under test, not inherited from the round this suite runs inside.
+# shellcheck source=hermetic-env.sh
+. tests/hermetic-env.sh
+hermetic_scrub_env
+
 pass=0
 fail=0
 note() { printf '  %s\n' "$*"; }

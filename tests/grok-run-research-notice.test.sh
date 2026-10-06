@@ -18,6 +18,13 @@ set -uo pipefail
 GROK_RUN="$(cd "$(dirname "$0")/.." && pwd)/skills/outsource/bin/grok-run.sh"
 [ -x "$GROK_RUN" ] || { echo "not executable: $GROK_RUN" >&2; exit 2; }
 
+# Hermetic: this suite launches the real launcher, so a delegate round's
+# OUTSOURCE_ROUND would refuse every launch below before the research-notice
+# handling under test ever runs. Scrub the round's markers first.
+# shellcheck source=hermetic-env.sh
+. "$(cd "$(dirname "$0")/.." && pwd)/tests/hermetic-env.sh"
+hermetic_scrub_env
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/state"

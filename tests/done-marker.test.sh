@@ -43,6 +43,13 @@ OUT_RUN="$HERE/skills/outsource/bin/outsource-run.sh"
 [ -x "$GROK_RUN" ] || { echo "not executable: $GROK_RUN" >&2; exit 2; }
 [ -x "$OUT_RUN" ]  || { echo "not executable: $OUT_RUN" >&2; exit 2; }
 
+# Hermetic: this suite launches the real launchers, so a delegate round's
+# OUTSOURCE_ROUND would make every launch below refuse and the whole suite
+# read as "not my red" inside rounds. Scrub the round's markers first.
+# shellcheck source=hermetic-env.sh
+. "$HERE/tests/hermetic-env.sh"
+hermetic_scrub_env
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/state"

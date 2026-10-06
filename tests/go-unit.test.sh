@@ -9,6 +9,15 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
+# Hermetic: `go test` children inherit this shell, and a delegate round's
+# OUTSOURCE_ROUND makes every launcher-under-test refuse before the behaviour
+# the tests assert (13 of them, measured 2026-10-06). TestMain scrubs the
+# same names again for a direct `go test` run; this scrub covers vet and any
+# other package.
+# shellcheck source=hermetic-env.sh
+. tests/hermetic-env.sh
+hermetic_scrub_env
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/state"

@@ -15,7 +15,35 @@
 
 set -uo pipefail
 
+# This runner poisons its own environment with the delegate-session markers
+# (OUTSOURCE_ROUND=1, OUTSOURCE_DETACHED=1, an obviously-non-key
+# ANTHROPIC_AUTH_TOKEN) before any suite runs. Why: a suite that is green in
+# the lead's shell and red inside every delegated round is exactly the failure
+# mode this directory spent 2026-10-06 reverting (five suites red in every
+# round, each round's first minutes spent proving "this red is not mine").
+# With the poison present, a future suite that forgets to source
+# hermetic-env.sh and inherits a marker goes red in the lead's ordinary run —
+# at the front door, not only inside rounds where it reads as "not my red".
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 2
+
+# shellcheck source=hermetic-env.sh
+. ./hermetic-env.sh
+for n in "${hermetic_poison_names[@]}"; do
+  # A name may be poisoned only if the scrub cleans it; otherwise every
+  # sourcing suite would still see it and the gate would gate nothing.
+  case " ${hermetic_env_names[*]} " in
+    *" $n "*) ;;
+    *) echo "run-all: hermetic_poison_names names $n, which hermetic_scrub_env does not unset — fix tests/hermetic-env.sh" >&2; exit 2 ;;
+  esac
+  case "$n" in
+    # Never poison the nesting permission: handing every suite
+    # OUTSOURCE_ALLOW_NESTED=1 would silence the refusal the poison exists to
+    # exercise.
+    OUTSOURCE_ALLOW_NESTED) echo "run-all: refusing to poison $n — a suite must never inherit permission to nest" >&2; exit 2 ;;
+    ANTHROPIC_AUTH_TOKEN) export "$n=run-all-poison-not-a-key" ;;
+    *) export "$n=1" ;;
+  esac
+done
 
 suites=()
 while IFS= read -r f; do suites+=("$f"); done < <(ls -1 ./*.test.sh 2>/dev/null | sort)
