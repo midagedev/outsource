@@ -74,7 +74,18 @@ func cmdList(f filter, stdout io.Writer) int {
 		trailNote += conflictNote(r)
 		switch st {
 		case Failed:
+			if q := quotaOf(r, st); q.exhausted {
+				// A plan-limit death says so, and when it ends, instead of a
+				// bare rc the reader has to look up.
+				fmt.Fprintf(stdout, "         %s  rc=%s%s  log=%s%s\n", q.mark(st, now), r.RC, endingNote(r), logOr("none"), trailNote)
+				break
+			}
 			fmt.Fprintf(stdout, "         rc=%s%s  log=%s%s\n", r.RC, endingNote(r), logOr("none"), trailNote)
+		case Waiting:
+			// No harness runs while the wrapper sleeps, so there is no idle
+			// time and nothing to follow until the resume.
+			fmt.Fprintf(stdout, "         %s — the plan limit is spent; the wrapper resumes the same session by then (earlier if the plan quota shows it reset)  log=%s%s\n",
+				quotaOf(r, st).mark(st, now), logOr("none"), trailNote)
 		case Orphan:
 			fmt.Fprintf(stdout, "         started but never finished — pid %s is gone; log=%s%s\n", r.Pid, logOr("none"), trailNote)
 		case Running:
@@ -165,7 +176,7 @@ func cmdLine(f filter, stdout io.Writer) int {
 		st := r.State()
 		mine := f.mine(r)
 		foreign := ""
-		if st == Running || st == Orphan {
+		if st.Live() || st == Orphan {
 			if !mine {
 				foreign = "⇄"
 			}
@@ -198,11 +209,18 @@ func cmdLine(f filter, stdout io.Writer) int {
 				mark, extra = "⏳", " "+dimIdle+human.Secs(idle)
 			}
 			live = append(live, fmt.Sprintf("%s%s%s %s·%s %s%s", foreign, mark, lbl, r.Provider, HarnessShort(r.Harness), el, extra))
+		case Waiting:
+			q := quotaOf(r, st)
+			live = append(live, fmt.Sprintf("%s%s %s", foreign, lbl, q.mark(st, now)))
 		case Orphan:
 			live = append(live, fmt.Sprintf("%s⚠%s %s·%s %s", foreign, lbl, r.Provider, HarnessShort(r.Harness), el))
 		case Done:
 			past = append(past, fmt.Sprintf("✅%s %s", lbl, el))
 		case Failed:
+			if q := quotaOf(r, st); q.exhausted {
+				past = append(past, fmt.Sprintf("%s %s", lbl, q.mark(st, now)))
+				break
+			}
 			past = append(past, fmt.Sprintf("❌%s rc=%s", lbl, r.RC))
 		}
 	}

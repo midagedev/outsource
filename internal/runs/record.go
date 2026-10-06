@@ -106,7 +106,17 @@ const (
 	Orphan State = "orphan"
 	Done   State = "done"   // rc = 0
 	Failed State = "failed" // rc != 0; the launcher's exit codes carry the reason
+	// Waiting: no rc, the pid is alive, and the wrapper is asleep until a plan
+	// limit resets (--resume-on-reset). No harness is running: there is
+	// nothing to follow and nothing burning quota, but the round is not over —
+	// the wrapper resumes the same session when it wakes.
+	Waiting State = "waiting"
 )
+
+// Live is true for a round that is not over: running, or waiting to resume.
+// Every "is it still going" question asks this rather than comparing against
+// Running, which a waiting round is not.
+func (s State) Live() bool { return s == Running || s == Waiting }
 
 // Record is one delegated run. Every field is a single line in the file, so
 // anything that could carry a newline is flattened on write. Nothing is ever
@@ -174,6 +184,15 @@ type Record struct {
 	StopReason    string
 	HarnessSignal string
 	SignalSource  string
+	// WaitingUntil (unix seconds) is set while a --resume-on-reset wrapper
+	// sleeps through a plan limit and emptied when it resumes: the latest it
+	// wakes. WaitingResetAt is the reset that wait is for (RFC3339 UTC, or
+	// "unknown") and WaitingResetSource where that time came from (429-text,
+	// quota-api, fallback). Appended like every other field, so the last
+	// value is the current one.
+	WaitingUntil       string
+	WaitingResetAt     string
+	WaitingResetSource string
 }
 
 // sanitize flattens newlines so one value stays one line.
@@ -290,6 +309,12 @@ func Read(path string) (*Record, error) {
 			r.HarnessSignal = v
 		case "signalSource":
 			r.SignalSource = v
+		case "waitingUntil":
+			r.WaitingUntil = v
+		case "waitingResetAt":
+			r.WaitingResetAt = v
+		case "waitingResetSource":
+			r.WaitingResetSource = v
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -469,6 +494,9 @@ func Alive(pid string) bool {
 func (r *Record) State() State {
 	if r.RC == "" {
 		if Alive(r.Pid) {
+			if r.WaitingUntil != "" {
+				return Waiting
+			}
 			return Running
 		}
 		return Orphan
@@ -626,7 +654,7 @@ func Resolve(sel string) (*Record, error) {
 	}
 	var running []*Record
 	for _, r := range all {
-		if r.State() == Running {
+		if r.State().Live() {
 			running = append(running, r)
 		}
 	}

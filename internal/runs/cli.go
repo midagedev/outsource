@@ -40,15 +40,19 @@ round a teammate launched would vanish from the lead's own status line;
 CLAUDE_PID is the Claude Code process, shared by the lead and its in-process
 agents. Either matching counts as yours.
 
-The four states a run can be in:
+The states a run can be in:
 
   running   record has no rc, and the pid is alive
   orphan    record has no rc, and the pid is gone — the round died without
             finishing. Nothing else on the machine still remembers it existed.
   done      rc=0
-  failed    rc!=0 (the launcher's own exit codes carry the reason)
+  failed    rc!=0 (the launcher's own exit codes carry the reason); a round
+            cut by a plan limit (HTTP 429) shows ⛔quota, the reset time and
+            whether the plan quota API or the 429 text gave it
+  waiting   record has no rc, the pid is alive, and --resume-on-reset is
+            waiting for the plan limit to reset (⏸quota → <latest wake>)
 
-Exit codes: 0 ok · 64 usage error · 65 no such run id · 66 refused (running)
+Exit codes: 0 ok · 64 usage error · 65 no such run id · 66 refused (running or waiting)
 `
 
 // UsageError and the other sentinel codes keep the shell contract: callers and
@@ -466,8 +470,8 @@ func cmdDismiss(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "dismissed %s (unreadable record)\n", id)
 		return 0
 	}
-	if r.State() == Running {
-		fmt.Fprintf(stderr, "runs dismiss: %s is running (pid %s alive) — a live round is work, not residue\n", id, r.Pid)
+	if st := r.State(); st.Live() {
+		fmt.Fprintf(stderr, "runs dismiss: %s is %s (pid %s alive) — a live round is work, not residue\n", id, st, r.Pid)
 		return ExitRefused
 	}
 	if err := os.Remove(path); err != nil {
@@ -521,6 +525,16 @@ type jsonRecord struct {
 	StopReason    string `json:"stopReason"`
 	HarnessSignal string `json:"harnessSignal"`
 	SignalSource  string `json:"signalSource"`
+	// A plan-limit (HTTP 429) death, from the sentinel once finished and from
+	// the record while --resume-on-reset waits. resetAt is RFC3339 UTC,
+	// "unknown", or "" when quotaExhausted is false; resetSource says where it
+	// came from — quota-api (preferred), 429-text, or, for a wait only,
+	// fallback (an hour, the reset unknown); waitingUntil (unix seconds, the
+	// latest wake) is set only in state waiting.
+	QuotaExhausted bool   `json:"quotaExhausted"`
+	ResetAt        string `json:"resetAt"`
+	ResetSource    string `json:"resetSource"`
+	WaitingUntil   *int64 `json:"waitingUntil"`
 }
 
 func numOrNull(s string) *int64 {
@@ -560,6 +574,8 @@ func cmdJSON(f filter, stdout io.Writer) int {
 		j.LeadSocket, j.LeadToken, j.ChildPid = r.LeadSocket, r.LeadToken, numOrNull(r.ChildPid)
 		j.StopRequested, j.StopBy, j.StopReason = r.StopRequested, r.StopBy, r.StopReason
 		j.HarnessSignal, j.SignalSource = r.HarnessSignal, r.SignalSource
+		q := quotaOf(r, r.State())
+		j.QuotaExhausted, j.ResetAt, j.ResetSource, j.WaitingUntil = q.exhausted, q.resetAt, q.source, waitingUntilJSON(q)
 		out = append(out, j)
 	}
 	enc := json.NewEncoder(stdout)
