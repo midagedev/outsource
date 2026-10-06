@@ -49,7 +49,7 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 Claude Code는 마켓플레이스 설치본을 플러그인 캐시 `~/.claude/plugins/cache/outsource/outsource/<version>/`에 둡니다. 그래서 스킬은 `<version>/skills/outsource/`에 있고, 아래에서 `~/.claude/skills/outsource/`로 시작하는 경로는 모두 그 자리에서 시작합니다. 달라지는 점이 두 가지입니다.
 
 - 키 설정 스크립트는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`입니다.
-- 사용자 오버레이는 스킬 폴더 기준으로 읽으므로, 마켓플레이스 설치에서는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md`가 됩니다. 이 버전 폴더는 업데이트 때 통째로 바뀝니다. 오버레이를 쓰신다면 설치 스크립트로 설치하시거나(오버레이를 보존합니다), `OUTSOURCE_SKILL_DIR`를 계속 두실 폴더로 지정하고 그 `references/`에 `local-overlay.md`와 `overlays/`를 두십시오.
+- 사용자 오버레이는 스킬 폴더 기준으로 읽습니다. 스킬 폴더는 바이너리를 실행한 `bin/outsource`의 상위 폴더입니다. 그래서 마켓플레이스 설치에서는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md`가 됩니다. 이 버전 폴더는 업데이트 때 통째로 바뀝니다. 오버레이를 쓰신다면 설치 스크립트로 설치하시거나(오버레이를 보존합니다), `OUTSOURCE_SKILL_DIR`를 계속 두실 폴더로 지정하고 그 `references/`에 `local-overlay.md`와 `overlays/`를 두십시오.
 
 또는 설치 스크립트([로컬 오버레이](#로컬-오버레이)를 쓸 거면 이쪽):
 
@@ -61,6 +61,15 @@ cd outsource
 ```
 
 [Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter — 기본 id가 없고, 어느 id를 쓰든 계정에 크레딧이 있어야 합니다). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
+
+**플랫폼과 바이너리.** 이 저장소에는 바이너리를 커밋하지 않습니다. `bin/outsource`는 작은 POSIX `sh` 실행 스크립트(dispatcher)입니다. 함께 커밋된 `bin/outsource.sha256`에는 릴리즈 버전과 네 가지 릴리즈 바이너리(darwin-arm64, darwin-amd64, linux-amd64, linux-arm64)의 sha256이 적혀 있습니다. 처음 실행할 때 이 스크립트가 다음 순서로 바이너리를 마련합니다.
+
+1. 바로 옆의 로컬 빌드(clone에서 `./build.sh`, 또는 Go가 있는 상태의 `install.sh`)
+2. 캐시(`~/.cache/outsource/<version>/`)
+3. Go와 소스가 있으면 소스에서 빌드(마켓플레이스 설치본에는 소스가 함께 들어 있습니다)
+4. GitHub Release에서 다운로드. sha256이 매니페스트와 같을 때만 실행합니다.
+
+이 검사를 끄는 스위치는 없습니다. `OUTSOURCE_RELEASE_URL`은 받아 오는 곳(미러, 폐쇄망 서버)만 바꿀 뿐 검사 여부는 바꾸지 않습니다. Go가 없으면 `install.sh`가 설치할 때 미리 받아 둡니다. 그래서 네트워크 문제는 첫 라운드가 아니라 설치 단계에서 드러납니다(`--no-fetch`로 건너뛸 수 있습니다). 바이너리를 마련하지 못하면 `bin/git-guard.sh`는 종료 코드 2를 돌려 git을 막습니다. 다운로드가 실패해도 git 가드가 열리지 않습니다. `bin/*.sh` 이름으로 부르려면 bash가 필요하고(Alpine에서는 `apk add bash`), `bin/outsource <도구>`는 `sh`와 `curl` 또는 `wget`만 있으면 됩니다.
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 
@@ -281,24 +290,39 @@ failures by kind
 
 ## 바이너리 검증
 
-`bin/outsource` 는 프리빌드 바이너리로 커밋됩니다 — 두 설치 경로 어디에도 빌드 단계가
-없기 때문입니다. 직접 빌드하지 않은 바이트를 돌리기 싫다면 그러지 않아도 됩니다: 소스가
-이 레포에 있고 빌드는 재현 가능합니다.
+git에는 바이너리를 커밋하지 않습니다. 커밋하는 것은 `bin/outsource.sha256`으로, 릴리즈 버전과
+네 가지 릴리즈 바이너리의 sha256이 들어 있습니다. 실행 스크립트는 받아 온 파일의 해시가 이
+목록과 다르면 실행하지 않습니다.
+
+직접 빌드하지 않은 바이트를 돌리기 싫으시면 그러지 않으셔도 됩니다. Go가 있으면 `./build.sh`가
+이 기계용 바이너리를 실행 스크립트 옆에 빌드하고, 그 바이너리가 항상 먼저 쓰입니다. Go가 있는
+상태에서 `install.sh`를 실행해도 다운로드 대신 빌드합니다.
+
+릴리즈 바이너리를 소스와 대조하려면:
 
 ```bash
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
-  -o /tmp/outsource ./cmd/outsource
-shasum -a 256 /tmp/outsource skills/outsource/bin/outsource   # 두 해시가 같아야 합니다
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
+  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
+shasum -a 256 /tmp/outsource-darwin-arm64   # bin/outsource.sha256의 outsource-darwin-arm64 줄과 같아야 합니다
 ```
 
-플래그 셋 다 필수입니다. `-trimpath` 는 빌드 경로를 산출물에서 제거하고,
-`CGO_ENABLED=0` 은 정적으로 만들어 호스트 툴체인이 영향을 주지 않게 하며,
-`-buildvcs=false` 는 Go가 커밋 해시와 `+dirty` 표시를 모듈 버전에 새기는 것을 막습니다 —
-그게 없으면 커밋마다 바이트가 바뀌어 이 비교가 불가능합니다.
-`tests/reproducible-build.test.sh` 가 정확히 이 명령을 돌려 커밋된 바이너리가 소스와
-일치하지 않으면 실패시키므로, `./build.sh` 를 잊은 소스 수정은 배포될 수 없습니다. `./build.sh --all` 이 배포 대상 플랫폼 전부를 한 머신에서
-크로스컴파일하며, darwin/arm64 는 Go 링커가 ad-hoc 서명을 붙여 줍니다 — 그게 크로스컴파일된
-macOS 빌드가 애초에 실행되게 하는 것입니다.
+확인할 플랫폼에 맞게 `GOOS`/`GOARCH`를 바꾸십시오. 플래그는 모두 필요합니다.
+
+- `-trimpath`는 빌드 경로가 결과물에 들어가지 않게 합니다.
+- `CGO_ENABLED=0`은 정적 바이너리를 만들어 호스트 툴체인의 영향을 없앱니다.
+- `-buildvcs=false`는 Go가 커밋 해시와 `+dirty` 표시를 모듈 버전에 새기지 않게 합니다. 이게
+  없으면 커밋할 때마다 바이트가 바뀝니다.
+
+매니페스트가 실제 소스와 맞는지는 세 군데에서 지킵니다.
+
+- `tests/reproducible-build.test.sh`가 네 플랫폼 모두에서 위 빌드를 돌려 커밋된 매니페스트와
+  비교합니다. `./build.sh`를 빠뜨린 소스 수정은 배포될 수 없습니다.
+- Go가 있으면 `install.sh`도 새로 빌드한 결과가 매니페스트와 다를 때 설치를 거부합니다.
+- `scripts/release-assets.sh <X.Y.Z>`는 네 바이너리를 빌드하고 매니페스트와 대조한 뒤 릴리즈
+  자산으로 올립니다. 커밋된 매니페스트가 바로 그 바이트를 가리키지 않으면 거부합니다.
+
+darwin/arm64 빌드에는 Go 링커가 ad-hoc 서명을 붙입니다. 크로스컴파일한 macOS 빌드가 실행될 수
+있는 것은 이 서명 덕분입니다.
 
 ## 모델 비교
 
@@ -485,7 +509,7 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 | 라운드 도중 플랜이 바닥남 | **`--require-quota N`, exit 66** — **가장 짧은** 창이 아니라 **가장 빡빡한** 창 기준(실측: 주간 81.7% 남았을 때 5시간은 83.8%). 닫히는 쪽으로 실패합니다. |
 | 위임받은 쪽의 "완료"가 완료가 아님 | **완료 센티넬 `<log>.rc`** — `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. 하네스의 수명 신호는 완료 증거가 아닙니다. |
 | 표식 없이 깨끗이 끝난 라운드 | **`--done-marker`, exit 72** — 두 런처 동일. 예전에는 grok이 70(모델 정체성 단언과 충돌), GLM은 조용한 rc=0이라 같은 사실이 자매에 따라 실패 또는 완료로 보였습니다. 72는 표식 부재만 이름 붙이고, 판정은 여전히 트리에 있습니다. |
-| 위임받은 쪽의 저장소 상태 변경 | **`bin/git-guard.sh`**, 실제 명령 문자열을 파싱하는 `PreToolUse` 훅 — `git -C … commit`, `env … git push`, `sudo git …`, 체인된 변경 전부 차단, 읽기 전용 git은 의도적으로 개방. 파일 하나가 두 하네스의 호출 규약을 모두 처리합니다. |
+| 위임받은 쪽의 저장소 상태 변경 | **`bin/git-guard.sh`**, 실제 명령 문자열을 파싱하는 `PreToolUse` 훅 — `git -C … commit`, `env … git push`, `sudo git …`, 체인된 변경 전부 차단, 읽기 전용 git은 의도적으로 개방. 파일 하나가 두 하네스의 호출 규약을 모두 처리합니다. 바이너리를 마련하지 못하면 훅이 차단(종료 코드 2)으로 끝나므로, git 금지는 닫힌 쪽으로 실패합니다. |
 | z.ai가 `glm-5.2` 요청에 glm-5.3으로 조용히 답함 (2회 측정 — 응답 `model` 필드가 요청과 달라 에코가 아님) | **발사 시점에 거부, exit 70.** crush에는 정체성 단언이 없어 이 오배정은 영원히 조용했을 것입니다. `OUTSOURCE_ALLOW_MAPPED_MODEL=1`은 재측정용이지 라우팅용이 아닙니다. |
 | 위임받은 쪽이 스펙에 딸려 들어온 리드 측 발사 절차를 읽고 자기가 리드라고 판단, 같은 워크트리에 중첩 라운드를 발사 — 깨끗한 종료, 구현은 0 | **중첩 발사 거부, exit 64** — 모든 하네스 자식이 `OUTSOURCE_ROUND=1`을 달고, 두 런처 모두 그 아래에서는 시작을 거부합니다(의도적 중첩은 `OUTSOURCE_ALLOW_NESTED=1`). |
 | agy가 권한 거부된 라운드에도, 파일을 안 만든 소프트 거부 쓰기에도 exit 0 | **런처가 최종 result 이벤트의 `status`를 읽고** SUCCESS가 아니면 전부 실패시킵니다 — agy의 종료 코드는 수명 신호일 뿐 판정이 아닙니다. |
@@ -568,7 +592,7 @@ $ bin/quota.sh --provider grok
 | `references/spec-preamble-core.md` | 짧은 대체본: 없으면 사라진다고 실측된 공개(disclosure) 부분만 |
 | `references/glm-preamble.md` | GLM 런타임 델타 (어느 모델이 픽셀을 보고 어느 모델이 못 보는지, 플래그 아닌 훅, 증거 규칙) |
 | `references/spec-authoring.md` · `references/spec-template.md` | 품질 번들, 그리고 태스크별 스펙 골격 |
-| `bin/outsource` | **하나의 Go 바이너리가 아래 도구 전부입니다.** 아래 `bin/*.sh` 이름들은 3줄짜리 호환 shim이고, 각각 이 바이너리로 exec합니다 — 문서·훅·설치본·테스트가 전부 경로로 호출하기 때문에 이름을 유지합니다. `outsource <도구>` 로 직접 부르면 fork 하나를 아낍니다 |
+| `bin/outsource` | **하나의 Go 바이너리가 아래 도구 전부입니다. 바이너리는 기계마다 빌드하거나 받아 오고, 커밋하지 않습니다.** `bin/outsource` 자체는 POSIX `sh` 실행 스크립트입니다. 함께 커밋된 `bin/outsource.sha256`은 다운로드를 검증하는 매니페스트입니다. 실행 스크립트는 로컬 빌드, 캐시, Go 빌드, 검증된 다운로드 순으로 바이너리를 찾습니다. `bin/*.sh` 이름들은 이 바이너리로 exec하는 호환 shim입니다. 문서·훅·설치본·테스트가 모두 경로로 부르기 때문에 이름을 유지합니다. 런처가 쓰는 훅은 찾아 둔 바이너리를 직접 가리킵니다 |
 | `outsource-run` | 런처: 프로바이더·하네스 배선 테이블, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--detach` / non-TTY 포그라운드 거절 |
 | `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명, `--detach` / `--foreground` |
 | `guard` | git 금지 `PreToolUse` 훅. 두 하네스 공용 (54 회귀 케이스 + 670건 판정 골든) |
