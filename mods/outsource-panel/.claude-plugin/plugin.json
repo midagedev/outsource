@@ -1,0 +1,9 @@
+{
+  "name": "outsource-panel",
+  "version": "0.1.0",
+  "description": "Live view of delegated outsource rounds: a pane with rows and trails, a band above the prompt, and /rounds to message a round.",
+  "author": {
+    "name": "midagedev",
+    "url": "https://github.com/midagedev"
+  }
+}
