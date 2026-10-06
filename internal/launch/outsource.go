@@ -105,6 +105,9 @@ type opts struct {
 	// failing it with exit 73 — for a round that is legitimately answer-only
 	// (a pure question). The allowance is recorded in the sentinel.
 	allowNoTools bool
+	// resumeOnReset: a round cut by its plan limit (HTTP 429) waits for the
+	// reset and resumes the same session, at most twice (quota_resume.go).
+	resumeOnReset bool
 }
 
 // effortLevels is what `claude --effort` accepts (its --help, 2026-09-15).
@@ -167,6 +170,8 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.noVisionCheck, ok = true, true
 		case "--allow-no-tools":
 			o.allowNoTools, ok = true, true
+		case "--resume-on-reset":
+			o.resumeOnReset, ok = true, true
 		case "--detach":
 			o.detach, ok = true, true
 		case "--foreground":
@@ -180,7 +185,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "-h", "--help":
 			// The harness and provider lists are derived, so a new arm cannot
 			// be routable and undocumented at the same time.
-			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--detach] [--foreground] [--list-wiring]\n",
+			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--resume-on-reset] [--detach] [--foreground] [--list-wiring]\n",
 				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
 			return 0
 		default:
@@ -246,6 +251,11 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, msg)
 		return ExitUsage
 	}
+	if msg := resumeRefusal(o.harness, o.resumeOnReset); msg != "" {
+		fmt.Fprintln(stderr, msg)
+		return ExitUsage
+	}
+	maxSecondsPerAttemptNote(o, stderr)
 	// A provider whose only routed model was withdrawn has no default to fall
 	// back on, and the empty string would become a malformed id inside the
 	// harness — under --detach, where nothing can print.
@@ -311,8 +321,11 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	// finish. Deliberately NOT used to price a round — a plan quota is a
 	// plan-wide counter that concurrent rounds and other sessions move too, so a
 	// before/after delta around one round measures the machine, not the round.
-	if o.requireQuota != "" {
-		switch rc := quota.Main([]string{"--provider", o.providerName, "--quiet",
+	//
+	// The --detach child skips it: the parent already passed this gate before
+	// it re-executed, and a second read only costs another network round trip.
+	if o.requireQuota != "" && os.Getenv(detachedEnvKey) != "1" {
+		switch rc := requireQuotaRead([]string{"--provider", o.providerName, "--quiet",
 			"--require-window", o.requireQuota}, io.Discard, stderr); rc {
 		case 0:
 		case quota.ExitGated:
@@ -358,6 +371,11 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			return ExitUsage
 		}
 	}
+
+	// A nearly spent plan window is said out loud before the round starts —
+	// here, before the --detach re-exec, because the detached child has no
+	// terminal to say it on. Never a refusal: --require-quota is that.
+	planWindowWarning(o.providerName, stderr)
 
 	if o.detach {
 		if _, err := exec.LookPath(h.bin); err != nil {
@@ -431,11 +449,16 @@ type round struct {
 	// and from the record.
 	leadNoticed bool
 	leadSocket  string
+	leadToken   string
 	child       *exec.Cmd
 	harnessSig  string
 	signalSrc   string
 	stopped     bool
 	stopReason  string
+
+	// quota is the plan-limit (HTTP 429) verdict and the --resume-on-reset
+	// state; quota_resume.go owns it.
+	quota quotaState
 }
 
 func (r *round) run() int {
@@ -733,6 +756,9 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	if r.harnessError != "" {
 		fmt.Fprintf(&b, "harness_error=%s\n", r.harnessError)
 	}
+	// quota_exhausted / reset_at / api_error / resumed_after_reset: why the
+	// round stopped when its plan limit cut it, and when it could go on.
+	b.WriteString(r.quotaLines())
 	b.WriteString(markerLines)
 	if s := r.hold.name(); s != "" {
 		fmt.Fprintf(&b, "wrapper_signal=%s\n", s)

@@ -90,7 +90,7 @@ func (r *round) runClaudeCode() int {
 	}
 	var errf *os.File
 	if r.o.log != "" {
-		errf, _ = os.Create(r.o.log + ".err")
+		errf, _ = r.openErrLog()
 	}
 	specf, err := os.Open(r.o.spec)
 	if err != nil {
@@ -107,10 +107,17 @@ func (r *round) runClaudeCode() int {
 	// a resume (--session) gets a notice of its own. Prepended to the prompt,
 	// never to the spec file: spec-lint and the done-marker check read the
 	// file and keep seeing the spec alone.
-	r.leadSocket, r.leadNoticed = leadSocketFromEnv(), true
-	token := mintLeadToken()
-	if r.runID != "" {
-		_ = runs.SetLead(r.runID, r.leadSocket, token)
+	//
+	// A --resume-on-reset attempt is the same launch continuing the same
+	// session: its first prompt already carried the notice and this token, so
+	// it keeps both. Minting again would put a token in the record that the
+	// round never saw, and round_send would then send one it cannot match.
+	if r.quota.resumePrompt == "" {
+		r.leadSocket, r.leadNoticed = leadSocketFromEnv(), true
+		r.leadToken = mintLeadToken()
+		if r.runID != "" {
+			_ = runs.SetLead(r.runID, r.leadSocket, r.leadToken)
+		}
 	}
 
 	cmdArgs := []string{"-p"}
@@ -125,7 +132,12 @@ func (r *round) runClaudeCode() int {
 	}
 	cmd := exec.Command("claude", cmdArgs...)
 	cmd.Dir = r.o.cwd
-	cmd.Stdin = io.MultiReader(strings.NewReader(leadNotice(r.leadSocket, token)), specf)
+	cmd.Stdin = io.MultiReader(strings.NewReader(leadNotice(r.leadSocket, r.leadToken)), specf)
+	if r.quota.resumePrompt != "" {
+		// --resume-on-reset: a resumed attempt continues the session, so its
+		// input is the resume prompt, not the notice and the spec a second time.
+		cmd.Stdin = strings.NewReader(r.quota.resumePrompt)
+	}
 	cmd.Stdout = logf
 	if errf != nil {
 		cmd.Stderr = errf

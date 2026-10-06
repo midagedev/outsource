@@ -70,6 +70,12 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	os.Setenv("OUTSOURCE_RUNS_DIR", filepath.Join(dir, "runs"))
+	// No harness CLI is reachable from a launch test (pinHarnessFreePath).
+	if msg := pinHarnessFreePath(); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+		os.RemoveAll(dir)
+		os.Exit(2)
+	}
 	rc := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(rc)

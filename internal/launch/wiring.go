@@ -367,6 +367,13 @@ type harness struct {
 	// modelFormHint renders that rule for a human, in the message that asks for
 	// a --model this launcher has no default for.
 	modelFormHint string
+
+	// resumeOnReset says this harness leaves a plan-limit (HTTP 429) death the
+	// launcher can read (internal/planlimit) and a session it can resume, so
+	// --resume-on-reset is honoured rather than refused. claude-code only, as
+	// of 2026-10-06: its transcript marks the error line (isApiErrorMessage,
+	// apiErrorStatus 429) and `claude -p --resume <sid>` continues the session.
+	resumeOnReset bool
 }
 
 var harnessTable = []harness{
@@ -381,7 +388,10 @@ var harnessTable = []harness{
 		trail:       nil,
 		trailFormat: tail.FormatClaudeTranscript,
 		effortFlag:  true,
-		run:         (*round).runClaudeCode,
+		run:         (*round).runClaudeCodeResuming,
+
+		// Its transcript marks a plan-limit death and its session resumes.
+		resumeOnReset: true,
 	},
 	{
 		name:      "crush",
