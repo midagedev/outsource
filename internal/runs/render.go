@@ -88,17 +88,17 @@ func cmdList(f filter, stdout io.Writer) int {
 			}
 			switch {
 			case r.Trail != "":
-				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)%s%s\n", r.Trail, r.ID, inbox, conflictNote(r))
+				fmt.Fprintf(stdout, "         trail=%s (follow: outsource tail %s)%s%s%s\n", r.Trail, r.ID, inbox, conflictNote(r), inboxConflictNote(r))
 			case r.TrailFormat != "":
 				// A claude-code round learns its own transcript path only when
 				// its first turn starts, so "pending" is the honest word here —
 				// not "none".
-				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)%s%s\n", r.ID, inbox, conflictNote(r))
+				fmt.Fprintf(stdout, "         trail=pending — revealed on the round's first turn (follow: outsource tail %s)%s%s%s\n", r.ID, inbox, conflictNote(r), inboxConflictNote(r))
 			case r.MessagingSocket != "":
 				// The two reveals are independent (the socket comes from the
 				// hook's environment, the trail from its payload), so a round
 				// can have an inbox before it has a trail.
-				fmt.Fprintf(stdout, "         inbox=uds:%s\n", r.MessagingSocket)
+				fmt.Fprintf(stdout, "         inbox=uds:%s%s\n", r.MessagingSocket, inboxConflictNote(r))
 			}
 			if idleKnown && idle >= StallSeconds() {
 				// Deliberately not a kill instruction. A stall is a reason to
@@ -229,14 +229,30 @@ func cmdLine(f filter, stdout io.Writer) int {
 // full listing pays it only for a stalled round, the one-line view never does.
 const rxWindow = 3 * time.Second
 
+// conflictLine is the one shape both conflict notes take, so the trail's and
+// the inbox's wording cannot drift apart: a foreign reveal parked on this
+// record, printed as its own line wherever the reveal itself is printed.
+func conflictLine(kind, parked string) string {
+	if parked == "" {
+		return ""
+	}
+	return "\n         " + kind + " CONFLICT — another round also recorded " + parked +
+		" here; their hook settings were shared. Update outsource and relaunch."
+}
+
 // conflictNote surfaces a foreign trail wherever a trail is printed. Another
 // round's SessionStart hook writing into this record is the shared-settings
 // signature (2026-09-19), and without a word here it reads as "outsource tail
 // names the wrong worktree" — which cost a session exactly that guess.
 func conflictNote(r *Record) string {
-	if r.TrailConflict == "" {
-		return ""
-	}
-	return "\n         trail CONFLICT — another round also recorded " + r.TrailConflict +
-		" here; their hook settings were shared. Update outsource and relaunch."
+	return conflictLine("trail", r.TrailConflict)
+}
+
+// inboxConflictNote surfaces a foreign inbox socket wherever the inbox is
+// printed. The stakes are one step higher than the trail's: a trail conflict
+// misdirects a reader, a socket conflict misdirects a sender — with two
+// sockets recorded, nobody can say which round the printed one belongs to, so
+// this line is also what justifies the panel refusing the send.
+func inboxConflictNote(r *Record) string {
+	return conflictLine("inbox", r.MessagingSocketConflict)
 }

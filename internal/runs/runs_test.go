@@ -440,6 +440,117 @@ func TestJSONEmitsTheMessagingSocket(t *testing.T) {
 	}
 }
 
+// A second, foreign inbox socket on one record means the address the listing
+// prints may belong to a different session (shared hook settings, the
+// 2026-09-19 signature) — the listing must say so wherever it prints the
+// inbox, in the same style as the trail conflict, and the trail conflict line
+// itself must stay byte-identical beside it.
+//
+// FAIL-first (verbatim, with inboxConflictNote dropped from render.go's
+// Running arm): the inbox CONFLICT line is absent from the listing.
+func TestListShowsTheInboxSocketConflict(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "twosocks",
+		"--provider", "zai", "--harness", "claude-code",
+		"--trail-format", "claude-transcript", "--log", "/tmp/g.log"}, &out, os.Stderr)
+	id := strings.TrimSpace(out.String())
+	trail := "/tmp/cfg/claude/projects/x/1.jsonl"
+	if err := SetTrail(id, trail); err != nil {
+		t.Fatal(err)
+	}
+	// Park a foreign trail too, so both conflict lines can be checked together.
+	if err := SetTrail(id, "/tmp/cfg/claude/projects/x/2.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(id, "/tmp/cc-socks/4242.sock"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(id, "/tmp/cc-socks/9999.sock"); err != nil {
+		t.Fatal(err)
+	}
+
+	var list bytes.Buffer
+	if rc := Main([]string{"list"}, &list, os.Stderr); rc != 0 {
+		t.Fatalf("list rc=%d", rc)
+	}
+	s := list.String()
+	// The round's own address still prints — the conflict qualifies it, it
+	// does not erase it.
+	if !strings.Contains(s, "inbox=uds:/tmp/cc-socks/4242.sock") {
+		t.Fatalf("the round's own inbox address must still be printed:\n%s", s)
+	}
+	if !strings.Contains(s, "         inbox CONFLICT — another round also recorded /tmp/cc-socks/9999.sock here; their hook settings were shared. Update outsource and relaunch.") {
+		t.Fatalf("a second inbox socket must be called out in the listing:\n%s", s)
+	}
+	if !strings.Contains(s, "         trail CONFLICT — another round also recorded /tmp/cfg/claude/projects/x/2.jsonl here; their hook settings were shared. Update outsource and relaunch.") {
+		t.Fatalf("the trail conflict line must be unchanged:\n%s", s)
+	}
+	// Both notes ride the trail line, trail first — the reader meets the
+	// conflict next to the address that caused it.
+	iTrail, iTrailNote := strings.Index(s, "trail="+trail), strings.Index(s, "trail CONFLICT")
+	iInboxNote := strings.Index(s, "inbox CONFLICT")
+	if !(iTrail < iTrailNote && iTrailNote < iInboxNote) {
+		t.Fatalf("notes must follow the trail line in order (trail=%d, trail note=%d, inbox note=%d):\n%s",
+			iTrail, iTrailNote, iInboxNote, s)
+	}
+}
+
+// runs json carries both parked conflicts as their own fields — empty string
+// when absent, like messagingSocket — so a consumer (the panel, which refuses
+// an ambiguous inbox) can branch on the field without a nil check.
+//
+// FAIL-first (verbatim, with the two fields dropped from jsonRecord): a clean
+// row must emit "" for both, got <nil>.
+func TestJSONEmitsTheConflictFields(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTSOURCE_RUNS_DIR", dir)
+	var out bytes.Buffer
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "conflicted",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/h.log"}, &out, os.Stderr)
+	conflicted := strings.TrimSpace(out.String())
+	out.Reset()
+	Main([]string{"start", "--pid", strconv.Itoa(os.Getpid()), "--label", "clean",
+		"--provider", "zai", "--harness", "claude-code", "--log", "/tmp/i.log"}, &out, os.Stderr)
+	clean := strings.TrimSpace(out.String())
+	if err := SetTrail(conflicted, "/one.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTrail(conflicted, "/two.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(conflicted, "/tmp/cc-socks/1.sock"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMessagingSocket(conflicted, "/tmp/cc-socks/2.sock"); err != nil {
+		t.Fatal(err)
+	}
+
+	var jout bytes.Buffer
+	if rc := Main([]string{"json"}, &jout, os.Stderr); rc != 0 {
+		t.Fatalf("json rc=%d", rc)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(jout.Bytes(), &rows); err != nil {
+		t.Fatalf("runs json is not a JSON array: %v\n%s", err, jout.String())
+	}
+	got := map[string]map[string]any{}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		got[id] = row
+	}
+	if got[conflicted]["trailConflict"] != "/two.jsonl" {
+		t.Fatalf("the parked trail conflict must be carried, got %v\n%s", got[conflicted]["trailConflict"], jout.String())
+	}
+	if got[conflicted]["messagingSocketConflict"] != "/tmp/cc-socks/2.sock" {
+		t.Fatalf("the parked socket conflict must be carried, got %v\n%s", got[conflicted]["messagingSocketConflict"], jout.String())
+	}
+	if got[clean]["trailConflict"] != "" || got[clean]["messagingSocketConflict"] != "" {
+		t.Fatalf("a clean row must emit \"\" for both, got %v / %v", got[clean]["trailConflict"], got[clean]["messagingSocketConflict"])
+	}
+}
+
 // The inbox address is offered exactly while it works: the socket dies with
 // the round's process, so a finished round's address would be a copyable dead
 // end on the line a lead copies addresses from.
