@@ -6,6 +6,7 @@
 #   ./install.sh --project  install into ./.claude/skills/outsource/ (cwd)
 #   ./install.sh --print    show the plan without writing
 #   ./install.sh --force    overwrite even if the install was hand-edited
+#   ./install.sh --no-fetch skip the "produce a binary now" step (see below)
 #
 # Upgrades over an unmodified install proceed without --force: each install
 # writes a checksum manifest (.install-checksums), and the next run refuses
@@ -16,20 +17,29 @@
 # declared project overlays — is preserved the same way and for the same
 # reason: it is the user's content living inside a directory this script
 # deletes wholesale.
+#
+# No binary is committed to git, so an install ends with a runnable binary in
+# exactly one of two ways: with Go present, the host target is BUILT into
+# DEST/bin (the dispatcher's first lookup); without Go, the dispatcher's
+# verified fetch runs HERE, so a missing network fails the install rather
+# than the first round five minutes later (--no-fetch skips that check).
 set -eu
 
 SRC="$(cd "$(dirname "$0")" && pwd)/skills/outsource"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/.claude/skills/outsource"
 MANIFEST=".install-checksums"
 PRINT=0
 FORCE=0
+NO_FETCH=0
 
 for arg in "$@"; do
   case "$arg" in
     --project) DEST="$(pwd)/.claude/skills/outsource" ;;
     --print)   PRINT=1 ;;
     --force)   FORCE=1 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    --no-fetch) NO_FETCH=1 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -37,6 +47,9 @@ done
 checksum() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
 }
+
+GO=1
+command -v go >/dev/null 2>&1 || GO=0
 
 echo "install: $SRC -> $DEST"
 [ "$PRINT" -eq 1 ] && exit 0
@@ -56,6 +69,42 @@ if [ -d "$DEST" ] && [ "$FORCE" -ne 1 ]; then
   fi
 fi
 
+# No binary ships in git; what ships is bin/outsource.sha256, the manifest the
+# dispatcher verifies every download against. With Go present, that manifest
+# must hash-match a fresh build of the four release binaries from THIS source
+# — otherwise the install would hand every machine a dispatcher whose
+# manifest lies about the bytes it fetches. (This replaces the old mtime
+# staleness check on committed binaries: content, not clocks. The list is
+# build.sh's TARGETS, written out on purpose, and the flags are kept literal
+# rather than sourced so a build.sh change must be decided here too.)
+if [ "$GO" -eq 1 ]; then
+  if [ ! -f "$SRC/bin/outsource.sha256" ]; then
+    echo "install: $SRC/bin/outsource.sha256 is missing — a checkout without a build has no manifest to install. Run ./build.sh once and commit it." >&2
+    exit 1
+  fi
+  TMPD="$(mktemp -d)"
+  trap 'rm -rf "$TMPD"' EXIT INT TERM
+  for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
+    os=${target%-*}; arch=${target#*-}
+    if ! (cd "$ROOT" && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+        go build -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o "$TMPD/outsource-$target" ./cmd/outsource) 2>/dev/null; then
+      echo "install: the source does not build for $target — run ./build.sh, which surfaces the error." >&2
+      exit 1
+    fi
+    fresh="$(checksum "$TMPD/outsource-$target" | cut -d' ' -f1)"
+    shipped="$(grep -E "^[0-9a-f]{64}  outsource-$target\$" "$SRC/bin/outsource.sha256" | cut -d' ' -f1)"
+    if [ -z "$shipped" ] || [ "$fresh" != "$shipped" ]; then
+      echo "install: refusing — bin/outsource.sha256 does not match a fresh build for outsource-$target." >&2
+      echo "install:   manifest: $shipped" >&2
+      echo "install:   fresh   : $fresh" >&2
+      echo "install: the source changed without ./build.sh (or the manifest was hand-edited); run ./build.sh and commit the manifest." >&2
+      exit 1
+    fi
+  done
+  rm -rf "$TMPD"; trap - EXIT INT TERM
+fi
+
 # Preserve a user's local overlay across upgrades (never shipped by this repo).
 OVERLAY="$DEST/references/local-overlay.md"
 TMP_OVERLAY=""
@@ -73,34 +122,17 @@ if [ -d "$DECLARED" ]; then
   cp -R "$DECLARED/." "$TMP_DECLARED/"
 fi
 
-# The binary in bin/ is a build artifact, and installing a stale one is
-# silently wrong: tests/reproducible-build.test.sh guards the COMMITTED
-# artifact, not this action. Measured 2026-08-26 — a source fix followed by
-# ./install.sh printed "installed." while shipping the previous binary, and
-# the change looked like it had not worked.
-# *_test.go is excluded (measured 2026-10-06 twice): a test-only edit
-# changes nothing the binary embeds, so refusing on it only blocks installs
-# until a content-identical rebuild. A non-test .go still refuses.
-BIN="$SRC/bin/outsource"
-if [ -e "$BIN" ]; then
-  ROOT="$(cd "$(dirname "$0")" && pwd)"
-  STALE=""
-  for d in "$ROOT/cmd" "$ROOT/internal"; do
-    [ -d "$d" ] || continue
-    found="$(find "$d" -name '*.go' ! -name '*_test.go' -newer "$BIN" -print 2>/dev/null | head -1)"
-    if [ -n "$found" ]; then STALE="$found"; break; fi
-  done
-  if [ -n "$STALE" ]; then
-    echo "install: $STALE is newer than bin/outsource — run ./build.sh first." >&2
-    echo "install: refusing, because copying now would install the previous binary." >&2
-    exit 1
-  fi
-fi
-
 # Clean install so files removed upstream don't linger.
 rm -rf "$DEST"
 mkdir -p "$DEST"
 cp -R "$SRC/." "$DEST/"
+
+# A local build in the checkout's bin/ is a dev artifact of THIS machine, not
+# something an install ships: the binary arrives by build (below) or by the
+# dispatcher's verified fetch. Leaving a copied one in would make two
+# different installs of the same source carry different bytes. The pattern
+# hits only outsource-<os>-<arch>; outsource.sha256 has a dot, not a dash.
+rm -f "$DEST"/bin/outsource-*
 
 if [ -n "$TMP_OVERLAY" ]; then
   mkdir -p "$DEST/references"
@@ -122,13 +154,32 @@ fi
 # this step it silently never reaches the install. A preserved overlay from
 # the previous install wins over the seed.
 if [ ! -f "$OVERLAY" ]; then
-  for seed in "$(cd "$(dirname "$0")" && pwd)"/local-overlay*.md; do
+  for seed in "$ROOT"/local-overlay*.md; do
     [ -f "$seed" ] || continue
     mkdir -p "$DEST/references"
     cp "$seed" "$OVERLAY"
     echo "seeded local overlay from: $seed"
     break
   done
+fi
+
+# The install must end with a runnable binary, so the failure lands here and
+# not in the first delegated round. With Go: build the host target into
+# DEST/bin — the dispatcher's first lookup, no cache and no network involved.
+# Without Go: run the dispatcher once (`help` resolves the binary and exits
+# 0), which fetches into the user's cache and refuses anything unverified.
+if [ "$GO" -eq 1 ]; then
+  goos="$(go env GOOS)"; goarch="$(go env GOARCH)"
+  (cd "$ROOT" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+    go build -trimpath -buildvcs=false -ldflags="-s -w" \
+    -o "$DEST/bin/outsource-$goos-$goarch" ./cmd/outsource)
+  echo "built bin/outsource-$goos-$goarch into the install"
+elif [ "$NO_FETCH" -ne 1 ]; then
+  if ! "$DEST/bin/outsource" help >/dev/null; then
+    echo "install: the dispatcher could not produce a binary (its message is above); fix that, or pass --no-fetch to install anyway." >&2
+    exit 1
+  fi
+  echo "dispatcher fetched a verified binary (first use)"
 fi
 
 # Record what this install shipped, so the next run can tell "upgrade over
