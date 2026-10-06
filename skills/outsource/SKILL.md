@@ -132,7 +132,10 @@ exits 1 on one that does not exist or a line number past the end of its
 file. Wrong premises are the measured tax on delegation — in one session
 five of them (a nonexistent tool, a nonexistent column, an absent fixture,
 a wrong runner cwd, a wrong manifest path) each cost part of a round. The
-delegate catches them, but only after it has started.
+delegate catches them, but only after it has started. A brace set
+(`src/{a,b}.rs`) is checked per expansion. A path that only a peer round's
+branch has goes under `Absent-ok: <path>`, or in a "Do not touch:" list.
+Both are exempt from the missing check only.
 
 Then invoke the backend exactly as its reference describes. **Do not launch
 either wrapper foreground under a harness-tracked background task with no
@@ -149,9 +152,10 @@ in flight*).
   visibility and intervention.
 - GLM-5.3: `references/glm.md` — `bin/outsource-run.sh` launcher (provider
   table, harness picker, isolated config per track, `SESSION <id>` resume,
-  `--require-quota` pre-flight gate, model-identity assertion, `<log>.rc`
-  sentinel), `bin/git-guard.sh` PreToolUse hook (works on both harnesses),
-  z.ai model-mapping trap, measured behavior profile.
+  `--require-quota` pre-flight gate, `--resume-on-reset`, the <25 % plan
+  warning, model-identity assertion, `<log>.rc` sentinel), `bin/git-guard.sh`
+  PreToolUse hook (works on both harnesses), z.ai model-mapping trap,
+  measured behavior profile.
 - OpenRouter: `references/opencode.md` — `bin/outsource-run.sh --provider
   openrouter --model openrouter/<vendor>/<id>` (harness `opencode` is the
   default for that provider, and `--model` is required — the row has no default since 2026-09-18), isolated
@@ -239,6 +243,13 @@ gone, no exit code — is the one worth acting on, because nothing else on
 the machine still remembers that round existed. `ps` cannot report it: a
 killed round leaves no process at all.
 
+A round cut by its plan limit (HTTP 429) shows `⛔quota resets 20:32 (plan)`
+— or `(429 text)` when the plan could not be read at the death — instead of
+a bare `rc=1`. A round `--resume-on-reset` is holding is `waiting` and shows
+`⏸quota → 17:24`, the latest it wakes; it wakes earlier when the plan quota
+shows the window open again. No harness runs during the wait, `tail.sh -f`
+stays on it, and `runs stop` ends it with a sentinel.
+
 The one-line view shows LIVE rounds machine-wide, not just yours: a `⇄`
 prefix marks a round another session owns. That is deliberate — live rounds
 spend the shared plan quota, and one measured incident had a round running
@@ -300,8 +311,28 @@ about 56 s after sending, and the round quoted it verbatim in its report. A
 round runs with its own `CLAUDE_CONFIG_DIR`, so it never shows up in
 `ListAgents`. The address is the only way in. Each round's settings carry
 `crossSessionInbound: accept`, so a lead outside bypass mode is not held and
-dropped. Whatever you send is a spec addition: ask the round to quote it in its
-report, and check the report covers it.
+dropped. Each round's prompt opens with a launcher notice naming its lead. A
+message from the launching session's socket, or one whose first line is
+`lead-token: <token>`, is a spec amendment (it cannot lift the preamble's
+bans); anything else is information. `round_send` adds the token line. By
+hand: read `messagingSocket` and `leadToken` from `outsource runs json`, then
+SendMessage to `uds:<messagingSocket>` with first line
+`lead-token: <leadToken>`. The round acknowledges each amendment and lists
+them in its report; check that the report covers yours. A round launched
+before lead tokens may treat a note as a peer's (relaunch with `--session`
+for a binding one). A round launched before inbox support cannot receive
+(stop it and resume with `--session`).
+
+**Stopping a round.** `outsource runs stop <label|id> [--reason <text>]`
+TERMs the round's recorded harness child, sends KILL to its process group
+after 20 s (`--kill-after N`), and prints the sentinel's `rc=` line; the
+sentinel then says `stopped_by=lead`. Never TERM the `outsource-run` wrapper
+yourself: while a harness child runs it holds TERM by design. A round that
+`--resume-on-reset` is holding has no child, and `runs stop` TERMs its
+wrapper, which ends the wait. Exit codes: 0 stopped, 3 no such round, 64
+usage, ambiguous, foreign or pid mismatch, 1 anything else. A harness that a
+signal ended leaves `harness_signal=` and
+`signal_source=lead-stop|watchdog|wrapper|external` in the sentinel.
 
 **The panel.** `mods/outsource-panel` in the repository is a Claude Code mod.
 The marketplace install loads it (the root plugin's `hooks/hooks.json`), as
@@ -369,7 +400,14 @@ a grok CLI ndjson (text deltas after the last tool event), and opencode
 and exits 65 when the log holds no report at all, which is what a
 died-mid-run round looks like. On that path it now also names what the
 sentinel already knows (`rc`, `wrapper_signal`, finished) or that the
-round is still running. It prints the delegate's words; **completion
+round is still running. A round cut by its plan limit exits 65 with one
+line, `no report: rate-limited (429) at <finished>, plan resets at <reset> (plan|429 text); resume with --session <sid>`
+(local times). The sentinel decides; for a sentinel written before this
+change, the trail it names decides. A log whose only result is Claude Code's
+`API Error:` line is never a report. A round still waiting says
+`no report yet: … resumes its own session by 17:24 at the latest`. Times are
+local; the generic "killed/finished at" line also keeps the sentinel's UTC
+value after it. It prints the delegate's words; **completion
 evidence is still the `.rc` sentinel**, never the report's existence.
 
 **Auditing what a round did.** A report says what the round claims. The diff
@@ -423,7 +461,15 @@ judge it.
    no file written, empty `git status`). The sentinel carries
    `tool_calls=<N>` (`unknown (<reason>)` when uncountable, `0 (allowed)`
    under `--allow-no-tools` for answer-only rounds); 72 keeps precedence
-   over 73, and the other harnesses are not counted yet.
+   over 73, and the other harnesses are not counted yet. On claude-code the
+   sentinel also records `quota_exhausted=0|1`; with 1 come
+   `reset_at=<RFC3339 UTC|unknown>` (the 429 text's reset),
+   `quota_reset_at=<RFC3339 UTC>` (the plan quota API's, when readable at the
+   death) and `api_error=429 <provider message, ≤160 chars>`; `rc` is
+   unchanged. Under `--resume-on-reset`: `resumed_after_reset=<n>` (resumes
+   that took; a re-429 with the same reset text does not count) and
+   `reset_zone_suspect=1` when a parsed reset proved wrong. TERM, INT or HUP
+   during the wait writes the sentinel with `wrapper_signal`.
 2. **Re-run the suite it called green from cold** and compare the test
    count with CI's — a differing count is a failed verification. **Never
    pipe a gate through `tail`/`head`**: the pipeline's exit status becomes
