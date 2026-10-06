@@ -53,5 +53,38 @@ if printf '%s' "$out" | grep -q 'overlays/acme.md'; then ok; else
   bad "installed resolver did not find the declared overlay (got: $out)"
 fi
 
+# The stale-binary refusal keys on mtimes, so a *_test.go newer than
+# bin/outsource must NOT refuse (tracker STD-11: a test-only edit made
+# install.sh refuse and this suite red until a content-identical rebuild —
+# hit twice on 2026-10-06). A non-test .go newer than the binary must still
+# refuse: that is the check doing its one job.
+# The suite already cd'd to the repo root at the top. Recomputing it from a
+# relative BASH_SOURCE here resolved one level too high under run-all.sh
+# (invoked as ./install-preserve.test.sh from tests/), so both cases below
+# were skipped silently there (lead review, 2026-10-06).
+ROOT="$(pwd)"
+BIN="$ROOT/skills/outsource/bin/outsource"
+NEWER_TEST="$ROOT/internal/install_probe_test.go"
+NEWER_SRC="$ROOT/internal/install_probe.go"
+cleanup_probe() { rm -f "$NEWER_TEST" "$NEWER_SRC"; }
+trap 'cleanup_probe; rm -rf "$TMP"' EXIT
+
+if [ -e "$BIN" ]; then
+  : >"$NEWER_TEST"
+  touch "$BIN" "$NEWER_TEST"; sleep 1; touch "$NEWER_TEST" # strictly newer
+  if ./install.sh >/dev/null 2>&1; then ok; else
+    bad "install refused on a *_test.go newer than the binary — a test-only edit must not need a rebuild (STD-11)"
+  fi
+
+  : >"$NEWER_SRC"
+  touch "$BIN" "$NEWER_SRC"; sleep 1; touch "$NEWER_SRC" # strictly newer
+  if ./install.sh >/dev/null 2>&1; then
+    bad "install did not refuse on a non-test .go newer than the binary — it would ship the previous binary"
+  else ok; fi
+  cleanup_probe
+else
+  bad "no committed binary at $BIN — the STD-11 cases cannot run, and a skip would read as a pass"
+fi
+
 printf 'install-preserve: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
