@@ -37,6 +37,9 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 ROOT="$(pwd)"
+# shellcheck source=hermetic-env.sh
+. tests/hermetic-env.sh
+hermetic_scrub_env
 DISPATCHER="$ROOT/skills/outsource/bin/outsource"
 GUARD_SHIM="$ROOT/skills/outsource/bin/git-guard.sh"
 TARGETS="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"

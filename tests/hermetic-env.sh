@@ -37,6 +37,13 @@
 #   CLAUDE_CODE_MAX_CONTEXT_TOKENS same shape at glm.sh:125; measured: an
 #                              inherited value other than 1310720 fails
 #                              glm-interactive.test.sh:135
+#   OUTSOURCE_SKILL_DIR        the bin/outsource dispatcher exports it when it
+#                              execs a binary from its download cache, so a
+#                              round launched through a cached binary carries
+#                              it; measured 2026-10-06 with it set, five
+#                              dispatcher.test.sh checks failed ("cache hit did
+#                              not exec the cached binary with the skill dir
+#                              exported"), because the caller's value wins
 hermetic_env_names=(
   OUTSOURCE_ROUND
   OUTSOURCE_DETACHED
@@ -47,6 +54,7 @@ hermetic_env_names=(
   CLAUDE_CONFIG_DIR
   CLAUDE_CODE_MAX_OUTPUT_TOKENS
   CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  OUTSOURCE_SKILL_DIR
 )
 
 # hermetic_scrub_env unsets every name on the list. Call it at the top of a
@@ -68,4 +76,5 @@ hermetic_poison_names=(
   OUTSOURCE_ROUND
   OUTSOURCE_DETACHED
   ANTHROPIC_AUTH_TOKEN
+  OUTSOURCE_SKILL_DIR
 )
