@@ -74,6 +74,19 @@ func TestInlineValueIsStripped(t *testing.T) {
 	}
 }
 
+// Words after `--` are a wrapped command's (outsource slot -- go test
+// --count=1), not the tool's: neither their names nor an allowlisted value
+// may be recorded as the tool's flags.
+func TestFlagsStopAtDoubleDash(t *testing.T) {
+	names, vals := flagNames([]string{"--max", "2", "--", "go", "test", "--count=1", "--harness", "crush"})
+	if strings.Join(names, " ") != "--max" {
+		t.Errorf("names = %v, want only --max", names)
+	}
+	if len(vals) != 0 {
+		t.Errorf("a wrapped command's value was recorded: %v", vals)
+	}
+}
+
 // The two high-frequency tools would bury the log and grow it by megabytes a day
 // if their successes were recorded.
 func TestHighFrequencyToolsRecordOnlyFailures(t *testing.T) {

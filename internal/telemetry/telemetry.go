@@ -110,7 +110,12 @@ func flagNames(args []string) ([]string, map[string]string) {
 	vals := map[string]string{}
 	seen := map[string]bool{}
 	for i, a := range args {
-		if !strings.HasPrefix(a, "--") || a == "--" {
+		// Past `--` the words belong to a command the tool runs (slot's
+		// wrapped command, grok-run's extra grok flags), not to the tool.
+		if a == "--" {
+			break
+		}
+		if !strings.HasPrefix(a, "--") {
 			continue
 		}
 		name := a
