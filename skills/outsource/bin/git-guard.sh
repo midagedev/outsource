@@ -5,4 +5,21 @@
 # This is a shim rather than a symlink because callers say `bash <path>`
 # (the status-line config, the launch recipes, the test suites), and bash
 # cannot execute a binary. For a fork-free call, invoke: outsource guard ...
-exec "$(dirname "${BASH_SOURCE[0]}")/outsource" guard "$@"
+#
+# Unlike its siblings this shim carries four lines of code, and they are its
+# one job: Claude Code reads a PreToolUse hook's exit 2 as "block" and any
+# OTHER non-zero as a non-blocking error — the tool runs. The dispatcher's
+# "no binary could be produced" is exit 69, and unwrapped that would turn a
+# failed fetch into an open git guard. 69 is no binary's other meaning
+# (checked against cmd/ and internal/), so translating it here cannot mask a
+# guard verdict. The launcher's own hook command names the per-arch binary
+# directly and never passes through the dispatcher; this wrapper is for the
+# paths that reach the guard by name — glm.md's guard check, a user-wired
+# hook, the codex sidecar.
+"$(dirname "${BASH_SOURCE[0]}")/outsource" guard "$@"
+rc=$?
+if [ "$rc" -eq 69 ]; then
+  echo "outsource git-guard: no verified outsource binary could be produced; blocking every git call (exit 2, fail closed). Fix: install Go and run ./build.sh, or install curl/wget and check the network." >&2
+  exit 2
+fi
+exit "$rc"

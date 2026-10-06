@@ -1,3 +1,8 @@
 local-overlay*.md
 dist/
 .DS_Store
+# Per-arch binaries are never tracked: dist/ holds the release builds and
+# skills/outsource/bin/outsource-<os>-<arch> is a local build for this
+# machine (the dispatcher fetches or builds one elsewhere). The dash in the
+# pattern is why bin/outsource.sha256 — a dot — stays committable.
+skills/outsource/bin/outsource-*
