@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- **A lead can talk to a running round.** Every Claude Code session binds an
+  inbox socket, and `claude -p` rounds do too. But discovery is split by
+  config dir, so a round (always on its own `CLAUDE_CONFIG_DIR`) never shows
+  up in a lead's `ListAgents`; measured 2026-10-06, a sender in another config
+  dir saw "No reachable agents". The round's SessionStart hook now records the
+  socket as the registry key `messagingSocket`. `runs json` carries it, and the
+  listing prints `inbox=uds:<path>` for running rounds. The round's settings
+  set `crossSessionInbound: accept`, so a message from a lead outside bypass
+  mode is not held and dropped. Measured end to end: a lead SendMessage
+  reached a running GLM round about 56 s later, between two tool calls, and the
+  round quoted it verbatim in its report.
+- **`mods/outsource-panel`: a Claude Code mod that shows rounds inside the
+  lead session.** `/rounds` opens a pane with the round list, live activity
+  lines, the selected round's trail and an input into its inbox.
+  `/rounds send <label> <text>` sends without the pane. There is also a
+  one-line band above the prompt, and toasts on own-round transitions. Data
+  comes only from `outsource runs json` and `outsource tail`. Verified with 14
+  `claude plugin test` cases, five live tmux checks (one a real send into a
+  receiver round, with a no-send control) and a vision verdict. Two layout
+  facts were measured on the way and are now encoded:
+  - a terminal outside fullscreen never docks a pane, so it opens inline at a
+    third of the window and folded the trail away until the open asked for
+    `rows`;
+  - an open before the first poll sized the pane for an empty list.
+- **`outsource audit <round>`: what a round actually ran.** It reads a
+  claude-code transcript (subagents included) or an agy log into events
+  named after Apache Maka's RuntimeEvent kinds. The summary covers:
+  - the model per request, with `MODEL DRIFT`;
+  - every shell command with observation flags;
+  - the files written by file tools;
+  - a git tree cross-check;
+  - denials with who denied each one;
+  - inbound messages and subagents.
+  The launcher now seals the trail in the sentinel (`trail_sha256`,
+  `trail_bytes`, `subagents_sha256`). Audit verifies the seal as `ok`,
+  `extended` (appended after the seal with the prefix intact, as a `--session`
+  resume does), `mismatch` (exit 3) or `absent`.
+- **A `<synthetic>` API-error line no longer fails model identity.** Claude
+  Code writes an API error (here a 429 from the z.ai 5-hour limit) into the
+  transcript as an assistant line with model `<synthetic>` and
+  `isApiErrorMessage: true`. The identity check counted it, so a round resumed
+  after a limit death finished with `model_actual=glm-5.3,<synthetic>` and
+  exit 70 (measured 2026-10-06). Six transcripts in the shared config dir carry
+  such a line. Only lines with the flag are skipped, so an endpoint cannot opt
+  out by naming itself `<synthetic>`.
 - **A round that made no tool calls cannot have done the work — the launcher
   now counts them and refuses to score it a pass (exit 73).** Measured
   2026-09-29 10:47 KST: a GLM-5.3 round (claude-code harness, `--effort max`,

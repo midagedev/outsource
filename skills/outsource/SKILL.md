@@ -289,6 +289,32 @@ identified, not a naming scheme.
 `<skill-dir>/bin/statusline.sh` puts that line, and the plan quotas from
 `bin/quota.sh`, into Claude Code's status line. See the README.
 
+**Talking to a running round** (claude-code harness). Every round records its
+inbox socket, and `runs.sh` prints it on a running round's detail line as
+`inbox=uds:/tmp/cc-socks/<pid>.sock`. Send a correction there with the
+SendMessage tool (`to` = that address). The round reads it between two tool
+calls, without being restarted. Measured 2026-10-06: a lead message arrived
+about 56 s after sending, and the round quoted it verbatim in its report. A
+round runs with its own `CLAUDE_CONFIG_DIR`, so it never shows up in
+`ListAgents`. The address is the only way in. Each round's settings carry
+`crossSessionInbound: accept`, so a lead outside bypass mode is not held and
+dropped. Whatever you send is a spec addition: ask the round to quote it in its
+report, and check the report covers it.
+
+**The panel.** `mods/outsource-panel` in the repository is a Claude Code mod
+that draws all of the above inside the lead session:
+- `/rounds` opens a pane with the round list, each own round's current
+  activity line, the selected round's trail, and an input that posts to its
+  inbox;
+- `/rounds send <label> <text>` sends without opening the pane;
+- a one-line band above the prompt while the pane is closed;
+- toasts when an own round finishes, fails, stalls or is orphaned.
+Load it with `claude --plugin-dir <repo>/mods/outsource-panel`. "Own" means
+launched from this session id. A fresh session therefore sees every earlier
+round as foreign (⇄), and so does a session after `/clear`. Resume the
+launching session with `claude --resume <id> --plugin-dir …` to keep
+ownership (measured).
+
 **Retrieving the report.** When the sentinel says the round finished, do not
 hand-write a JSON extractor (measured 2026-08-17: four rounds, four
 throwaway Python scripts, two log shapes):
@@ -306,6 +332,35 @@ died-mid-run round looks like. On that path it now also names what the
 sentinel already knows (`rc`, `wrapper_signal`, finished) or that the
 round is still running. It prints the delegate's words; **completion
 evidence is still the `.rc` sentinel**, never the report's existence.
+
+**Auditing what a round did.** A report says what the round claims. The diff
+says what it left. Neither says what it *ran*. `bin/audit.sh <round>` takes
+tail's selector (id, label or `--log`; `--log` also works after the record is
+pruned) and reads a claude-code transcript (subagents included) or an agy log.
+It prints:
+- the model behind every request, marking `MODEL DRIFT` on any id other than
+  the requested one;
+- every shell command, with observation flags: `git-write`, `rm-rf`,
+  `pgrep-wait`, `pipe-tail`, `nested-launch`, `network-install`;
+- the files written by file tools;
+- a git cross-check of the round's cwd, with `--base <rev>` once the work is
+  committed. Its three lists are `written-and-changed`,
+  `changed-without-file-tool` (shell writes, generated files, or someone
+  else's edits) and `written-but-unchanged`;
+- denials, with who denied each one (git-guard, mod, hook, permission);
+- inbound messages;
+- subagents.
+`--json` prints the event list (the kinds are Apache Maka's taxonomy), and
+`--events` prints it one line per event. The launcher seals each trail in the
+sentinel (`trail_sha256`, `trail_bytes`, `subagents_sha256`). Audit's seal
+verdicts:
+- `ok`: untouched;
+- `extended`: bytes appended after the seal with the sealed prefix intact,
+  which is what a `--session` resume does;
+- `mismatch`: exit 3;
+- `absent`: an older round.
+Flags are observations, not verdicts. Read the flagged command before you
+judge it.
 
 ## What the lead always does (backend-independent)
 

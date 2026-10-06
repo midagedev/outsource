@@ -140,6 +140,64 @@ sample <child-pid> 2 -file /tmp/s.txt  # macOS: 어느 지점에 주차돼 있�
 
 `--label`은 그 트랙이 **무엇을 위한 것인가**이고, 실행마다 적어 줄 값어치가 있습니다. 이 목록이 값을 하는 건 병렬일 때인데, 유도된 기본값이 무너지는 지점이 정확히 거기이기 때문입니다: 이 스킬이 문서화한 배치는 트랙마다 디렉터리 하나에 `<scratch>/spec.md`를 쓰므로, basename 기반 라벨이면 `spec`이 세 번 뜹니다. 그래서 기본값은 스펙을 담은 디렉터리(보통 그 트랙의 스크래치 디렉터리)로 물러나고, 그래도 충돌하면 `name`, `name#2`로 그려집니다 — 작명 규칙이 아니라 "지금 보는 라운드를 식별할 수 없다"는 경고입니다.
 
+### 돌고 있는 라운드에 말 걸기
+
+claude-code 라운드는 자기 메시지 수신 소켓을 레지스트리에 남기고, `runs.sh`는 실행 중인 라운드의 상세 줄에 그 주소를 보여 줍니다.
+
+```
+running  api-migration    zai    cc          12m     4s …
+         trail=…/2e156be9….jsonl (follow: outsource tail 1789449070-74619)  inbox=uds:/tmp/cc-socks/74702.sock
+```
+
+Claude Code의 SendMessage 도구로 이 주소(`to` = 그 주소)에 지시를 보내면, 라운드가 재시작 없이 도구 호출 사이에 읽습니다. 2026-10-06 실측: 메시지는 약 56초 뒤 라운드에 도착했고, 라운드는 그 문장을 보고서에 그대로 인용했습니다.
+
+주소가 따로 필요한 이유는 라운드가 자기 `CLAUDE_CONFIG_DIR`로 돌고, 세션끼리 서로를 찾는 범위가 config 디렉터리별로 갈리기 때문입니다. 그래서 라운드는 `ListAgents`에 나타나지 않습니다.
+
+라운드 설정에는 `crossSessionInbound: accept`를 넣습니다. 이 설정이 없으면 bypass 모드의 `-p` 라운드는 bypass가 아닌 리드가 보낸 메시지를 보류했다가 5분 뒤 버립니다.
+
+### 라운드가 실제로 한 일 감사하기
+
+보고서는 라운드가 주장하는 것이고, diff는 라운드가 남긴 것입니다. 라운드가 실제로 *무엇을 실행했는지*는 둘 다 말해 주지 않습니다. `bin/audit.sh <round>`(`tail`과 같은 선택자)는 claude-code 트랜스크립트(서브에이전트 포함)나 agy 로그를 읽어 검토용 요약을 냅니다.
+
+- 요청마다 실제로 답한 모델. 요청한 모델과 다르면 `MODEL DRIFT`로 표시합니다.
+- 실행한 셸 명령 전체와 관찰 표시: `git-write`, `rm-rf`, `pgrep-wait`, `pipe-tail`, `nested-launch`, `network-install`
+- 파일 도구로 쓴 파일
+- 라운드 작업 디렉터리의 git 대조: `written-and-changed`, `changed-without-file-tool`, `written-but-unchanged`
+- 거부된 호출과 거부한 주체
+- 받은 메시지와 서브에이전트
+
+`--json`은 이벤트 목록을 냅니다. 이벤트 종류는 Apache Maka의 RuntimeEvent 분류를 빌렸습니다(model_request, function_call/response, permission_decision, error, message_received, subagent_spawn, termination).
+
+Maka 로그에는 위조 탐지가 없어서 그 부분을 조금 더했습니다. 하네스가 끝나면 런처가 센티널에 `trail_sha256` / `trail_bytes` / `subagents_sha256`을 적고, audit은 다음 넷 중 하나로 판정합니다.
+
+- `ok`: 손대지 않음
+- `extended`: 봉인한 앞부분은 그대로이고 뒤에만 바이트가 붙음. `--session`으로 이어서 돌리면 이렇게 됩니다.
+- `mismatch`: exit 3
+- `absent`: 봉인 전에 돈 라운드
+
+### 패널 (Claude Code mod)
+
+`mods/outsource-panel`은 이 모든 것을 리드 세션 안에 턴 소모 없이 그립니다.
+
+```
+claude --plugin-dir <repo>/mods/outsource-panel
+```
+
+- `/rounds`를 치면 패널이 열립니다. 들어 있는 것은 다음과 같습니다.
+  - 라운드 목록: 내 라운드가 먼저, 다른 세션의 라운드(⇄)가 그다음
+  - 내가 띄운 최신 라운드마다 지금 하는 일 한 줄
+  - 선택한 라운드의 trail
+  - 그 라운드에 메시지를 보내는 입력칸
+- `/rounds send <label> <text>`는 패널을 열지 않고 보냅니다.
+- 패널을 닫아 두면 프롬프트 위 한 줄에 가장 최근에 움직인 내 라운드가 뜹니다.
+- 내 라운드가 끝나거나, 실패하거나, 조용해지거나, 프로세스를 잃으면 토스트로 알립니다.
+
+데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다.
+
+"내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id> --plugin-dir …`).
+
+전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다.
+
 ## 스테이터스라인
 
 `bin/statusline.sh`는 위의 레지스트리와 [`bin/quota.sh`](#가드레일)의 플랜 쿼터를 Claude Code 스테이터스라인에 올립니다 — 이 세션을 멈추는 한도, 다음 라운드를 멈추는 한도, 그리고 지금 돌고 있는 것:

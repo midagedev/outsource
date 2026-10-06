@@ -151,6 +151,54 @@ A stall is a reason to read the trail, not to kill anything. `bin/outsource-run.
 
 `--label` is what the track is **for**, and it is worth typing on every launch, because the listing only earns its keep in parallel and that is exactly when the derived default fails: this skill's documented layout writes every track's spec to `<scratch>/spec.md`, one dir per track, so a basename-derived label would read `spec` three times. The default therefore falls back to the directory holding the spec — usually the track's own scratch dir — and a label that still collides renders as `name`, `name#2`: a warning that the round you are looking at cannot be identified, not a naming scheme.
 
+### Talking to a running round
+
+A claude-code round records its inbox socket, and `runs.sh` prints it on a running round's detail line:
+
+```
+running  api-migration    zai    cc          12m     4s …
+         trail=…/2e156be9….jsonl (follow: outsource tail 1789449070-74619)  inbox=uds:/tmp/cc-socks/74702.sock
+```
+
+Send a correction there with Claude Code's SendMessage tool (`to` = that address). The round reads it between two tool calls, without a restart. Measured 2026-10-06: the message reached the round about 56 s later, and the round quoted it verbatim in its report. The address is needed because a round runs with its own `CLAUDE_CONFIG_DIR`, and cross-session discovery is split by config dir: the round never appears in `ListAgents`. Each round's settings carry `crossSessionInbound: accept`. Otherwise a `-p` round in bypass mode would hold a message from a lead outside bypass mode, then drop it after five minutes.
+
+### Auditing what a round did
+
+A report says what a round claims, and the diff says what it left behind. Neither says what it *ran*. `bin/audit.sh <round>` (the same selector as `tail`) reads a claude-code transcript, subagents included, or an agy log, and prints a review summary:
+
+- the model behind every request, with `MODEL DRIFT` on any other id;
+- every shell command, with observation flags: `git-write`, `rm-rf`, `pgrep-wait`, `pipe-tail`, `nested-launch`, `network-install`;
+- files written by file tools;
+- a git cross-check of the round's cwd: `written-and-changed`, `changed-without-file-tool` and `written-but-unchanged`;
+- denials, with who denied each one;
+- inbound messages and subagents.
+
+`--json` prints the event list. Its kinds borrow Apache Maka's RuntimeEvent taxonomy: model_request, function_call/response, permission_decision, error, message_received, subagent_spawn, termination. Maka's log has no tamper evidence, so this adds a small piece. The launcher writes `trail_sha256` / `trail_bytes` / `subagents_sha256` into the sentinel after the harness exits, and audit returns one of four verdicts:
+
+- `ok`;
+- `extended`: bytes appended with the sealed prefix intact, which is what a `--session` resume does;
+- `mismatch`: exit 3;
+- `absent`: an older round.
+
+### The panel (a Claude Code mod)
+
+`mods/outsource-panel` draws all of this inside the lead session, without spending a turn:
+
+```
+claude --plugin-dir <repo>/mods/outsource-panel
+```
+
+- `/rounds` opens a pane with:
+  - the round list: own rounds first, then other sessions' (⇄);
+  - each newest own round's current activity line;
+  - the selected round's trail;
+  - an input that posts to its inbox.
+- `/rounds send <label> <text>` sends without opening the pane.
+- While the pane is closed, a one-line band above the prompt follows your most recently active round.
+- Toasts announce an own round that finished, failed, went silent or lost its process.
+
+All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id> --plugin-dir …`) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs.
+
 ## Status line
 
 `bin/statusline.sh` puts the registry above, and the plan quotas from [`bin/quota.sh`](#guardrails), into Claude Code's status line — the budgets that stop this session, the ones that stop the next round, and what is running right now:
