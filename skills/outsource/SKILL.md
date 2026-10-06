@@ -303,9 +303,12 @@ round runs with its own `CLAUDE_CONFIG_DIR`, so it never shows up in
 dropped. Whatever you send is a spec addition: ask the round to quote it in its
 report, and check the report covers it.
 
-**The panel.** `mods/outsource-panel` in the repository is a Claude Code mod
-loaded with `claude --plugin-dir <repo>/mods/outsource-panel` that shows the
-rounds to the person and wakes the lead model when its own change state:
+**The panel.** `mods/outsource-panel` in the repository is a Claude Code mod.
+The marketplace install loads it (the root plugin's `hooks/hooks.json`), as
+does `claude --plugin-dir <repo>`; a script install loads it with
+`claude --plugin-dir <repo>/mods/outsource-panel` (loaded both ways at once,
+only the bundled copy runs). It shows the rounds to the person and wakes the
+lead model when its own change state:
 - the person sees a `/rounds` pane (the round list, each newest own round's
   activity line, the selected round's trail, an input that posts to its
   inbox), a one-line band above the prompt while the pane is closed, and
@@ -315,17 +318,21 @@ rounds to the person and wakes the lead model when its own change state:
   plugin-submitted prompt starts its own turn once the session is idle,
   queues behind a running one, and fires the `UserPromptSubmit` hooks — read
   it as a notification from the panel, never as the person and never as an
-  approval), the tools `mcp__outsource-panel__rounds` (what is in flight)
-  and `mcp__outsource-panel__round_send` (a mid-round correction into one of
-  your running rounds), and a system-prompt section stating the same;
+  approval), the tools `mcp__outsource__rounds` (what is in flight) and
+  `mcp__outsource__round_send` (a mid-round correction into one of your
+  running rounds) — `mcp__outsource-panel__rounds` and
+  `mcp__outsource-panel__round_send` when the panel is loaded on its own —
+  and a system-prompt section stating the same and naming the tools as they
+  are registered;
 - with the panel loaded you do not need `wait.sh` for rounds launched from
   this session — the wake replaces the waiter (`wait.sh` is for sessions
   without the panel).
 
 "Own" means launched from this session id. A fresh session therefore sees
 every earlier round as foreign (⇄), and so does a session after `/clear`.
-Resume the launching session with `claude --resume <id> --plugin-dir …` to
-keep ownership (measured); a resumed session is also woken for rounds that
+Resume the launching session with `claude --resume <id>` (plus the same
+`--plugin-dir` if that is how the panel is loaded) to keep ownership
+(measured); a resumed session is also woken for rounds that
 finished, failed or were orphaned while it was down, while a session id the
 panel has never polled seeds silently. A wake carries only launcher-written fields — label, state,
 rc, timings, `log`, `cwd`, id — never the round's trail or tail output,
@@ -338,8 +345,12 @@ never writes it bare: `last-report <log>`, `cat <log>.rc`, the diff in its
 `cwd`, `audit <id>`, then the gates.
 
 `/rounds wake on|off` toggles the model wake (default on; toasts stay either
-way, and a bare `/rounds wake` prints the state). `send` and `wake` are
-subcommand words first: a round labelled `send` or `wake` is reachable
+way, and a bare `/rounds wake` prints the state). `/rounds off` turns the
+whole panel off — no polling, band, toasts, wake or pane; the tools answer an
+error and the system section says to arm `wait.sh` — until `/rounds on`,
+which resumes without waking for what changed meanwhile (persisted, default
+on; `wake off` stops only the wake). `send`, `wake`, `on` and `off` are
+subcommand words first: a round labelled with one of them is reachable
 through the pane's round Select (`/rounds`, then pick it), not through
 `/rounds <label>`.
 

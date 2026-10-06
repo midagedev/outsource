@@ -44,6 +44,13 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 /plugin install outsource@outsource
 ```
 
+이 설치 한 번으로 스킬과 [패널](#패널-claude-code-mod)(`/rounds` 창, 밴드, 토스트, 깨우기)이 함께 들어옵니다. 루트 플러그인이 `hooks/hooks.json`으로 `mods/outsource-panel`을 불러오기 때문입니다. clone해 두었다면 `claude --plugin-dir <clone>`으로 한 세션에 둘을 함께 불러올 수 있습니다.
+
+Claude Code는 마켓플레이스 설치본을 플러그인 캐시 `~/.claude/plugins/cache/outsource/outsource/<version>/`에 둡니다. 그래서 스킬은 `<version>/skills/outsource/`에 있고, 아래에서 `~/.claude/skills/outsource/`로 시작하는 경로는 모두 그 자리에서 시작합니다. 달라지는 점이 두 가지입니다.
+
+- 키 설정 스크립트는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`입니다.
+- 사용자 오버레이는 스킬 폴더 기준으로 읽으므로, 마켓플레이스 설치에서는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md`가 됩니다. 이 버전 폴더는 업데이트 때 통째로 바뀝니다. 오버레이를 쓰신다면 설치 스크립트로 설치하시거나(오버레이를 보존합니다), `OUTSOURCE_SKILL_DIR`를 계속 두실 폴더로 지정하고 그 `references/`에 `local-overlay.md`와 `overlays/`를 두십시오.
+
 또는 설치 스크립트([로컬 오버레이](#로컬-오버레이)를 쓸 거면 이쪽):
 
 ```bash
@@ -177,11 +184,13 @@ Maka 로그에는 위조 탐지가 없어서 그 부분을 조금 더했습니�
 
 ### 패널 (Claude Code mod)
 
-`mods/outsource-panel`은 이 모든 것을 리드 세션 안에 턴 소모 없이 그립니다.
+`mods/outsource-panel`은 이 모든 것을 리드 세션 안에 턴 소모 없이 그립니다. 마켓플레이스 설치와 `claude --plugin-dir <clone>`에는 패널이 이미 들어 있습니다(루트 플러그인이 `hooks/hooks.json`으로 패널 모듈을 불러옵니다). 설치 스크립트로 설치했다면 패널을 따로 불러오십시오.
 
 ```
-claude --plugin-dir <repo>/mods/outsource-panel
+claude --plugin-dir <clone>/mods/outsource-panel
 ```
+
+한 가지 방법으로만 불러오십시오. 마켓플레이스 설치와 이 옵션이 한 세션에서 만나면 번들 쪽만 동작하고, 단독 쪽은 아무것도 등록하지 않은 채 그 이유를 디버그 로그에 남깁니다. 패널은 처음 찾은 `outsource` 바이너리를 씁니다. 찾는 순서는 `OUTSOURCE_PANEL_BIN`, 플러그인 자신의 `skills/outsource/bin/outsource`, 단독으로 불러왔을 때 그 clone의 바이너리, `~/.claude/skills/outsource/bin/outsource`입니다. 어느 것을 골랐는지는 디버그 로그에 남습니다.
 
 - `/rounds`를 치면 패널이 열립니다. 들어 있는 것은 다음과 같습니다.
   - 라운드 목록: 내 라운드가 먼저, 다른 세션의 라운드(⇄)가 그다음
@@ -190,6 +199,7 @@ claude --plugin-dir <repo>/mods/outsource-panel
   - 그 라운드에 메시지를 보내는 입력칸
 - `/rounds send <label> <text>`는 패널을 열지 않고 보냅니다.
 - `/rounds wake [on|off]`는 모델 깨우기를 켜고 끕니다. 기본은 켜짐이고, `/rounds wake`만 치면 현재 상태를 보여 줍니다. 꺼도 토스트는 그대로 뜹니다.
+- `/rounds off`는 패널 전체를 끕니다. 폴링, 밴드, 토스트, 깨우기, 패널 창이 모두 멈추고, 도구 두 개는 오류로 답합니다. `/rounds on`으로 다시 켜며, 꺼져 있던 동안의 변화로는 깨우지 않습니다. 설정은 유지되고 기본은 켜짐입니다. `/rounds wake off`는 모델 깨우기만 끄고 나머지는 그대로 둡니다.
 - 패널을 닫아 두면 프롬프트 위 한 줄에 가장 최근에 움직인 내 라운드가 뜹니다.
 - 내 라운드가 끝나거나, 실패하거나, 조용해지거나, 프로세스를 잃으면 토스트로 알립니다.
 
@@ -200,15 +210,15 @@ claude --plugin-dir <repo>/mods/outsource-panel
 - 같은 라운드의 같은 상태로는 두 번 깨우지 않습니다. 이 기록은 mod의 저장소에 남습니다.
 - 재시작한 리드는 꺼져 있던 동안 끝나거나, 실패하거나, 프로세스를 잃은 라운드에 대해 깨워집니다. 패널이 한 번도 확인하지 않은 세션 id는 조용히 시작하므로, 처음 로드할 때 지난 라운드가 한꺼번에 몰려오지 않습니다.
 - 깨우는 글에는 런처가 쓴 값(라벨, 상태, rc, 시간, log, cwd, id)만 들어갑니다. 라운드가 직접 쓴 trail 내용은 넣지 않습니다. 끝에는 검토 명령이 한 줄에 하나씩 붙습니다: last-report, `.rc` 센티널, diff, audit, 그다음 게이트. `outsource`가 PATH에 없어서 명령마다 설치된 바이너리의 절대 경로를 쓰고, 명령 줄은 길어도 자르지 않습니다.
-- 모델은 도구 `mcp__outsource-panel__rounds`와 `mcp__outsource-panel__round_send`도 받습니다. 이 내용을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
+- 모델은 도구 `mcp__outsource__rounds`와 `mcp__outsource__round_send`도 받습니다(패널을 단독으로 불러왔다면 `mcp__outsource-panel__rounds`, `mcp__outsource-panel__round_send`). 이 내용을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
 
 데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다.
 
-"내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id> --plugin-dir …`).
+"내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id>`, 패널을 `--plugin-dir`로 불러왔다면 같은 옵션도 함께).
 
 전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다.
 
-`send`와 `wake`는 하위 명령으로 먼저 읽힙니다. 라벨이 `send`나 `wake`인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
+`send`, `wake`, `on`, `off`는 하위 명령으로 먼저 읽힙니다. 라벨이 이 단어인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
 
 ## 스테이터스라인
 

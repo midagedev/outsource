@@ -44,6 +44,13 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 /plugin install outsource@outsource
 ```
 
+That one install brings the skill **and** [the panel](#the-panel-a-claude-code-mod) (the `/rounds` pane, the band, the toasts, the wake): the root plugin loads `mods/outsource-panel` through its `hooks/hooks.json`. From a clone, `claude --plugin-dir <clone>` loads the same two for one session.
+
+Claude Code keeps a marketplace install in its plugin cache, `~/.claude/plugins/cache/outsource/outsource/<version>/`, so the skill is `<version>/skills/outsource/` and every path below that starts `~/.claude/skills/outsource/` starts there instead. Two consequences:
+
+- The key setup script is `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`.
+- The binary finds its skill folder from its own path (two levels up from `bin/outsource`), so a marketplace install reads its user overlay from `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md` — inside a version folder that an update replaces. Keep the overlay with an install-script install (which preserves it), or set `OUTSOURCE_SKILL_DIR` to a folder you keep whose `references/` holds `local-overlay.md` and `overlays/`.
+
 Or with the install script (preferred if you'll use a [local overlay](#local-overlays)):
 
 ```bash
@@ -182,11 +189,13 @@ A report says what a round claims, and the diff says what it left behind. Neithe
 
 ### The panel (a Claude Code mod)
 
-`mods/outsource-panel` draws all of this inside the lead session, without spending a turn:
+`mods/outsource-panel` draws all of this inside the lead session, without spending a turn. The marketplace install includes it, and so does `claude --plugin-dir <clone>`: the root plugin loads the panel's module through its `hooks/hooks.json`. With an install-script install, load the panel on its own:
 
 ```
-claude --plugin-dir <repo>/mods/outsource-panel
+claude --plugin-dir <clone>/mods/outsource-panel
 ```
+
+Load it one way, not both: if the marketplace install and that flag meet in one session, only the bundled copy runs — the standalone one registers nothing and says why in the debug log. The panel runs the `outsource` binary it finds first: `OUTSOURCE_PANEL_BIN`, then the plugin's own `skills/outsource/bin/outsource`, then the clone around a standalone copy, then `~/.claude/skills/outsource/bin/outsource`; the debug log names the one it chose.
 
 - `/rounds` opens a pane with:
   - the round list: own rounds first, then other sessions' (⇄);
@@ -195,12 +204,13 @@ claude --plugin-dir <repo>/mods/outsource-panel
   - an input that posts to its inbox.
 - `/rounds send <label> <text>` sends without opening the pane.
 - `/rounds wake [on|off]` toggles the model wake (default on; a bare `/rounds wake` prints the state; off leaves the toasts).
+- `/rounds off` turns the whole panel off — no polling, band, toasts, wake or pane, and the two tools answer an error — until `/rounds on`, which resumes without waking for anything that changed meanwhile; the setting persists, default on. `/rounds wake off` silences only the model wake and leaves the rest running.
 - While the pane is closed, a one-line band above the prompt follows your most recently active round.
 - Toasts announce an own round that finished, failed, went silent or lost its process.
 
-The panel also talks to the lead **model**, not only to you. When one of this session's rounds finishes, fails, is orphaned or stalls, the mod submits one `[outsource-panel]` prompt, so a lead with the panel loaded no longer needs to arm `wait.sh` for rounds it launched here. Measured 2026-10-06: a plugin-submitted prompt starts its own turn once the session is idle, queues behind a running one, and fires the `UserPromptSubmit` hooks like a typed prompt. One prompt per poll that saw transitions, never twice for the same round and state (a dedup the mod keeps in its store), and a restarted lead is woken for rounds that finished, failed or were orphaned while it was down — a session id the panel has never polled seeds silently, so the first load does not replay history. The wake text carries only launcher-written fields (label, state, rc, timings, log, cwd, id), never the round's own trail output, and closes with the review routine as commands, one per line, each spelled with the installed binary's absolute path (`outsource` is not on PATH): last-report, the `.rc` sentinel, the diff, the gates, audit. The model also gets the tools `mcp__outsource-panel__rounds` and `mcp__outsource-panel__round_send`, and a system-prompt section stating all of this; with the wake off, the section says "arm wait.sh as usual".
+The panel also talks to the lead **model**, not only to you. When one of this session's rounds finishes, fails, is orphaned or stalls, the mod submits one `[outsource-panel]` prompt, so a lead with the panel loaded no longer needs to arm `wait.sh` for rounds it launched here. Measured 2026-10-06: a plugin-submitted prompt starts its own turn once the session is idle, queues behind a running one, and fires the `UserPromptSubmit` hooks like a typed prompt. One prompt per poll that saw transitions, never twice for the same round and state (a dedup the mod keeps in its store), and a restarted lead is woken for rounds that finished, failed or were orphaned while it was down — a session id the panel has never polled seeds silently, so the first load does not replay history. The wake text carries only launcher-written fields (label, state, rc, timings, log, cwd, id), never the round's own trail output, and closes with the review routine as commands, one per line, each spelled with the installed binary's absolute path (`outsource` is not on PATH): last-report, the `.rc` sentinel, the diff, the gates, audit. The model also gets the tools `mcp__outsource__rounds` and `mcp__outsource__round_send` (`mcp__outsource-panel__rounds` and `mcp__outsource-panel__round_send` when the panel is loaded on its own), and a system-prompt section stating all of this and naming the tools by the names they have; with the wake off, the section says "arm wait.sh as usual".
 
-All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id> --plugin-dir …`) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs. A round labelled `send` or `wake` is reachable through the pane's round Select — those words are subcommands first.
+All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id>`, plus the same `--plugin-dir` if that is how you load the panel) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs. A round labelled `send`, `wake`, `on` or `off` is reachable through the pane's round Select — those words are subcommands first.
 
 ## Status line
 
