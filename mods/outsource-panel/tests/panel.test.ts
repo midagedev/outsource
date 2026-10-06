@@ -11,7 +11,15 @@ import { test, expect, mock } from 'claude-code/testing'
 // fixture; tests/fixtures/runs.json (the shape specimen the fake binary
 // serves) is pinned to it by a drift check in tests/panel-mod.test.sh.
 import { ROWS } from './fixtures/runs.js'
-import { charWidth, displayWidth, secs, truncate } from '../hooks/view.js'
+import {
+  charWidth,
+  displayWidth,
+  roundsToolLine,
+  secs,
+  sectionText,
+  truncate,
+  wakeText,
+} from '../hooks/view.js'
 
 const fixtureRows: any[] = ROWS
 
@@ -29,6 +37,7 @@ const TRAILS: Record<string, string> = {
   r03: '── gate-authoring · zai·claude-code · running · /tmp/t/r03.jsonl\n10:31:09 💬 Authoring the numeric gate.\n10:40:55 🔧 Write tests/panel-gate.test.sh',
   r04: '── harness-fix · zai·claude-code · running · /tmp/t/r04.jsonl\n10:52:20 🔧 Bash sed -n 470,500p internal/runs/cli.go\n10:55:41 💬 Row fields confirmed.',
   r05: '── quota-report · zai·claude-code · running · /tmp/t/r05.jsonl\n10:59:12 💬 Querying the plan quota endpoint.\n10:59:58 🔧 Bash bin/quota.sh\n11:00:12 🔧 Bash awk -F, quota.csv',
+  wlab: '── wake · zai·claude-code · running · /tmp/t/wlab.jsonl\n10:59:12 💬 A round the lead happened to label wake.',
 }
 
 const PANE_PROPS = (bodyColumns: number, bodyRows: number) => ({
@@ -50,7 +59,7 @@ const BAND_PROPS = (bodyColumns: number, hasSurvey = false) => ({
 })
 
 // Everything a test needs from one boot: mutable stub state and the recorders.
-async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any } = {}) {
+async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any; store?: Record<string, unknown> } = {}) {
   const clock = mock.clock(on, { now: NOW_MS })
   mock.env(on, { HOME: '/fakehome', OUTSOURCE_PANEL_BIN: BIN })
 
@@ -65,11 +74,25 @@ async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any } = {}) {
     sendResult: { isDelivered: true } as any,
     opens: [] as any[],
     tailNs: [] as number[],
+    prompts: [] as string[],
+    tools: [] as string[],
+    store: JSON.parse(JSON.stringify(opts.store ?? {})) as Record<string, unknown>,
+    // The gate the engine's prompt intake stands behind: 'resolve' (default)
+    // enters at once; 'never' hangs the submit (defect 1's frozen-tick
+    // scenario); submitFails rejects the first N; submitDefers holds each
+    // submit for the test to release.
+    submitMode: 'resolve' as 'resolve' | 'never',
+    submitFails: 0,
+    submitDefers: null as null | Array<{ promise: Promise<any>; resolve: (v: any) => void }>,
   }
 
   on('session.start', () => ({ cwd: '/tmp/panel-test' })) // engine event: the result shape itself
   on('session.id', ($) => ({ value: OWNER }))
   on('command.register', ($, e: any) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e: any) => {
+    state.tools.push(e.name)
+    return { value: { tool: 'mcp__outsource-panel__' + e.name } }
+  })
   on('ui.panes', () => ({ value: [] }))
   on('ui.close', () => ({ value: undefined }))
   // What the engine draws when a render hook passes on: nothing of ours.
@@ -93,6 +116,42 @@ async function boot($: any, on: any, rows: Row[], opts: { uiOpen?: any } = {}) {
     state.sends.push(e)
     return state.sendResult // engine event: the SessionSendResult itself
   })
+  // A plugin-submitted prompt, as the engine would take it: recorded, and
+  // entered (the call resolves to the prompt that entered) — or gated, per
+  // the submit gate above.
+  on('prompt.submit', ($, e: any) => {
+    state.prompts.push(e.text)
+    if (state.submitMode === 'never') return new Promise<never>(() => undefined)
+    if (state.submitFails > 0) {
+      state.submitFails -= 1
+      return Promise.reject(new Error('gate: submit refused'))
+    }
+    if (state.submitDefers !== null) {
+      let resolve!: (v: any) => void
+      const promise = new Promise<any>((r) => {
+        resolve = r
+      })
+      state.submitDefers.push({ promise, resolve })
+      return promise
+    }
+    return { text: e.text, origin: e.origin }
+  })
+  // The plugin's own store, as the engine keeps it: JSON values, cloned on
+  // write so a later in-memory mutation cannot reach back into it.
+  on('store.get', ($, e: any) => ({ value: state.store[e.key] }))
+  on('store.set', ($, e: any) => {
+    state.store[e.key] = JSON.parse(JSON.stringify(e.value))
+    return { value: undefined }
+  })
+  on('store.delete', ($, e: any) => {
+    delete state.store[e.key]
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: Object.keys(state.store) }))
+  // The engine's own composition is not served in a test (measured: the
+  // plugin's compose hook was skipped with a bottom error), so the host
+  // answers with an empty base the plugin appends to.
+  on('prompt.compose', () => ({ sections: [] }))
   on('process.run', ($, e: any) => {
     const argv: string[] = e.argv
     if (argv[0] !== BIN) return { value: { exitCode: 64, stdout: '', stderr: 'unexpected binary', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -455,6 +514,495 @@ test('send refuses a row with two inbox sockets', async ($, on) => {
   const res = await $.command.run({ command: 'rounds', args: 'send docs-sweep which one' })
   expect(res.text).toBe('refused: docs-sweep has two inbox sockets (shared hook settings)')
   expect(state.sends).toHaveLength(0) // refused before any session.send
+})
+
+// ---- the wake: the lead model's notification ---------------------------------
+//
+// The rows below are built inline: the shared fixture is pinned by the
+// capture checks, and the wake needs rows in states the fixture never holds
+// (an own round flipping mid-test).
+
+const OTHER = '99999999-8888-7777-6666-555555555555'
+
+const wakeRow = (over: Partial<Row> = {}): Row =>
+  ({
+    id: 'w1',
+    pid: 5001,
+    label: 'api-fix',
+    provider: 'zai',
+    harness: 'claude-code',
+    model: 'glm-5.3',
+    cwd: '/tmp/panel-fixtures/wt-w1',
+    spec: '/tmp/panel-fixtures/specs/w1.md',
+    log: '/tmp/panel-fixtures/logs/w1.log',
+    progressDir: '/tmp/panel-fixtures/progress/w1',
+    trail: '/tmp/panel-fixtures/trails/w1.jsonl',
+    trailFormat: 'claude-transcript',
+    ownerSession: OWNER,
+    ownerClaudePid: '41000',
+    startedAt: NOW_MS / 1000 - 600,
+    rc: null,
+    finishedAt: null,
+    session: 'dddd4444-0000-4000-8000-000000000101',
+    modelActual: 'glm-5.3',
+    state: 'running',
+    elapsedSeconds: 600,
+    idleSeconds: 5,
+    stalled: false,
+    ...over,
+  }) as Row
+
+// A hot reload, simulated at the one boundary that matters: session.start
+// re-fired through the engine, so the plugin re-reads the store (wake, woken,
+// seen) and re-arms the resume catch-up against the store the first
+// incarnation left — the module's own seeding state aside, exactly what a
+// fresh module does on a real reload.
+const reRegister = ($: any) =>
+  $.session.start({ cwd: '/tmp/panel-test', surface: 'terminal', isInteractive: true })
+
+const flipDone = (row: any, atSec = 10) => {
+  row.state = 'done'
+  row.rc = 0
+  row.pid = null
+  row.finishedAt = NOW_MS / 1000 - atSec
+  row.elapsedSeconds = 3665
+  row.idleSeconds = null
+}
+
+// 16. The wake text contract: header naming n, one line per transition, the
+// Review pointer only when something finished, the 10-row cap with +N more.
+// FAIL-first: without the cap the 12-row case draws 12 lines and no '+2 more'.
+test('wakeText matches the contract', () => {
+  const done = wakeRow({ id: 'w1', label: 'api-fix', state: 'done', rc: 0, finishedAt: NOW_MS / 1000 - 10, elapsedSeconds: 3665, idleSeconds: null })
+  const failed = wakeRow({ id: 'w2', label: 'web-polish', state: 'failed', rc: 2, finishedAt: NOW_MS / 1000 - 30, elapsedSeconds: 120, idleSeconds: null, log: '/tmp/panel-fixtures/logs/w2.log' })
+  const orphan = wakeRow({ id: 'w3', label: 'night-sweep', state: 'orphan', pid: null, startedAt: NOW_MS / 1000 - 7200, elapsedSeconds: 7200, idleSeconds: null, log: '/tmp/panel-fixtures/logs/w3.log' })
+  const lines = wakeText([
+    { row: done, kind: 'done' },
+    { row: failed, kind: 'failed' },
+    { row: orphan, kind: 'orphan' },
+  ]).split('\n')
+  expect(lines[0]).toBe('[outsource-panel] 3 of your rounds changed state (a notification from the panel, not from the person):')
+  expect(lines[1]).toBe('- api-fix: done rc=0 · 1h01m · log=/tmp/panel-fixtures/logs/w1.log')
+  expect(lines[2]).toBe('- web-polish: failed rc=2 · 2m · log=/tmp/panel-fixtures/logs/w2.log')
+  expect(lines[3]).toBe('- night-sweep: orphan — pid gone · log=/tmp/panel-fixtures/logs/w3.log')
+  expect(lines[4]).toBe('Review a finished round: outsource last-report /tmp/panel-fixtures/logs/w1.log · its .rc sentinel · the diff in /tmp/panel-fixtures/wt-w1 · the gates · outsource audit w1')
+  expect(lines).toHaveLength(5)
+  for (const line of lines) expect(displayWidth(line), JSON.stringify(line)).toBeLessThanOrEqual(200)
+
+  // A stall is still running: no Review line.
+  const stalled = wakeRow({ label: 'api-fix', stalled: true, idleSeconds: 720 })
+  expect(wakeText([{ row: stalled, kind: 'stalled' }]).split('\n')).toEqual([
+    '[outsource-panel] 1 of your rounds changed state (a notification from the panel, not from the person):',
+    '- api-fix: stalled 12m without output · outsource tail w1',
+  ])
+
+  const many = Array.from({ length: 12 }, (_, i) => ({
+    row: wakeRow({ id: 'm' + i, label: 'row-' + i, state: 'done', rc: 0, finishedAt: NOW_MS / 1000 - (i + 1), elapsedSeconds: 60, idleSeconds: null, log: '/tmp/panel-fixtures/logs/m' + i + '.log' }),
+    kind: 'done' as const,
+  }))
+  const manyLines = wakeText(many).split('\n')
+  expect(manyLines).toHaveLength(13) // header + 10 rows + "+2 more" + Review
+  expect(manyLines[11]).toBe('+2 more')
+  expect(manyLines[0]).toContain('12 of your rounds')
+})
+
+// 17. One $.prompt.submit per poll that saw transitions — never one per
+// round — and never again for the same (round, state).
+test('wake: exactly one submit per transitioning poll, none after', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  await clock.advance(5000) // poll 1 seeds
+  expect(state.prompts).toEqual([])
+
+  const done = state.rows.find((r) => r.id === 'w1') as any
+  flipDone(done)
+  await clock.advance(5000) // poll 2: the running→done transition
+  expect(state.prompts).toHaveLength(1)
+  expect(state.prompts[0]).toBe(wakeText([{ row: done, kind: 'done' }]))
+  expect(state.toasts).toEqual(['✅ api-fix done · 1h01m']) // the toast still fires
+  expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } })
+
+  await clock.advance(5000) // poll 3: the row is still done
+  expect(state.prompts).toHaveLength(1)
+  expect(state.store['seen']).toEqual({ [OWNER]: NOW_MS + 15000 })
+})
+
+// 18. A foreign row's transition wakes nobody — not the toast, not the model.
+test('wake: a foreign row stays silent', async ($, on) => {
+  const { clock, state } = await boot($, on, [
+    wakeRow({ id: 'f1', label: 'panel-mod', ownerSession: OTHER }),
+  ])
+  await clock.advance(5000)
+  flipDone(state.rows.find((r) => r.id === 'f1') as any)
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.toasts).toEqual([])
+})
+
+// 19. A fresh session id seeds silently: with no watermark for this session,
+// the panel cannot know which finished rounds the lead already reviewed, so
+// none of them may wake (the first lead to load this mod resumes a session
+// with own rounds it reviewed by hand). The first poll still records every
+// terminal own row as seen, so a LATER resume stays silent too.
+test('wake: a fresh session with own done rows seeds silently', async ($, on) => {
+  const rows = ['d1', 'd2', 'd3'].map((id, i) =>
+    wakeRow({ id, label: 'done-' + id, state: 'done', rc: 0, pid: null, finishedAt: NOW_MS / 1000 - 60 * (i + 1), elapsedSeconds: 300, idleSeconds: null }),
+  )
+  const { clock, state } = await boot($, on, rows)
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.store['seen']).toEqual({ [OWNER]: NOW_MS + 5000 }) // seeded, silently
+  expect(state.store['woken']).toEqual({
+    [OWNER]: { d1: 'done', d2: 'done', d3: 'done' }, // seen, never submitted
+  })
+})
+
+// 20. Resume catch-up: a round that finished after this session's last poll
+// (the lead restarted while it ran) wakes once, at the first poll back.
+test('wake: resume catch-up wakes for finished-after-watermark rounds', async ($, on) => {
+  const row = wakeRow({ id: 'late1', label: 'late-fix' })
+  flipDone(row as any, 3600) // finished 1 h ago
+  const { clock, state } = await boot($, on, [row], {
+    store: { seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 } }, // last polled 2 h ago
+  })
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  expect(state.prompts[0]).toBe(wakeText([{ row: state.rows[0] as any, kind: 'done' }]))
+  expect(state.store['woken']).toEqual({ [OWNER]: { late1: 'done' } })
+  await clock.advance(5000) // one wake, not one per poll
+  expect(state.prompts).toHaveLength(1)
+})
+
+// 21. The same row already delivered (in `woken`) never wakes again — a hot
+// reload, a second poll, a resume.
+test('wake: an already-woken round stays silent after a reload', async ($, on) => {
+  const row = wakeRow({ id: 'late1', label: 'late-fix' })
+  flipDone(row as any, 3600)
+  const { clock, state } = await boot($, on, [row], {
+    store: { seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 }, woken: { [OWNER]: { late1: 'done' } } },
+  })
+  await reRegister($) // fresh module state, the store intact
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+})
+
+// 22. A terminal round older than the catch-up window stays silent. The
+// premise of this test was the old `finishedAt > watermark` rule (a 3 h-old
+// round against a 2 h-old watermark); the delivered rule is "not in woken,
+// within 24 h", under which that 3 h-old unseen round correctly WAKES — the
+// session has no record of ever seeing it. The bound that keeps silence now
+// is the 24 h window, so that is what this test pins. No assertion was
+// relaxed: silence is still asserted, for the rule actually shipped.
+test('wake: a terminal round older than the catch-up window stays silent', async ($, on) => {
+  const row = wakeRow({ id: 'old1', label: 'old-fix' })
+  flipDone(row as any, 25 * 3600) // finished 25 h ago: outside the window
+  const { clock, state } = await boot($, on, [row], {
+    store: { seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 } },
+  })
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+  expect(state.store['woken']).toEqual({ [OWNER]: { old1: 'done' } }) // recorded as seen, not woken
+})
+
+// 23. A hot reload with the store intact never re-wakes what was delivered
+// before it (the live path delivered it; the reload re-seeds).
+test('wake: a hot reload after a delivered transition wakes nobody again', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  await clock.advance(5000) // poll 1: seed + watermark
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // poll 2: the transition, one wake
+  expect(state.prompts).toHaveLength(1)
+
+  await reRegister($) // module state fresh, store (woken, seen) intact
+  await clock.advance(5000)
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+})
+
+// 24. The toggle: off means toasts only; the setting persists through a
+// restart (the store); the subcommand words beat round labels; usage errors
+// select nothing; a round labelled `wake` stays reachable in the pane.
+test('rounds wake toggle: off, persistence, subcommand priority', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow(), wakeRow({ id: 'wlab', label: 'wake', log: '/tmp/panel-fixtures/logs/wlab.log' })])
+  await clock.advance(5000)
+
+  const bare = await $.command.run({ command: 'rounds', args: 'wake' })
+  expect(bare.text).toBe('wake is on — round transitions wake the lead model')
+
+  const off = await $.command.run({ command: 'rounds', args: 'wake off' })
+  expect(off.text).toBe('wake is off — toasts only')
+  expect(state.store['wake']).toBe(false)
+
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000)
+  expect(state.toasts).toEqual(['✅ api-fix done · 1h01m']) // toasts either way
+  expect(state.prompts).toEqual([]) // no wake while off
+
+  const back = await $.command.run({ command: 'rounds', args: 'wake on' })
+  expect(back.text).toBe('wake is on — round transitions wake the lead model')
+  expect(state.store['wake']).toBe(true)
+
+  // `wake` takes exactly on/off/nothing: anything else is usage, and never a
+  // label lookup (no pane open, no selection).
+  const opensBefore = state.opens.length
+  const usage = await $.command.run({ command: 'rounds', args: 'wake maybe' })
+  expect(usage.text).toBe('usage: /rounds wake [on|off]')
+  expect(state.opens.length).toBe(opensBefore)
+
+  // A round actually labelled `wake` is still selectable in the pane.
+  await $.command.run({ command: 'rounds', args: '' })
+  const ui = await mountPane($, 120)
+  await ui.select({ key: 'round', value: 'wlab' })
+  await clock.settle()
+  expect(await ui.find({ text: '── wake · running ──' })).toBeDefined()
+  await ui.unmount()
+})
+
+// 25. The toggle survives a restart because it lives in the store, not the
+// module: a session that boots with wake off never submits.
+test('wake off persists into a new session', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()], { store: { wake: false } })
+  await clock.advance(5000)
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000)
+  expect(state.toasts).toEqual(['✅ api-fix done · 1h01m'])
+  expect(state.prompts).toEqual([])
+})
+
+// 26. Provenance: a prompt is read with more authority than a tool result,
+// so round-written data (the trail, the socket, the activity text) may reach
+// the `rounds` tool but never the wake text.
+test('wake text never carries round-written fields', async ($, on) => {
+  const marked = wakeRow({
+    id: 'w9',
+    label: 'marker-run',
+    trail: '/tmp/MARKER9-trails/w9.jsonl',
+    messagingSocket: '/tmp/MARKER9-socks/w9.sock',
+  })
+  const { clock, state } = await boot($, on, [marked])
+  await $.command.run({ command: 'rounds', args: '' }) // open the pane: activities fetch the trail
+  await clock.advance(5000)
+  flipDone(state.rows.find((r) => r.id === 'w9') as any)
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  expect(state.prompts[0].includes('MARKER9')).toBe(false)
+  // Teeth: the same row through the tool surface does carry them.
+  const line = roundsToolLine(state.rows.find((r) => r.id === 'w9') as any, OWNER)
+  expect(line.includes('MARKER9')).toBe(true)
+})
+
+// 27. The model's tools: `rounds` lists the visible rows with the fields a
+// review needs; `round_send` is exactly the /rounds send path, and a refusal
+// is a tool error.
+test('rounds and round_send tools', async ($, on) => {
+  const rows = [
+    wakeRow({ id: 's1', label: 'docs-sweep', messagingSocket: '/tmp/cc-socks/4242.sock' }),
+    wakeRow({ id: 's2', label: 'docs2', messagingSocket: '/tmp/cc-socks/1.sock', messagingSocketConflict: '/tmp/cc-socks/9.sock' }),
+    wakeRow({ id: 'f1', label: 'panel-mod', ownerSession: OTHER }),
+  ]
+  const { clock, state } = await boot($, on, rows)
+  await clock.advance(5000)
+
+  const list = (await $.tool.call({ tool: 'mcp__outsource-panel__rounds' })) as any
+  const lines = String(list.result).split('\n')
+  expect(lines).toHaveLength(3)
+  expect(lines[0].startsWith(' ▶  docs-sweep')).toBe(true)
+  expect(lines[0]).toContain('state=running')
+  expect(lines[0]).toContain('log=/tmp/panel-fixtures/logs/w1.log')
+  expect(lines[0]).toContain('trail=/tmp/panel-fixtures/trails/w1.jsonl')
+  expect(lines[0].endsWith('inbox=yes')).toBe(true)
+  expect(lines[2].startsWith('⇄▶  panel-mod')).toBe(true)
+  expect(lines[2].endsWith('inbox=no')).toBe(true)
+
+  const sent = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs-sweep', text: 'correction: re-read the spec' })) as any
+  expect(sent.result).toBe('sent to docs-sweep')
+  expect(state.sends).toHaveLength(1)
+  expect(state.sends[0].to).toBe('uds:/tmp/cc-socks/4242.sock')
+
+  const refused = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'panel-mod', text: 'hi' })) as any
+  expect(refused.result).toBe('refused: panel-mod is not one of your running rounds')
+  expect(refused.isError).toBe(true)
+  expect(state.sends).toHaveLength(1)
+
+  const conflict = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs2', text: 'which one' })) as any
+  expect(conflict.result).toBe('refused: docs2 has two inbox sockets (shared hook settings)')
+  expect(conflict.isError).toBe(true)
+
+  const long = (await $.tool.call({ tool: 'mcp__outsource-panel__round_send', label: 'docs-sweep', text: 'x'.repeat(4001) })) as any
+  expect(long.result).toBe('refused: message too long (4001 > 4000)')
+  expect(long.isError).toBe(true)
+  expect(state.sends).toHaveLength(1)
+})
+
+// 28. An empty registry answers `no rounds` — never an empty result.
+test('rounds tool with nothing visible says no rounds', async ($, on) => {
+  const { clock } = await boot($, on, [])
+  await clock.advance(5000)
+  const res = (await $.tool.call({ tool: 'mcp__outsource-panel__rounds' })) as any
+  expect(res.result).toBe('no rounds')
+})
+
+// 29. The system section states only what the mod makes true, changes only
+// with the toggle, and stays under 900 characters.
+test('the system section follows the wake toggle', async ($, on) => {
+  const FACTS = {
+    model: 'glm-5.3',
+    promptModel: 'glm-5.3',
+    surfaces: ['terminal'],
+    tools: [],
+    outputStyle: null,
+    traits: [],
+  }
+  const { clock } = await boot($, on, [wakeRow()])
+  await clock.advance(5000)
+  const onSections = (await $.prompt.compose(FACTS)) as any
+  const onSection = onSections.sections.find((s: any) => s.id === 'outsource-panel')
+  expect(onSection?.scope).toBe('session')
+  expect(onSection?.text).toBe(sectionText(true))
+  expect(sectionText(true).length).toBeLessThanOrEqual(900)
+  expect(sectionText(true)).toContain('never approval')
+
+  await $.command.run({ command: 'rounds', args: 'wake off' })
+  const offSections = (await $.prompt.compose(FACTS)) as any
+  const offSection = offSections.sections.find((s: any) => s.id === 'outsource-panel')
+  expect(offSection?.text).toBe(sectionText(false))
+  expect(sectionText(false).length).toBeLessThanOrEqual(900)
+  expect(sectionText(false)).toContain('wake is off')
+})
+
+// ---- defect fixes: the tick never waits on the wake; the known record ------
+
+// 30. A submit that never settles must not stall the poll loop: the wake
+// happens exactly while the lead works, and the pane, the band and the
+// toasts are then at their most wanted. FAIL-first: with the submit awaited
+// in the tick, runsCalls stops advancing and the second toast never fires.
+test('wake: a submit that never settles does not stall the polls', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow(), wakeRow({ id: 'w2', label: 'second-fix' })])
+  state.submitMode = 'never'
+  await clock.advance(5000) // poll 1 seeds
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // poll 2: transition, submit #1 goes out and hangs
+  expect(state.prompts).toHaveLength(1)
+  const pollsBefore = state.runsCalls
+  await clock.advance(5000)
+  await clock.advance(5000)
+  expect(state.runsCalls).toBeGreaterThan(pollsBefore) // ticks still run
+  flipDone(state.rows.find((r) => r.id === 'w2') as any)
+  await clock.advance(5000)
+  expect(state.toasts).toContain('✅ second-fix done · 1h01m') // toasts still fire
+  expect(state.prompts).toHaveLength(1) // buffered, not submitted while #1 hangs
+  expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done', w2: 'done' } }) // recorded anyway
+})
+
+// 31. Coalescing: transitions found while a submit is outstanding leave as
+// ONE submit when it settles. FAIL-first: without the single-outstanding
+// guard, the second and third transitions are submitted at once (three
+// submits, two outstanding).
+test('wake: transitions found while a submit is outstanding coalesce into one', async ($, on) => {
+  const rows = [
+    wakeRow(),
+    wakeRow({ id: 'w2', label: 'second-fix' }),
+    wakeRow({ id: 'w3', label: 'third-fix' }),
+  ]
+  const { clock, state } = await boot($, on, rows)
+  state.submitDefers = []
+  await clock.advance(5000) // poll 1 seeds
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // poll 2: submit #1, held by the gate
+  expect(state.prompts).toHaveLength(1)
+  flipDone(state.rows.find((r) => r.id === 'w2') as any)
+  await clock.advance(5000) // poll 3: buffered
+  flipDone(state.rows.find((r) => r.id === 'w3') as any)
+  await clock.advance(5000) // poll 4: buffered
+  expect(state.prompts).toHaveLength(1)
+  state.submitDefers[0].resolve({ text: state.prompts[0] })
+  await clock.settle()
+  expect(state.prompts).toHaveLength(2) // one more, not two
+  expect(state.prompts[1]).toBe(
+    wakeText([
+      { row: state.rows.find((r) => r.id === 'w2') as any, kind: 'done' },
+      { row: state.rows.find((r) => r.id === 'w3') as any, kind: 'done' },
+    ]),
+  )
+})
+
+// 32. A refused submit is not a delivered one: the transition is un-recorded
+// and the next poll submits it again. FAIL-first: without the un-record, the
+// store keeps the round as delivered and the second submit never happens.
+test('wake: a rejected submit is retried on the next poll', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  state.submitFails = 1
+  await clock.advance(5000)
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // poll 2: submit #1 rejects → un-recorded, queued
+  expect(state.prompts).toHaveLength(1)
+  await clock.advance(5000) // poll 3: the retry
+  expect(state.prompts).toHaveLength(2)
+  expect(state.prompts[1]).toBe(wakeText([{ row: state.rows.find((r) => r.id === 'w1') as any, kind: 'done' }]))
+  expect(state.store['woken']).toEqual({ [OWNER]: { w1: 'done' } })
+})
+
+// 33. An orphan that happened while the session was down catches up: orphan
+// rows carry no finishedAt, so the anchor is startedAt. FAIL-first: with
+// only finishedAt in the filter, the orphan is never a candidate.
+test('wake: an orphan that happened while the session was down catches up', async ($, on) => {
+  const row = wakeRow({
+    id: 'orph1',
+    label: 'night-orphan',
+    state: 'orphan',
+    pid: null,
+    startedAt: NOW_MS / 1000 - 3600,
+    finishedAt: null,
+    elapsedSeconds: 3600,
+    idleSeconds: null,
+  })
+  const { clock, state } = await boot($, on, [row], {
+    store: { seen: { [OWNER]: NOW_MS - 2 * 3600 * 1000 } }, // the lead restarted while it ran
+  })
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  expect(state.prompts[0]).toContain('- night-orphan: orphan — pid gone')
+})
+
+// 34. A row already terminal at a session's first-ever poll is recorded as
+// seen there, so a later resume does not replay it. FAIL-first: without the
+// known-recording, the resume catch-up finds the orphan unseen and wakes.
+test('wake: a row already orphan at the first-ever poll stays silent on a later resume', async ($, on) => {
+  const row = wakeRow({
+    id: 'orph1',
+    label: 'night-orphan',
+    state: 'orphan',
+    pid: null,
+    startedAt: NOW_MS / 1000 - 3600,
+    finishedAt: null,
+    elapsedSeconds: 3600,
+    idleSeconds: null,
+  })
+  const { clock, state } = await boot($, on, [row])
+  await clock.advance(5000) // first-ever poll: no watermark, seeds silently
+  expect(state.prompts).toEqual([])
+  expect(state.store['woken']).toEqual({ [OWNER]: { orph1: 'orphan' } })
+  await reRegister($) // a later resume: catch-up re-armed against the store
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
+})
+
+// 35. A round that finished while wake was off was still SEEN: turning wake
+// back on, or resuming, must not replay it. FAIL-first: with the recording
+// skipped while wake is off, the resume catch-up finds it unseen and wakes.
+test('wake: a round that finished while wake was off never wakes', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  await clock.advance(5000)
+  await $.command.run({ command: 'rounds', args: 'wake off' })
+  flipDone(state.rows.find((r) => r.id === 'w1') as any)
+  await clock.advance(5000) // toasted, recorded as seen, not submitted
+  expect(state.toasts).toEqual(['✅ api-fix done · 1h01m'])
+  expect(state.prompts).toEqual([])
+  await $.command.run({ command: 'rounds', args: 'wake on' })
+  await clock.advance(5000) // nothing re-derives it: it is known
+  expect(state.prompts).toEqual([])
+  await reRegister($) // nor on resume
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([])
 })
 
 

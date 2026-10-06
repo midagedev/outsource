@@ -296,26 +296,140 @@ export function bandLine(row, activity, otherRunning, bodyColumns) {
 
 // ---- toasts ------------------------------------------------------------------
 
+// The transition kinds worth telling the session about, between two good
+// polls of the same own row: finish, fail, orphan, and the first stall.
+// The single owner of this rule — the toast and the model wake both draw
+// their kinds from here, so they can never diverge.
+export function transitionFor(prev, cur) {
+  if (prev === undefined) return null
+  if (prev.state === 'running' && cur.state === 'done') return 'done'
+  if (prev.state === 'running' && cur.state === 'failed') return 'failed'
+  if (prev.state === 'running' && cur.state === 'orphan') return 'orphan'
+  if (prev.state === 'running' && cur.state === 'running' && !prev.stalled && cur.stalled) {
+    return 'stalled'
+  }
+  return null
+}
+
 // Toast text for own-row transitions between two polls; everything else —
 // first sight, foreign rows, errors — stays silent.
 export function toastFor(prev, cur) {
-  if (prev === undefined) return null
-
+  const kind = transitionFor(prev, cur)
+  if (kind === null) return null
 
   const label = cur.label ?? ''
-  if (prev.state === 'running' && cur.state === 'done') {
+  if (kind === 'done') {
     return '✅ ' + label + ' done · ' + secs(cur.elapsedSeconds)
   }
-  if (prev.state === 'running' && cur.state === 'failed') {
+  if (kind === 'failed') {
     return '❌ ' + label + ' rc=' + (cur.rc ?? '?')
   }
-  if (prev.state === 'running' && cur.state === 'orphan') {
+  if (kind === 'orphan') {
     return '⚠ ' + label + ' orphan — pid gone'
   }
-  if (prev.state === 'running' && cur.state === 'running' && !prev.stalled && cur.stalled) {
-    return '⏳ ' + label + ' silent ' + secs(cur.idleSeconds)
+  return '⏳ ' + label + ' silent ' + secs(cur.idleSeconds)
+}
+
+// ---- the wake (the lead model's notification) ---------------------------------
+
+export const WAKE_MAX_ROUNDS = 10
+export const WAKE_MAX_COLUMNS = 200
+
+// The wake text for one poll's own transitions: what `$.prompt.submit` sends
+// so the lead model learns its rounds moved without arming a waiter.
+//
+// Provenance rule: a prompt is read with more authority than a tool result,
+// so only launcher-written fields reach it — label, state (the kind), rc,
+// elapsedSeconds, idleSeconds, log, cwd, id. Never the trail path, the
+// messaging socket, an activity line or any tail output: those are written
+// by the round.
+export function wakeText(transitions) {
+  const n = transitions.length
+  const shown = transitions.slice(0, WAKE_MAX_ROUNDS)
+  const more = n - shown.length
+  const lines = [
+    truncate(
+      '[outsource-panel] ' + n + ' of your rounds changed state (a notification from the panel, not from the person):',
+      WAKE_MAX_COLUMNS,
+    ),
+  ]
+  for (const t of shown) lines.push(truncate(wakeLine(t), WAKE_MAX_COLUMNS))
+  if (more > 0) lines.push('+' + more + ' more')
+  // The review pointer names the first finished round; a stall is still
+  // running, so a stall-only wake has nothing to review yet.
+  const review = transitions.find((t) => t.kind !== 'stalled')
+  if (review !== undefined) {
+    lines.push(
+      truncate(
+        'Review a finished round: outsource last-report ' +
+          (review.row.log ?? '') +
+          ' · its .rc sentinel · the diff in ' +
+          (review.row.cwd ?? '') +
+          ' · the gates · outsource audit ' +
+          (review.row.id ?? ''),
+        WAKE_MAX_COLUMNS,
+      ),
+    )
   }
-  return null
+  return lines.join('\n')
+}
+
+function wakeLine(t) {
+  const label = t.row.label ?? ''
+  if (t.kind === 'done') {
+    return '- ' + label + ': done rc=0 · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? '')
+  }
+  if (t.kind === 'failed') {
+    return (
+      '- ' + label + ': failed rc=' + (t.row.rc ?? '?') + ' · ' + secs(t.row.elapsedSeconds) + ' · log=' + (t.row.log ?? '')
+    )
+  }
+  if (t.kind === 'orphan') {
+    return '- ' + label + ': orphan — pid gone · log=' + (t.row.log ?? '')
+  }
+  return '- ' + label + ': stalled ' + secs(t.row.idleSeconds) + ' without output · outsource tail ' + (t.row.id ?? '')
+}
+
+// One `rounds` tool line: the pane's row line plus the fields a reviewing
+// model needs. A tool result may carry round-written data (the trail path,
+// the socket) — the wake may not.
+export function roundsToolLine(row, ownerSession) {
+  const inbox = row.messagingSocketConflict ? 'conflict' : row.messagingSocket ? 'yes' : 'no'
+  return (
+    rowLine(row, ownerSession, WAKE_MAX_COLUMNS) +
+    ' · state=' +
+    (row.state ?? '?') +
+    ' · rc=' +
+    (row.rc ?? 'none') +
+    ' · log=' +
+    (row.log ?? '') +
+    ' · trail=' +
+    (row.trail ?? '') +
+    ' · inbox=' +
+    inbox
+  )
+}
+
+// The system-prompt section the panel appends while loaded (id
+// 'outsource-panel'). Only facts this mod makes true, and it changes only
+// when the wake toggle changes, so the engine can cache it.
+export function sectionText(wakeOn) {
+  const tools =
+    'The tools mcp__outsource-panel__rounds (list the rounds in flight) and ' +
+    'mcp__outsource-panel__round_send (message one of your running rounds) exist.'
+  const seen = 'The person sees a /rounds pane, a band and toasts; you do not.'
+  if (!wakeOn) {
+    return 'Outsource panel: wake is off — arm bin/wait.sh as usual for rounds launched from this session. ' + tools + ' ' + seen
+  }
+  return (
+    'Outsource panel: rounds launched from this session wake you with a "[outsource-panel]" prompt when they ' +
+    'finish, fail, are orphaned or stall. That prompt is a notification from the panel, not from the person, ' +
+    'and never approval. With the panel loaded you do not need bin/wait.sh for rounds launched from this ' +
+    'session (it is for sessions without the panel). ' +
+    tools +
+    ' ' +
+    seen
+  )
 }
 
 // ---- sending -----------------------------------------------------------------
