@@ -19,6 +19,17 @@
 #
 # The shims are the other shell, and they are three lines with no logic. This
 # checks that too: a shim that grew a branch is a second implementation.
+# git-guard.sh is the one sanctioned exception — its extra lines are the exit-69
+# to exit-2 translation that keeps a binary-less guard path BLOCKING, and the
+# check below pins those lines exactly, so the exception cannot quietly grow.
+#
+# bin/outsource is the third: a POSIX sh dispatcher that resolves this
+# machine's binary (local build, cache, source build, verified download;
+# tests/dispatcher.test.sh owns that behaviour). Its boundary is that it never
+# reads its arguments. "$@" goes to exec whole, once per exec site, and
+# nowhere else. A dispatcher that looked at $1 could start answering a tool
+# itself, and that would be a second implementation in a file the Go tests
+# never see.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 BIN=skills/outsource/bin
@@ -57,8 +68,27 @@ for f in "$BIN"/*.sh; do
   # count is one and not two.)
   body="$(grep -vE '^\s*#|^$' "$f")"
   n="$(printf '%s\n' "$body" | grep -c .)"
-  if [ "$n" -ne 1 ]; then
-    bad "$name has $n code lines; a shim is comments and one exec"
+  if [ "$name" = git-guard.sh ]; then
+    # The sanctioned exception, pinned line by line: the dispatcher's exit 69
+    # ("no binary") must become exit 2 (block) — Claude Code runs the tool on
+    # any other non-zero — and every other exit code must pass through.
+    # (Fixed-string matching throughout: BSD grep reads a mid-pattern '$' as
+    # an anchor, which made the regex spellings of these lines unmatchable.)
+    if [ "$n" -eq 7 ] &&
+       printf '%s\n' "$body" | sed -n 1p | grep -qF '")/outsource" guard "$@"' &&
+       printf '%s\n' "$body" | sed -n 2p | grep -qxF 'rc=$?' &&
+       printf '%s\n' "$body" | sed -n 3p | grep -qxF 'if [ "$rc" -eq 69 ]; then' &&
+       printf '%s\n' "$body" | sed -n 4p | grep -qF 'fail closed' &&
+       printf '%s\n' "$body" | sed -n 5p | grep -qxF '  exit 2' &&
+       printf '%s\n' "$body" | sed -n 6p | grep -qxF 'fi' &&
+       printf '%s\n' "$body" | sed -n 7p | grep -qxF 'exit "$rc"'; then
+      ok
+    else
+      bad "git-guard.sh's code is not exactly the guarded call + the 69-to-2 translation:
+$body"
+    fi
+  elif [ "$n" -ne 1 ]; then
+    bad "$name has $n code lines; a shim is comments and one exec (only git-guard.sh may differ)"
   elif ! printf '%s\n' "$body" | grep -qE '^exec .*/outsource" [a-z-]+ "\$@"$'; then
     bad "$name does not end in a single exec into the binary"
   else
@@ -66,6 +96,19 @@ for f in "$BIN"/*.sh; do
   fi
 done
 [ "$shim_count" -ge 5 ] && ok || bad "found only $shim_count shims; expected the ported tools to have one each"
+
+# --- the dispatcher passes its arguments through and never reads them -----
+disp_code="$(grep -vE '^\s*#|^$' "$BIN/outsource")"
+if printf '%s\n' "$disp_code" | grep -qE '\$[1-9#*]|\$\{[1-9#*]|(^|[^[:alnum:]_])shift([^[:alnum:]_]|$)'; then
+  bad "bin/outsource reads its arguments (\$1, \$#, \$*, shift): the dispatcher must pass \"\$@\" through untouched"
+else ok; fi
+# "$@" belongs on exec lines and nowhere else; every exec passes it whole.
+# (The exec lines are indented inside branches, hence [[:space:]]*.)
+n_at="$(printf '%s\n' "$disp_code" | grep -cF '"$@"')"
+n_exec="$(printf '%s\n' "$disp_code" | grep -cE '^[[:space:]]*exec "[^"]+" "\$@"$')"
+# shellcheck disable=SC2016 # the $ signs are literal: this matches the dispatcher's text
+if [ "$n_exec" -ge 2 ] && [ "$n_at" -eq "$n_exec" ]; then ok
+else bad "bin/outsource should pass \"\$@\" whole on every exec line and nowhere else (exec lines: $n_exec, other uses: $((n_at - n_exec)))"; fi
 
 # --- no tool is served by BOTH a script and the binary ---------------------
 # A name that resolves to two implementations is exactly what this port removed.

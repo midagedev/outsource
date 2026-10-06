@@ -19,6 +19,13 @@
 # expensive to reconstruct afterwards, so the check lives here rather than in
 # anyone's memory.
 #
+# Since the no-binaries-in-git design, the same door has a second lock on it:
+# skills/outsource/bin/outsource.sha256 — the manifest the dispatcher verifies
+# downloads against — must carry the plugin's version and one well-formed hash
+# line per shipped platform. A version mismatch there means a machine verifies
+# the wrong release's bytes; a missing line means a machine of that kind
+# downloads with nothing to check against.
+#
 # FAIL-first: set the manifest one version behind the changelog head and this
 # fails naming both values.
 set -uo pipefail
@@ -32,8 +39,9 @@ bad()  { fail=$((fail + 1)); printf 'FAIL: %s\n' "$*"; }
 
 MANIFEST=.claude-plugin/plugin.json
 CHANGELOG=CHANGELOG.md
+HASHES=skills/outsource/bin/outsource.sha256
 
-for f in "$MANIFEST" "$CHANGELOG"; do
+for f in "$MANIFEST" "$CHANGELOG" "$HASHES"; do
   if [ ! -f "$f" ]; then
     bad "$f is missing"
   fi
@@ -61,6 +69,32 @@ print(json.load(open(sys.argv[1]))["version"])' "$MANIFEST" 2>/dev/null)
     ok
     note "manifest and changelog agree on $manifest_version"
   fi
+
+  # The hash manifest must carry that same version: the dispatcher caches and
+  # fetches under it, so a manifest one release behind would verify a binary
+  # the new skill never shipped. FAIL-first: set its version one behind and
+  # this fails naming both values.
+  hashes_version=$(sed -n 's/^version //p' "$HASHES")
+  if [ -z "$hashes_version" ]; then
+    bad "no 'version X.Y.Z' line at the top of $HASHES"
+  elif [ "$hashes_version" != "$manifest_version" ]; then
+    bad "version drift: $HASHES says '$hashes_version' but $MANIFEST says '$manifest_version'"
+    note "Run ./build.sh after bumping the plugin version; it reads the"
+    note "version from plugin.json into the manifest."
+  else
+    ok
+    note "$HASHES agrees on $hashes_version"
+  fi
+
+  # One well-formed hash line per shipped platform, or a machine of that kind
+  # fetches with nothing to verify against.
+  for t in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
+    if grep -qE "^[0-9a-f]{64}  outsource-$t\$" "$HASHES"; then
+      ok
+    else
+      bad "$HASHES has no '<sha256>  outsource-$t' line — that machine cannot verify its download"
+    fi
+  done
 fi
 
 printf '\nversion-manifest: %d passed, %d failed\n' "$pass" "$fail"
