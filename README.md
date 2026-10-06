@@ -49,7 +49,7 @@ That one install brings the skill **and** [the panel](#the-panel-a-claude-code-m
 Claude Code keeps a marketplace install in its plugin cache, `~/.claude/plugins/cache/outsource/outsource/<version>/`, so the skill is `<version>/skills/outsource/` and every path below that starts `~/.claude/skills/outsource/` starts there instead. Two consequences:
 
 - The key setup script is `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`.
-- The binary finds its skill folder from its own path (two levels up from `bin/outsource`), so a marketplace install reads its user overlay from `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md` — inside a version folder that an update replaces. Keep the overlay with an install-script install (which preserves it), or set `OUTSOURCE_SKILL_DIR` to a folder you keep whose `references/` holds `local-overlay.md` and `overlays/`.
+- The binary finds its skill folder from the `bin/outsource` it was started through (the folder above `bin/`), so a marketplace install reads its user overlay from `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md` — inside a version folder that an update replaces. Keep the overlay with an install-script install (which preserves it), or set `OUTSOURCE_SKILL_DIR` to a folder you keep whose `references/` holds `local-overlay.md` and `overlays/`.
 
 Or with the install script (preferred if you'll use a [local overlay](#local-overlays)):
 
@@ -61,6 +61,15 @@ cd outsource
 ```
 
 You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter — there is no default id and every id needs credits on the account). The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
+
+**Platforms and binaries.** No binary is committed to this repository. `bin/outsource` is a small POSIX `sh` dispatcher, and `bin/outsource.sha256` is a committed manifest: the release version and the sha256 of each release binary (darwin-arm64, darwin-amd64, linux-amd64, linux-arm64). On first use the dispatcher gives this machine a binary. It tries these in order:
+
+1. a local build beside it (`./build.sh` in a clone, or `install.sh` with Go);
+2. its cache (`~/.cache/outsource/<version>/`);
+3. a build from source, when Go and the marketplace's copy of the source are present;
+4. a download from the GitHub Release, which runs only if its sha256 equals the manifest line.
+
+No switch skips that check. `OUTSOURCE_RELEASE_URL` only changes where the bytes come from (a mirror, an air-gapped server). Without Go, `install.sh` fetches at install time, so a missing network fails the install rather than the first round (`--no-fetch` skips the fetch). If no binary can be produced, `bin/git-guard.sh` exits 2 and so blocks git; a failed fetch never opens the guard. The `bin/*.sh` tool names need bash (on Alpine, `apk add bash`); `bin/outsource <tool>` needs only `sh` plus `curl` or `wget`.
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -275,27 +284,42 @@ label and a marker and then failing if any of it appears in the file.
 The file lives beside the run registry, is mode 0600, and rolls at 2MB keeping one
 generation.
 
-## Verifying the binary
+## Verifying the binaries
 
-`bin/outsource` is committed as a prebuilt binary, because neither install path has
-a build step. If you would rather not run bytes you did not build, you do not have
-to: the source is in this repository and the build is reproducible.
+No binary is committed to git. What git commits is `bin/outsource.sha256`: the release version plus
+the sha256 of each of the four release binaries. The dispatcher refuses to run any downloaded file
+that does not hash to its line.
+
+You do not have to run bytes you did not build. With Go installed, `./build.sh` builds the host
+binary beside the dispatcher, and that binary wins every lookup. `install.sh` with Go present also
+builds instead of fetching.
+
+To check a release binary against the source:
 
 ```bash
-CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" \
-  -o /tmp/outsource ./cmd/outsource
-shasum -a 256 /tmp/outsource skills/outsource/bin/outsource   # the two must match
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
+  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
+shasum -a 256 /tmp/outsource-darwin-arm64   # must equal the outsource-darwin-arm64 line in bin/outsource.sha256
 ```
 
-Every flag there is load-bearing. `-trimpath` keeps build paths out of the
-artifact; `CGO_ENABLED=0` makes it static and stops the host toolchain from
-mattering; and `-buildvcs=false` stops Go stamping the commit hash and a `+dirty`
-marker into the module version, which would otherwise change the bytes on every
-commit and make this comparison impossible. `tests/reproducible-build.test.sh`
-runs exactly this and fails if the committed binary does not match its source, so
-a source edit that forgot `./build.sh` cannot ship. `./build.sh --all`
-cross-compiles every shipped platform from one machine; Go's linker ad-hoc signs
-darwin/arm64, which is what lets a cross-compiled macOS build execute at all.
+Set `GOOS`/`GOARCH` to the platform you want to check. Every flag there is load-bearing:
+
+- `-trimpath` keeps build paths out of the artifact.
+- `CGO_ENABLED=0` makes the binary static, so the host toolchain does not matter.
+- `-buildvcs=false` stops Go stamping the commit hash and a `+dirty` marker into the module version.
+  Without it the bytes would change on every commit.
+
+Three tools keep the manifest honest:
+
+- `tests/reproducible-build.test.sh` runs exactly this build for all four platforms and compares
+  the results with the committed manifest. A source edit that skipped `./build.sh` cannot ship.
+- With Go present, `install.sh` refuses when the manifest does not match a fresh build.
+- `scripts/release-assets.sh <X.Y.Z>` builds the four binaries, checks them against the manifest
+  and uploads them as release assets. It refuses unless the committed manifest already names those
+  exact bytes.
+
+Go's linker ad-hoc signs darwin/arm64, and that signature is what lets a cross-compiled macOS build
+run at all.
 
 ## The models
 
@@ -482,7 +506,7 @@ Every row is a mechanism with an exit code, not advice in a document.
 | The plan runs dry mid-round | **`--require-quota N`, exit 66** — keyed on the **tightest** window, not the shortest (measured: weekly at 81.7% remaining while the 5-hour sat at 83.8%). Fails closed. |
 | A delegate reports "done" that isn't | **Completion sentinel `<log>.rc`** with `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. The harness's own lifecycle is not completion proof. |
 | A clean exit without the spec's completion marker | **`--done-marker`, exit 72** on both launchers. Was 70 on grok (colliding with model-identity) and a silent rc=0 on GLM, so the same fact read as failed or completed depending on the sister. 72 names the missing marker; the tree is still the verdict. |
-| Repository-state git from a delegate | **`bin/git-guard.sh`**, a `PreToolUse` hook parsing the real command string — `git -C … commit`, `env … git push`, `sudo git …`, chained mutations all blocked; read-only git deliberately open. One file, both harnesses' calling conventions. |
+| Repository-state git from a delegate | **`bin/git-guard.sh`**, a `PreToolUse` hook parsing the real command string — `git -C … commit`, `env … git push`, `sudo git …`, chained mutations all blocked; read-only git deliberately open. One file, both harnesses' calling conventions. If no binary can be produced, the hook exits 2 (block), never a non-blocking error, so the git ban fails closed. |
 | z.ai silently answers a `glm-5.2` request with glm-5.3 (measured twice — the response `model` field differs from the request, so it is not an echo) | **Refused at launch, exit 70.** On crush there is no identity assertion, so the misassignment would otherwise stay silent forever; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists to re-measure, not to route. |
 | A delegate reads the lead-side launch procedure that rode into its spec, decides it *is* the lead, and launches a nested round into the same worktree — clean exit, zero implementation | **Nested launches refused, exit 64** — every harness child carries `OUTSOURCE_ROUND=1` and both launchers refuse to start under it (`OUTSOURCE_ALLOW_NESTED=1` for deliberate nesting). |
 | agy exits 0 for a permission-denied round, and for a soft-denied write that produced no file | **The launcher reads the final result event's `status`** and fails anything that is not SUCCESS — agy's exit code is a lifecycle signal, never the verdict. |
@@ -565,7 +589,7 @@ $ bin/quota.sh --provider grok
 | `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
 | `references/glm-preamble.md` | GLM runtime delta (which model sees pixels and which does not, hooks not flags, evidence rules) |
 | `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
-| `bin/outsource` | **One Go binary is every tool below.** The `bin/*.sh` names beside it are three-line compatibility shims that exec into it — kept because docs, hooks, installed copies and tests all call these tools by path. Invoke `outsource <tool>` directly to save a fork |
+| `bin/outsource` | **One Go binary is every tool below. It is built or fetched on each machine and never committed.** `bin/outsource` itself is a POSIX `sh` dispatcher. `bin/outsource.sha256` is the committed manifest it checks downloads against; the dispatcher tries a local build, then its cache, then a Go build, then a verified download. The `bin/*.sh` names beside it are compatibility shims that exec into it. They stay because docs, hooks, installed copies and tests all call these tools by path. Hooks written by the launchers point at the resolved binary directly |
 | `outsource-run` | The launcher: the provider/harness wiring tables, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
 | `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, a startup proof, `--detach` / `--foreground` |
 | `guard` | The git-ban `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden) |
