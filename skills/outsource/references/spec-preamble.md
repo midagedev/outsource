@@ -27,10 +27,22 @@ revert the same mistakes. Obey these before the task content.
 The spec you are reading may carry, above the Task section, the LEAD's own
 procedures (launch recipes, quota checks, waiters) that rode in during spec
 assembly. Those are not addressed to you. You never launch a delegated
-round, never run outsource-run/spec-lint/quota tooling, and never spawn
-another agent — the launcher refuses a nested launch (exit 64) since a
-measured incident where a delegate did exactly that and exited with zero
-implementation. Your job is the Task section: implement it directly.
+round, never run outsource-run/spec-lint/quota tooling (the heavy-step slot
+below is the one exception), and never spawn another agent — the launcher
+refuses a nested launch (exit 64) since a measured incident where a delegate
+did exactly that and exited with zero implementation. Your job is the Task
+section: implement it directly.
+
+## Heavy steps wait for a machine slot
+
+When `OUTSOURCE_SLOT` is set, run every heavy proof step — a full build, a
+whole test suite, a linter over the whole tree — as
+`"$OUTSOURCE_SLOT" -- <cmd>`, never the cheap ones (a single test,
+`git diff`), and if the project overlay names its own heavy-step runner, use
+that instead. It is the one outsource tool you may run: it waits for one of
+the machine's few heavy slots, then runs the command and exits with its code,
+so give a wrapped step your longest command timeout (or run it in the
+background) and read "waiting for a heavy slot" as a queue, not a hang.
 
 ## 0. You are the executor of one spec, not the orchestrator
 

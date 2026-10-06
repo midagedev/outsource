@@ -93,6 +93,11 @@ quota is a plan-wide counter that concurrent rounds and other sessions move
 too, so `bin/quota.sh` is a **pre-flight** signal (`--require-quota`), not
 an accounting mechanism.
 
+Every zai launch also reads the plan quota once (≤ 3 s) and prints
+`outsource: warning — zai 5h window 19.1% left (resets 20:32); a long round may be cut by a 429 — --resume-on-reset waits and continues it.`
+when the tightest window has under 25 % left. It launches anyway; a failed or
+slow read prints nothing.
+
 The shared implementer preamble (`references/spec-preamble.md`) carries the
 backend-agnostic rules; `references/glm-preamble.md` is the GLM-runtime
 delta. Assemble both in front of every task spec.
@@ -197,6 +202,24 @@ on an exit that would otherwise be 0 is refused as **exit 73**, quoting the
 report's last line; 72 keeps precedence when the marker is also absent (the
 codes never stack), and a count of `unknown` never changes rc. This verdict
 is this harness's: crush/opencode/agy/muse rounds are not counted yet.
+
+**Plan-limit deaths (claude-code).** z.ai's 5-hour cap ends a round with
+`API Error: Request rejected (429) · [1308][Usage limit reached for 5 hour. Your limit will reset at 2026-10-06 16:23:45][<request id>]`.
+The time has no zone; z.ai's clock is UTC+8 (three request ids,
+2026-10-06). The sentinel records `quota_exhausted=1`, `reset_at`,
+`quota_reset_at` (the quota API's reset, read at the death) and `api_error`.
+`last-report` names the reset, says which source it used, and gives the
+session. With `--resume-on-reset` the run goes to `waiting`. Every 5 minutes
+it reads the plan quota (≤ 3 s) and resumes as soon as the tightest window is
+open again (1 % or more left), with the text's reset + 60 s as the upper
+bound when reads fail. It resumes the same session with a fixed prompt
+(re-check `git status`/`git diff --stat`, then continue). At most 2 resumes,
+only for a reset ≤ 6 h ahead; `--max-seconds` bounds each attempt.
+`<log>.err` keeps every attempt's stderr: a resumed attempt appends after a
+`--- outsource: resumed session <sid> after the plan limit (resume n) ---`
+line. Measured: on 2026-10-06 a 429 at 06:32:00Z said 08:23:45Z and the
+resumed session was answered at 06:33:39Z; at 08:24Z the text and the API
+agreed to the second.
 
 **Rounds run long, and that is usually fine.** Measured on ten delivered
 rounds: 13 minutes to **1h50m**, duration tracking message count almost
