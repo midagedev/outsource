@@ -10,27 +10,17 @@
 
 | 백엔드 | 구동 | 쓰는 자리 | 하드 제약 |
 |---|---|---|---|
-| **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 **두 하네스** 중 하나로 — 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | 기본 모델은 **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
-| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차). OpenRouter가 stealth **ox-alpha**로 올려두었던 모델의 공식 공개된 정체입니다. 그 stealth 슬롯은 2026-09-10에 제공이 끊겼으니 이제는 여기 플랜으로 부르십시오(그 슬롯은 그 뒤로도 비었습니다 — `union-alpha`도 2026-09-18에 같은 길을 갔습니다) | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
+| **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI로 구동 | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
+| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차) | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
 | **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
-| **gemini-3.8-flash-high** — Google 플랜 (2026-09-05까지의 실측 기본값은 3.7) | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드 — 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC`의 hex를 정확히 명명) | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
-| **muse-spark-1.3-contributor** — Muse Code | `muse` CLI, `--provider muse` | 별도 계정의 네 번째 프로세스 계열 — **262k 컨텍스트**에 추론 강도 노브(`--effort` → `--reasoning-effort`)가 있고, **형태와 색 계열은 봅니다**(실측: 그려 넣은 `H`를 `H`로, `#1E50DC` 단색을 "blue"로) | 이 CLI에는 훅도, 정의할 수 있는 권한 프로파일도 없어서 **가드 없는 라운드는 실제로 커밋합니다**(실측). 그래서 git 가드를 라운드 `PATH` 맨 앞의 `git` shim으로 두고 exit 97로 거부합니다 — 절대경로 호출은 여전히 빠져나가는 벨트입니다. Anthropic 호환 엔드포인트는 막다른 길입니다: API 키로 부르면 `billing_error`가 오고, CLI의 OAuth 세션만 통합니다 |
-| **OpenRouter** — **기본값 없음, id를 직접 지정** | `opencode` CLI, `--provider openrouter --model openrouter/<vendor>/<id>` | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 | **stealth 슬롯은 빌린 자리이고, 이제 두 번 비었습니다**: `stealth/ox-alpha`는 2026-09-10에, `stealth/union-alpha`는 2026-09-18에 끊겼습니다. 후자는 여기서 실측했습니다 — 프로브 라운드에 엔드포인트가 직접 404로 답하며 후속 모델 `unbiased/pareto`를 알렸고, 그 모델은 살아 있지만 유료입니다. 행이 다시 채워지기 전까지 맨 `--provider openrouter`는 exit 64입니다. **형태는 보지만 색은 못 봅니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서). stealth 엔드포인트는 **데이터 정책을 공개하지 않으므로** 사내 코드는 이 arm에 올리지 마십시오 |
+| **gemini-3.8-flash-high** — Google 플랜 | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드. 직전 기본값 3.7은 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC` PNG의 hex를 정확히 명명)이었습니다. 3.8은 아직 재측정 전입니다 | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
+| **muse-spark-1.3-contributor** — Muse Code | `muse` CLI, `--provider muse` | 별도 계정의 네 번째 프로세스 계열 — **262k 컨텍스트**에 추론 강도 노브(`--effort` → `--reasoning-effort`)가 있고, **형태와 색 계열은 봅니다**(실측: 그려 넣은 `H`를 `H`로, `#1E50DC` 단색을 "blue"로) | 이 CLI에는 훅도, 정의할 수 있는 권한 프로파일도 없어서 **가드 없는 라운드는 실제로 커밋합니다**(실측). 그래서 git 가드는 라운드 `PATH` 맨 앞의 `git` shim이고 exit 97로 거부합니다. 절대경로로 부르는 호출은 여전히 빠져나갑니다. Anthropic 호환 엔드포인트에 API 키로 부르면 `billing_error`가 오고, CLI의 OAuth 세션으로만 들어갈 수 있습니다 |
+| **OpenRouter** — **기본값 없음, id를 직접 지정** | `opencode` CLI, `--provider openrouter --model openrouter/<vendor>/<id>` | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 | 맨 `--provider openrouter`는 exit 64입니다. 무료 stealth id는 빌린 자리여서, 2026년 9월에만 두 개가 제공을 멈췄습니다. **형태는 보지만 색은 못 봅니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서). stealth 엔드포인트는 **데이터 정책을 공개하지 않으므로** 사내 코드는 이 arm에 올리지 마십시오 |
 | **Codex on Cheaper Inference** — 런처 백엔드가 아닌 사이드카 | `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회 | Codex 자체 하네스로 돌리는 임시·수동 감독 라운드. 구독이 아니라 토큰당 과금 — `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 선택 | **런처 밖**: 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트 없음 |
 
-**백엔드를 늘리고 줄이는 일은 리팩터가 아니라 한 줄입니다.** `internal/launch/wiring.go`에 프로바이더 테이블과 하네스 테이블이 하나씩 있고, 나머지는 전부 거기서 파생됩니다. 지금 무엇이 어디서 도는지는 `outsource-run --list-wiring`이 그대로 찍어 줍니다:
+백엔드를 늘리고 줄이는 일은 리팩터가 아니라 표 한 줄입니다([arm은 어떻게 배선되나](#arm은-어떻게-배선되나)).
 
-```
-PROVIDER     HARNESS        DEFAULT MODEL            NOTES
-zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
-zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
-xai          claude-code    grok-4.6                 default harness
-xai          crush          grok-4.6                 --model form provider/id
-openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
-agy          agy            gemini-3.8-flash-high    default harness
-```
-
-위임이 벌어지는 동안 그걸 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)도 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
+위임이 벌어지는 동안 그것을 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)과 [패널](#패널-claude-code-mod)이 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
 
 ```
 opus │ you@example.com │ CTX 12% │ 5H 8%/3h20m │ 1W 38%/4d2h
@@ -39,19 +29,40 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 
 ## 설치
 
+### 필요한 것
+
+[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나:
+
+- z.ai 코딩플랜 키(GLM-5.3, glm-5.3-flash)
+- 로그인된 `agy` CLI(Antigravity, Google 플랜)
+- 인증된 `grok` CLI
+- 로그인된 `muse` CLI(Muse Code)
+- OpenRouter용으로 인증된 `opencode` CLI(`opencode auth login`). 기본 id가 없고, 어느 id를 쓰든 계정에 크레딧이 있어야 합니다.
+
+`codex-ci` 사이드카는 별개입니다. `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
+
+Go는 없어도 됩니다. 이 저장소에는 바이너리를 커밋하지 않습니다. 기계마다 Go로 빌드하거나, 릴리즈 바이너리를 받아 sha256이 커밋된 매니페스트와 같을 때만 실행합니다([바이너리 검증](#바이너리-검증)).
+
+### 설치 방법 두 가지
+
+| | 마켓플레이스 | 설치 스크립트 |
+|---|---|---|
+| 스킬 위치 | `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/` | `~/.claude/skills/outsource/` (`--project`면 `./.claude/skills/outsource/`) |
+| 패널 | 스킬과 함께 불러옴 | `claude --plugin-dir <clone>/mods/outsource-panel` |
+| [로컬 오버레이](#로컬-오버레이) | 버전 폴더 안에 있어서 업데이트하면 사라짐 | 업그레이드해도 보존 |
+
+로컬 오버레이를 쓰신다면 설치 스크립트를 고르십시오.
+
+**마켓플레이스** — Claude Code 안에서:
+
 ```
 /plugin marketplace add midagedev/outsource
 /plugin install outsource@outsource
 ```
 
-이 설치 한 번으로 스킬과 [패널](#패널-claude-code-mod)(`/rounds` 창, 밴드, 토스트, 깨우기)이 함께 들어옵니다. 루트 플러그인이 `hooks/hooks.json`으로 `mods/outsource-panel`을 불러오기 때문입니다. clone해 두었다면 `claude --plugin-dir <clone>`으로 한 세션에 둘을 함께 불러올 수 있습니다.
+루트 플러그인이 `hooks/hooks.json`으로 `mods/outsource-panel`을 불러오므로, 스킬과 [패널](#패널-claude-code-mod)이 함께 들어옵니다. 이 문서에서 `~/.claude/skills/outsource/`로 시작하는 경로는 이 설치에서는 위의 플러그인 캐시 폴더에서 시작합니다. 이 설치로 오버레이를 유지하려면 `OUTSOURCE_SKILL_DIR`을 계속 두실 폴더로 지정하고, 그 `references/`에 `local-overlay.md`와 `overlays/`를 두십시오.
 
-Claude Code는 마켓플레이스 설치본을 플러그인 캐시 `~/.claude/plugins/cache/outsource/outsource/<version>/`에 둡니다. 그래서 스킬은 `<version>/skills/outsource/`에 있고, 아래에서 `~/.claude/skills/outsource/`로 시작하는 경로는 모두 그 자리에서 시작합니다. 달라지는 점이 두 가지입니다.
-
-- 키 설정 스크립트는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`입니다.
-- 사용자 오버레이는 스킬 폴더 기준으로 읽습니다. 스킬 폴더는 바이너리를 실행한 `bin/outsource`의 상위 폴더입니다. 그래서 마켓플레이스 설치에서는 `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md`가 됩니다. 이 버전 폴더는 업데이트 때 통째로 바뀝니다. 오버레이를 쓰신다면 설치 스크립트로 설치하시거나(오버레이를 보존합니다), `OUTSOURCE_SKILL_DIR`를 계속 두실 폴더로 지정하고 그 `references/`에 `local-overlay.md`와 `overlays/`를 두십시오.
-
-또는 설치 스크립트([로컬 오버레이](#로컬-오버레이)를 쓸 거면 이쪽):
+**설치 스크립트:**
 
 ```bash
 git clone https://github.com/midagedev/outsource
@@ -60,16 +71,9 @@ cd outsource
 ./install.sh --project  # 프로젝트 스코프: ./.claude/skills/outsource/
 ```
 
-[Claude Code](https://claude.com/claude-code)와 백엔드 최소 하나가 필요합니다 — z.ai 코딩플랜 키, 인증된 `grok` CLI, 로그인된 `agy` CLI(Antigravity, Google 플랜), 그리고/또는 인증된 `opencode` CLI (`opencode auth login`으로 OpenRouter — 기본 id가 없고, 어느 id를 쓰든 계정에 크레딧이 있어야 합니다). `codex-ci` 사이드카는 별개입니다 — `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
+Go가 있으면 `install.sh`가 바이너리를 빌드합니다. Go가 없으면 설치할 때 받아서 검증해 둡니다. 그래서 네트워크 문제는 첫 라운드가 아니라 설치 단계에서 드러납니다(`--no-fetch`로 건너뜁니다). clone에서 `claude --plugin-dir <clone>`으로 띄우면 스킬과 패널을 한 세션에 함께 불러올 수도 있습니다.
 
-**플랫폼과 바이너리.** 이 저장소에는 바이너리를 커밋하지 않습니다. `bin/outsource`는 작은 POSIX `sh` 실행 스크립트(dispatcher)입니다. 함께 커밋된 `bin/outsource.sha256`에는 릴리즈 버전과 네 가지 릴리즈 바이너리(darwin-arm64, darwin-amd64, linux-amd64, linux-arm64)의 sha256이 적혀 있습니다. 처음 실행할 때 이 스크립트가 다음 순서로 바이너리를 마련합니다.
-
-1. 바로 옆의 로컬 빌드(clone에서 `./build.sh`, 또는 Go가 있는 상태의 `install.sh`)
-2. 캐시(`~/.cache/outsource/<version>/`)
-3. Go와 소스가 있으면 소스에서 빌드(마켓플레이스 설치본에는 소스가 함께 들어 있습니다)
-4. GitHub Release에서 다운로드. sha256이 매니페스트와 같을 때만 실행합니다.
-
-이 검사를 끄는 스위치는 없습니다. `OUTSOURCE_RELEASE_URL`은 받아 오는 곳(미러, 폐쇄망 서버)만 바꿀 뿐 검사 여부는 바꾸지 않습니다. Go가 없으면 `install.sh`가 설치할 때 미리 받아 둡니다. 그래서 네트워크 문제는 첫 라운드가 아니라 설치 단계에서 드러납니다(`--no-fetch`로 건너뛸 수 있습니다). 바이너리를 마련하지 못하면 `bin/git-guard.sh`는 종료 코드 2를 돌려 git을 막습니다. 다운로드가 실패해도 git 가드가 열리지 않습니다. `bin/*.sh` 이름으로 부르려면 bash가 필요하고(Alpine에서는 `apk add bash`), `bin/outsource <도구>`는 `sh`와 `curl` 또는 `wget`만 있으면 됩니다.
+### z.ai 키
 
 **이미 z.ai를 설정하셨다면** — `npx @z_ai/coding-helper`로든, `crush` CLI로든 — 할 일이 없습니다. 그 도구들이 넣어 둔 자리에서 키를 찾아 씁니다.
 
@@ -83,7 +87,21 @@ cd outsource
 
 > **레퍼럴 링크:** https://z.ai/subscribe?ic=P7NR6BGEGL — 10% 할인을 받으시고, 이 프로젝트에 적립됩니다. 선택 사항이고, 이 문서의 다른 z.ai 링크는 전부 순수한 https://z.ai/subscribe 입니다.
 
-**업데이트.** 마켓플레이스: `/plugin marketplace update outsource` 후 `claude plugin update outsource`. 스크립트 설치: `git pull && ./install.sh` — 체크섬 매니페스트 덕에 무수정 설치본은 플래그 없이 올라가고, 손으로 고친 설치본만 `--force`가 필요합니다(`references/local-overlay.md`는 항상 보존).
+### 다른 기계에 설치하기
+
+저장소에는 스킬만 있고, 내 설정은 들어 있지 않습니다. 새 기계에서는:
+
+1. 위 두 방법 중 하나로 설치합니다.
+2. 예전 기계의 사용자 오버레이를 가져옵니다. clone 루트에 `local-overlay-<이름>.md`로 두고 `./install.sh`를 실행하거나(설치본에 오버레이가 없으면 이 파일로 `references/local-overlay.md`를 채웁니다), 설치된 스킬의 `references/local-overlay.md`로 바로 복사합니다. 프로젝트 오버레이를 선언해 두었다면 `references/overlays/`도 복사합니다. 저장소는 이 파일들을 배포하지 않습니다.
+3. z.ai 키를 설정하고(위 절), 라우팅하는 다른 CLI에도 로그인합니다.
+4. `~/.claude/settings.json`에 [스테이터스라인](#스테이터스라인)을 넣고, 쓰던 셸 alias(예: `bin/glm.sh`용)도 옮깁니다.
+5. 설치 스크립트로 설치했다면 위 표처럼 `--plugin-dir`로 패널을 불러옵니다.
+6. 확인합니다. `~/.claude/skills/outsource/bin/quota.sh`가 z.ai 플랜을 출력하면 됩니다. 이 기계에 바이너리가 없으면 첫 호출이 빌드하거나 받아 옵니다.
+
+### 업데이트
+
+- **마켓플레이스:** `claude plugin marketplace update outsource`, 그다음 `claude plugin update outsource@outsource`를 실행하고 Claude Code를 다시 시작합니다.
+- **설치 스크립트:** `git pull && ./install.sh`. 체크섬 매니페스트 덕분에 고치지 않은 설치본은 플래그 없이 올라가고, 손으로 고친 설치본은 `--force`가 필요합니다. `references/local-overlay.md`는 항상 보존됩니다.
 
 ## 사용
 
@@ -129,20 +147,20 @@ $ bin/tail.sh test-backfill -f
 
 턴마다 한 줄, 최신이 아래입니다: `💬`는 라운드가 말한 것, `🔧`는 실행한 것, `✗`는 오류로 돌아온 도구 호출. `-f`는 따라가다 라운드가 끝나면 같이 끝납니다 — 끝내는 것은 레지스트리의 종료 코드이고 타임아웃이 아닙니다. `--all`은 사고 블록과 성공한 도구 결과까지 붙이고, `--raw`는 `jq`에 넘길 수 있게 흔적의 원본 줄을 그대로 돌려주며, `-n`은 렌더할 이력의 길이를 정합니다.
 
-정작 어려웠던 쪽은 그 파일을 찾는 일이었고, 이 기능이 생긴 이유가 그것입니다. claude-code 하네스에서 `--log`는 맨 끝에 한 번 쓰이므로 따라갈 것이 애초에 없고, 살아 있는 기록은 하네스 자신의 세션 트랜스크립트입니다. 그런데 `<config-dir>/claude/projects/<cwd-slug>/` 아래 `.jsonl` 가운데 어느 것이 *이* 라운드의 것인지는 읽는 쪽이 알아낼 방법이 없습니다 — 가장 최근 파일을 고르는 요령은 한 cwd에서 라운드가 둘 돌기 전까지만 맞고, 그 뒤로는 조용히 엉뚱한 라운드를 보여 줍니다. 그래서 라운드가 스스로 말하게 했습니다: `SessionStart` 훅이 첫 턴에 자기 트랜스크립트 경로를 레지스트리에 적고, `runs.sh`가 그것을 `trail=`로 출력하며, 완료 센티널에도 남아서 `prune`이 기록을 지운 뒤까지 살아 있습니다. 살아 있는 라운드 여럿이 같은 라벨을 쓰고 있으면 하나를 골라 주지 않고 후보를 나열하며 거부합니다.
+살아 있는 흔적은 하네스 자신의 세션 트랜스크립트입니다. claude-code 하네스에서 `--log`는 맨 끝에 한 번 쓰이므로 따라갈 것이 없습니다. `<config-dir>/claude/projects/<cwd-slug>/` 아래 `.jsonl` 가운데 어느 것이 *이* 라운드의 것인지는 밖에서 알아낼 방법이 없습니다. 가장 최근 파일을 고르면 한 cwd에서 라운드가 둘 돌기 전까지만 맞고, 그 뒤로는 조용히 엉뚱한 라운드를 보여 줍니다. 그래서 라운드가 스스로 말합니다: `SessionStart` 훅이 첫 턴에 자기 트랜스크립트 경로를 레지스트리에 적고, `runs.sh`가 그것을 `trail=`로 출력하며, 완료 센티널에도 남아서 `prune`이 기록을 지운 뒤까지 살아 있습니다. 살아 있는 라운드 여럿이 같은 라벨을 쓰고 있으면 하나를 골라 주지 않고 후보를 나열하며 거부합니다.
 
 ### 오래 도는 라운드와 멈춘 라운드는 다릅니다
 
-GLM의 두 하네스 모두 스스로를 멈추지 못합니다 — `crush run`은 플래그 집합에 턴·시간 제한이 아예 없고, 이 `claude` CLI에는 `--max-turns`가 없으며 `--max-budget-usd` 하나뿐인데 그건 Anthropic 가격이라 z.ai 플랜에는 의미가 없습니다. 그래서 시간 상한을 걸고 싶어지는데, 배달된 라운드 열 건 실측이 그게 틀린 처방이라고 말합니다: 13분에서 **1h50m**까지 걸렸고 소요시간은 메시지 수와 거의 선형이었습니다(66개/13분 … 848개/1h50m). **긴 라운드는 일이 많아서 길었습니다.** 시간으로 끊으면 그 라운드들을 자르면서, 정작 3분째에 갇힌 라운드는 놓칩니다.
+GLM의 두 하네스 모두 스스로를 멈추지 못합니다 — `crush run`은 플래그 집합에 턴·시간 제한이 아예 없고, `claude` CLI에는 `--max-turns`가 없으며 `--max-budget-usd` 하나뿐인데 그건 Anthropic 가격이라 z.ai 플랜에는 의미가 없습니다. 그래서 시간 상한을 걸고 싶어지는데, 배달된 라운드 열 건 실측이 그게 틀린 처방이라고 말합니다: 13분에서 **1h50m**까지 걸렸고 소요시간은 메시지 수와 거의 선형이었습니다(66개/13분 … 848개/1h50m). **긴 라운드는 일이 많아서 길었습니다.** 시간으로 끊으면 그 라운드들을 자르면서, 정작 3분째에 갇힌 라운드는 놓칩니다.
 
-그래서 레지스트리는 **시간이 아니라 출력**을 잽니다. GLM 하네스들은 자기 데이터 디렉터리에 계속 쓰고, opencode와 agy는 이벤트마다 `--log`에 JSONL을 플러시하므로, `runs.sh`는 `IDLE` 열을 내고 실행 중인 라운드가 10분간 아무것도 안 썼을 때만 `⏳`를 붙입니다(`OUTSOURCE_RUN_STALL`):
+그래서 레지스트리는 **시간이 아니라 출력**을 잽니다. `runs.sh`는 `IDLE` 열을 내고, 실행 중인 라운드가 10분간 아무것도 안 썼을 때만 `⏳`를 붙입니다(`OUTSOURCE_RUN_STALL`):
 
 ```
 ▶refshot zai·crush 1h41m        # 101분째, 1초 전에 썼음 — 건드리지 말 것
 ⏳frozen  zai·crush 22m ⋯14m     # 22분 중 14분이 침묵 — 흔적을 볼 것
 ```
 
-이 둘이 실제 판별점입니다. 경과시간 규칙이었다면 **멀쩡한 101분짜리를 경고하고 갇힌 쪽은 침묵**했을 조합입니다. `--log` 파일은 claude-code에게는 신호가 아닙니다 — 그 하네스는 맨 끝에 한 번만 쓰므로 정상 라운드도 평생 빈 로그로 보입니다. 흔적은 crush면 `data/crush.db-wal`·`data/logs/crush.log`, claude-code면 `trail=`이 가리키는 세션 트랜스크립트입니다. opencode와 agy는 예외: 스트림 JSON 로그가 프로세스가 도는 동안 `--log`에 이벤트를 한 줄씩 플러시하므로, 거기서는 그 파일이 곧 흔적입니다.
+경과시간 규칙이었다면 **멀쩡한 101분짜리를 경고하고 갇힌 쪽은 침묵**했을 조합입니다. 무엇을 출력으로 보는지는 하네스마다 다릅니다. crush는 `data/crush.db-wal`과 `data/logs/crush.log`, claude-code는 `trail=`이 가리키는 세션 트랜스크립트이고, opencode와 agy는 스트림 JSON을 이벤트마다 한 줄씩 플러시하는 `--log` 자체입니다.
 
 **흔적을 읽는 것은 1단계이지 판정이 아닙니다.** 2026-08-28 실측: 한 라운드가 `⏳ ⋯57m`에 앉아 있었고, 트랜스크립트의 마지막 줄은 "Core 레벨 격리 게이트를 추가하는 중"이었습니다 — 편집 중인 델리게이트와 구분이 되지 않는 문장입니다. 아니었습니다. 그 라운드는 테스트 러너를 셸로 띄웠다가 데드락에 걸렸고, 하네스는 영영 돌아오지 않을 자식을 기다리며 막혀 있었습니다. 한 시간째 죽어 있으면서 바빠 보였던 겁니다. 둘을 가른 것은 로그가 보여줄 수 없는 **자손 프로세스 트리**였습니다:
 
@@ -173,19 +191,22 @@ Claude Code의 SendMessage 도구로 이 주소(`to` = 그 주소)에 지시를 
 
 라운드 설정에는 `crossSessionInbound: accept`를 넣습니다. 이 설정이 없으면 bypass 모드의 `-p` 라운드는 bypass가 아닌 리드가 보낸 메시지를 보류했다가 5분 뒤 버립니다.
 
-라운드는 실행될 때 자기 리드가 누구인지도 듣습니다. 라운드 프롬프트는 "Launcher notice: your lead" 단락으로 시작합니다. 라운드를 띄운 세션의 소켓에서 온 메시지, 또는 첫 줄이 `lead-token: <token>`인 메시지는 스펙과 같은 권한을 가진 스펙 수정입니다. 다만 preamble의 금지(git 쓰기, 라운드 띄우기, 에이전트 만들기)는 풀 수 없습니다. 다른 세션에서 온 메시지는 참고 정보일 뿐입니다.
+라운드는 실행될 때 자기 리드가 누구인지도 듣습니다. 라운드 프롬프트는 "Launcher notice: your lead" 단락으로 시작합니다.
+
+- 라운드를 띄운 세션의 소켓에서 온 메시지, 또는 첫 줄이 `lead-token: <token>`인 메시지는 스펙과 같은 권한을 가진 스펙 수정입니다. 다만 preamble의 금지(git 쓰기, 라운드 띄우기, 에이전트 만들기)는 풀 수 없습니다.
+- 다른 세션에서 온 메시지는 참고 정보일 뿐입니다.
 
 토큰은 실행마다 새로 만들고(16바이트 난수), 그 라운드의 레지스트리 기록에 저장합니다. 이 기록은 본인만 읽을 수 있습니다(모드 0600). `outsource runs json`에는 `leadToken`으로 나오고, 센티널에는 `lead_socket=`만 남습니다. 패널의 `round_send`는 보내는 글 앞에 토큰 줄을 붙입니다. 직접 보내려면 `outsource runs json`에서 `messagingSocket`과 `leadToken`을 읽은 뒤, SendMessage로 `to` = `uds:<messagingSocket>`, 첫 줄 `lead-token: <leadToken>`인 메시지를 보내십시오. 리드를 재시작하면 소켓은 바뀌지만 토큰은 그대로 통합니다.
 
-리드 토큰이 생기기 전에 띄운 라운드도 메시지는 받지만, 다른 세션의 요청으로 읽을 수 있습니다. 반드시 따르게 하려면 `--session <id>`로 다시 띄우십시오. inbox 기능이 생기기 전에 띄운 라운드는 아예 받지 못합니다. `crossSessionInbound: accept`는 실행할 때 설정에 써 넣는 값이라, 예전 라운드는 메시지를 전달하지 않고 보류합니다. 이런 라운드는 멈춘 뒤 `--session`으로 이어서 돌리십시오. 어느 경우인지는 패널과 `mcp__outsource__rounds`가 `inbox=no (<이유>)`로 알려 줍니다.
+예전 런처로 띄운 라운드에는 리드 안내가 없거나 inbox가 아예 없을 수 있습니다. 어느 경우인지는 패널과 `mcp__outsource__rounds`가 `inbox=no (<이유>)`로 알려 줍니다. 멈춘 뒤 `--session <id>`로 이어서 돌리면 둘 다 갖춥니다.
 
 ### 라운드 멈추기
 
 `outsource runs stop <label|id> [--reason <text>]`은 돌고 있는 라운드를 멈춥니다.
 
-- 런처가 하네스를 띄울 때 기록한 pid에 TERM을 보냅니다. 보내기 전에 그 프로세스가 살아 있는지, 부모가 그 라운드의 래퍼인지 확인합니다.
-- 20초 뒤에도 살아 있으면(`--kill-after N`으로 조정) 하네스의 프로세스 그룹에 KILL을 보냅니다.
-- 그다음 최대 30초 동안 센티널을 기다렸다가 `rc=` 줄을 출력합니다. 센티널에는 `stopped_by=lead`와 `stop_reason=`이 남습니다.
+1. 런처가 하네스를 띄울 때 기록한 pid에 TERM을 보냅니다. 보내기 전에 그 프로세스가 살아 있는지, 부모가 그 라운드의 래퍼인지 확인합니다.
+2. 20초 뒤에도 살아 있으면(`--kill-after N`으로 조정) 하네스의 프로세스 그룹에 KILL을 보냅니다.
+3. 그다음 최대 30초 동안 센티널을 기다렸다가 `rc=` 줄을 출력합니다. 센티널에는 `stopped_by=lead`와 `stop_reason=`이 남습니다.
 
 하네스가 도는 동안 `outsource-run` 래퍼에 TERM을 보내면 일부러 아무 일도 일어나지 않습니다. 호출한 쪽의 타임아웃에도 센티널이 살아남도록 래퍼가 신호를 붙잡아 두기 때문입니다. `--resume-on-reset`으로 리셋을 기다리는 라운드에는 하네스가 없으므로, `runs stop`은 래퍼에 TERM을 보내고 래퍼는 기다림을 끝낸 뒤 센티널을 씁니다.
 
@@ -221,13 +242,7 @@ Maka 로그에는 위조 탐지가 없어서 그 부분을 조금 더했습니�
 
 ### 패널 (Claude Code mod)
 
-`mods/outsource-panel`은 이 모든 것을 리드 세션 안에 턴 소모 없이 그립니다. 마켓플레이스 설치와 `claude --plugin-dir <clone>`에는 패널이 이미 들어 있습니다(루트 플러그인이 `hooks/hooks.json`으로 패널 모듈을 불러옵니다). 설치 스크립트로 설치했다면 패널을 따로 불러오십시오.
-
-```
-claude --plugin-dir <clone>/mods/outsource-panel
-```
-
-한 가지 방법으로만 불러오십시오. 마켓플레이스 설치와 이 옵션이 한 세션에서 만나면 번들 쪽만 동작하고, 단독 쪽은 아무것도 등록하지 않은 채 그 이유를 디버그 로그에 남깁니다. 패널은 처음 찾은 `outsource` 바이너리를 씁니다. 찾는 순서는 `OUTSOURCE_PANEL_BIN`, 플러그인 자신의 `skills/outsource/bin/outsource`, 단독으로 불러왔을 때 그 clone의 바이너리, `~/.claude/skills/outsource/bin/outsource`입니다. 어느 것을 골랐는지는 디버그 로그에 남습니다.
+`mods/outsource-panel`은 이 모든 것을 리드 세션 안에 턴 소모 없이 그립니다. 마켓플레이스 설치에는 패널이 들어 있고, 설치 스크립트로 설치했다면 `claude --plugin-dir <clone>/mods/outsource-panel`로 따로 불러옵니다([설치](#설치-방법-두-가지)). 한 가지 방법으로만 불러오십시오. 마켓플레이스 설치와 이 옵션이 한 세션에서 만나면 번들 쪽만 동작하고, 단독 쪽은 아무것도 등록하지 않은 채 그 이유를 디버그 로그에 남깁니다. 패널은 처음 찾은 `outsource` 바이너리를 씁니다. 찾는 순서는 `OUTSOURCE_PANEL_BIN`, 플러그인 자신의 `skills/outsource/bin/outsource`, 단독으로 불러왔을 때 그 clone의 바이너리, `~/.claude/skills/outsource/bin/outsource`입니다. 어느 것을 골랐는지는 디버그 로그에 남습니다.
 
 - `/rounds`를 치면 패널이 열립니다. 들어 있는 것은 다음과 같습니다.
   - 라운드 목록: 내 라운드가 먼저, 다른 세션의 라운드(⇄)가 그다음
@@ -240,35 +255,20 @@ claude --plugin-dir <clone>/mods/outsource-panel
 - 패널을 닫아 두면 프롬프트 위 한 줄에 가장 최근에 움직인 내 라운드가 뜹니다.
 - 내 라운드가 끝나거나, 실패하거나, 조용해지거나, 프로세스를 잃으면 토스트로 알립니다.
 
-패널은 사람뿐 아니라 리드 **모델**에게도 알립니다.
+패널은 사람뿐 아니라 리드 **모델**에게도 알립니다. 이 세션에서 띄운 라운드가 끝나거나, 실패하거나, 프로세스를 잃거나, 멈추면 mod가 `[outsource-panel]` 프롬프트를 하나 보냅니다. 그래서 패널을 띄운 리드는 이 세션에서 띄운 라운드에 `wait.sh`를 걸 필요가 없습니다.
 
-- 이 세션에서 띄운 라운드가 끝나거나, 실패하거나, 프로세스를 잃거나, 멈추면 mod가 `[outsource-panel]` 프롬프트를 하나 보냅니다. 그래서 패널을 띄운 리드는 이 세션에서 띄운 라운드에 `wait.sh`를 걸 필요가 없습니다.
-- 2026-10-06에 실제 세션으로 측정했습니다. 플러그인이 보낸 프롬프트는 세션이 쉬고 있으면 스스로 턴을 시작하고, 턴이 돌고 있으면 그 뒤에 줄을 섭니다. 직접 입력한 프롬프트처럼 `UserPromptSubmit` 훅도 실행됩니다.
-- 같은 라운드의 같은 상태로는 두 번 깨우지 않습니다. 이 기록은 mod의 저장소에 남습니다.
-- 재시작한 리드는 꺼져 있던 동안 끝나거나, 실패하거나, 프로세스를 잃은 라운드에 대해 깨워집니다. 패널이 한 번도 확인하지 않은 세션 id는 조용히 시작하므로, 처음 로드할 때 지난 라운드가 한꺼번에 몰려오지 않습니다.
-- 깨우는 글에는 런처가 쓴 값(라벨, 상태, rc, 시간, log, cwd, id)만 들어갑니다. 라운드가 직접 쓴 trail 내용은 넣지 않습니다. 끝에는 검토 명령이 한 줄에 하나씩 붙습니다: last-report, `.rc` 센티널, diff, audit, 그다음 게이트. `outsource`가 PATH에 없어서 명령마다 설치된 바이너리의 절대 경로를 쓰고, 명령 줄은 길어도 자르지 않습니다.
-- 모델은 도구 `mcp__outsource__rounds`와 `mcp__outsource__round_send`도 받습니다(패널을 단독으로 불러왔다면 `mcp__outsource-panel__rounds`, `mcp__outsource-panel__round_send`). 이 내용을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
+- **어떻게 도착하나.** 2026-10-06에 실제 세션으로 측정했습니다. 플러그인이 보낸 프롬프트는 세션이 쉬고 있으면 스스로 턴을 시작하고, 턴이 돌고 있으면 그 뒤에 줄을 섭니다. 직접 입력한 프롬프트처럼 `UserPromptSubmit` 훅도 실행됩니다.
+- **얼마나 자주.** 변화를 본 폴링 한 번에 프롬프트 하나이고, 같은 라운드의 같은 상태로는 두 번 깨우지 않습니다. 이 기록은 mod의 저장소에 남습니다. 재시작한 리드는 꺼져 있던 동안 끝나거나, 실패하거나, 프로세스를 잃은 라운드에 대해 깨워집니다. 패널이 한 번도 확인하지 않은 세션 id는 조용히 시작하므로, 처음 로드할 때 지난 라운드가 한꺼번에 몰려오지 않습니다.
+- **무엇이 들어가나.** 런처가 쓴 값(라벨, 상태, rc, 시간, log, cwd, id)만 들어갑니다. 라운드가 직접 쓴 trail 내용은 넣지 않습니다. 끝에는 검토 명령이 한 줄에 하나씩 붙습니다: last-report, `.rc` 센티널, diff, audit, 그다음 게이트 재실행. `outsource`가 PATH에 없어서 `outsource` 명령은 설치된 바이너리의 절대 경로로 씁니다.
+- **도구.** 모델은 도구 `mcp__outsource__rounds`와 `mcp__outsource__round_send`도 받습니다(패널을 단독으로 불러왔다면 `mcp__outsource-panel__rounds`, `mcp__outsource-panel__round_send`). 이 내용과 도구의 실제 이름을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
+
+데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다. "내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id>`, 패널을 `--plugin-dir`로 불러왔다면 같은 옵션도 함께). 전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다. `send`, `wake`, `on`, `off`는 하위 명령으로 먼저 읽힙니다. 라벨이 이 단어인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
 
 플랜 한도에 걸려 `--resume-on-reset`이 붙잡고 있는 라운드는 `⏸`와 `quota → <hh:mm>`(늦어도 깨어날 시각)로 보입니다. 이 라운드는 살아 있는 라운드로 셉니다. 돌고 있는 라운드와 함께 목록에 나오고, 기다리기 시작할 때는 깨우지 않으며, 마지막에 끝나거나 실패하거나 프로세스를 잃었을 때 깨웁니다. 한도에 걸린 채 끝난 라운드는 `⛔ resets <hh:mm>`로 보이고, 깨우는 줄은 "cut by the plan limit (429), resets hh:mm"입니다.
 
-데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다.
-
-"내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id>`, 패널을 `--plugin-dir`로 불러왔다면 같은 옵션도 함께).
-
-전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다.
-
-`send`, `wake`, `on`, `off`는 하위 명령으로 먼저 읽힙니다. 라벨이 이 단어인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
-
 ## 스테이터스라인
 
-`bin/statusline.sh`는 위의 레지스트리와 [`bin/quota.sh`](#가드레일)의 플랜 쿼터를 Claude Code 스테이터스라인에 올립니다 — 이 세션을 멈추는 한도, 다음 라운드를 멈추는 한도, 그리고 지금 돌고 있는 것:
-
-```
-opus │ you@example.com │ CTX 12% │ 5H 8%/3h20m │ 1W 38%/4d2h
-z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·cc 4m │ repo (main)
-```
-
-`~/.claude/settings.json`에 한 번 넣습니다:
+`bin/statusline.sh`는 실행 레지스트리와 [`bin/quota.sh`](#가드레일)의 플랜 쿼터를 Claude Code 스테이터스라인에 올립니다. 이 문서 맨 위의 두 줄이 그 출력입니다. `~/.claude/settings.json`에 한 번 넣습니다:
 
 ```json
 "statusLine": {
@@ -277,82 +277,94 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 }
 ```
 
+마켓플레이스 설치에서는 이 스크립트가 버전이 붙은 플러그인 캐시 폴더에 있으므로([설치](#설치-방법-두-가지)), 업데이트할 때마다 경로가 바뀝니다.
+
 모든 한도는 토큰 하나입니다 — `이름 쓴%/리셋까지`. 앞은 얼마나 썼는지, 뒤는 언제 돌아오는지. 둘 중 하나만으로는 판단이 안 서기 때문에 여기에 막대는 없습니다: 막대는 앞 절반에 서른 칸을 쓰고 뒤 절반은 아예 못 그립니다. 경보는 색이 담습니다(50 미만 초록, 80 미만 노랑, 80 이상 빨강). `grok 98%/2h19m`은 한눈에 *거의 다 썼지만 오래 안 남았다*로 읽힙니다.
 
-렌더당 약 120ms인 이유는 렌더 경로에서 쿼터 API를 절대 부르지 않기 때문입니다. 그건 1~2초가 걸리므로, 락으로 묶인 백그라운드 갱신이 `OUTSOURCE_STATUSLINE_TTL`초(기본 180)마다 작은 캐시를 쓰고 렌더가 몰려도 fetch는 하나입니다.
+렌더 한 번은 약 20 ms입니다. 렌더 경로에서 쿼터 API를 절대 부르지 않기 때문입니다. 쿼터 API는 1~2초가 걸리므로, 락으로 묶인 백그라운드 갱신이 `OUTSOURCE_STATUSLINE_TTL`초(기본 180)마다 작은 캐시를 쓰고, 렌더가 몰려도 fetch는 하나입니다.
 
-**침묵은 정확히 한 가지만 뜻합니다: 이 백엔드는 여기 설정돼 있지 않다.** 나머지는 각자 표시를 갖기 때문에, 구간이 비어 있는 것이 애매해지지 않습니다 — 아직 측정 전이면 `…`, 더 이상 갱신되지 않는 측정값은 지우지 않고 앞에 `~`를 붙여 이어 갑니다. 마지막 규칙은 그것 없이 배포한 뒤에 쓰였습니다: `grok` 로그인이 만료되자 구간이 통째로 사라져, **방금 죽은 백엔드를 애초에 안 쓰는 백엔드와 똑같이** 보고했습니다. 어느 것도 조용히 `0%`로 그려지지 않습니다.
+**침묵은 정확히 한 가지만 뜻합니다: 이 백엔드는 여기 설정돼 있지 않다.** 나머지는 각자 표시를 갖기 때문에, 구간이 비어 있는 것이 애매해지지 않습니다 — 아직 측정 전이면 `…`, 더 이상 갱신되지 않는 측정값은 지우지 않고 앞에 `~`를 붙여 이어 갑니다. 이 규칙이 없을 때 `grok` 로그인이 만료되자 구간이 통째로 사라져, **방금 죽은 백엔드가 애초에 안 쓰는 백엔드와 똑같이** 보인 적이 있습니다. 어느 것도 조용히 `0%`로 그려지지 않습니다.
 
-**여기 보이는 라운드는 이 세션의 것입니다.** 레지스트리는 일부러 머신 전역입니다 — 고아 라운드는 어디서든 찾을 수 있어야 하니까요 — 하지만 스테이터스라인은 *당신의 창*에 대한 보고이고, 두 레포에 창 두 개를 띄우면 서로의 작업을 자기 것인 양 읊게 됩니다. 그래서 저장소는 전역으로 두고 **필터를 읽는 쪽에** 뒀습니다: 실행마다 소유 세션을 기록하고, 스테이터스라인은 자기 것만 묻습니다. 소유는 세션 id와 Claude Code 프로세스 **양쪽**으로 매칭하므로, 인프로세스 팀메이트가 띄운 라운드도 내 것으로 잡힙니다. 필터 없는 `runs.sh`는 여전히 머신 전체를 `OWNER` 열과 함께 보여 주고(뭔가 안 보일 때 여기를 봅니다), `OUTSOURCE_STATUSLINE_SCOPE=all`이면 그 시야를 스테이터스라인에 되돌립니다. 예외 하나는 실측으로 생겼습니다: **살아 있는** 라운드(running·orphan)는 항상 보이고, 다른 세션 소유면 `⇄`가 앞에 붙습니다 — 중첩 발사된 라운드가 리드 자신의 워크트리에서 돌고 있는데 스코프 필터가 정확히 그것을 숨긴 적이 있어서요. 끝난 라운드는 여전히 내 것만 보이고, 고아는 하루가 지나면 한 줄 뷰에서 내려갑니다(`OUTSOURCE_RUN_ORPHAN_LINE`; 9일을 눌러앉은 사례가 실측됐습니다).
+**여기 보이는 라운드는 이 세션의 것입니다.** 레지스트리는 일부러 머신 전역입니다 — 고아 라운드는 어디서든 찾을 수 있어야 하니까요 — 하지만 스테이터스라인은 *당신의 창*에 대한 보고이고, 두 레포에 창 두 개를 띄우면 서로의 작업을 자기 것인 양 읊게 됩니다. 그래서 저장소는 전역으로 두고 **필터를 읽는 쪽에** 뒀습니다: 실행마다 소유 세션을 기록하고, 스테이터스라인은 자기 것만 묻습니다. 소유는 세션 id와 Claude Code 프로세스 **양쪽**으로 매칭하므로, 인프로세스 팀메이트가 띄운 라운드도 내 것으로 잡힙니다. 필터 없는 `runs.sh`는 여전히 머신 전체를 `OWNER` 열과 함께 보여 주고(뭔가 안 보일 때 여기를 봅니다), `OUTSOURCE_STATUSLINE_SCOPE=all`이면 그 시야를 스테이터스라인에 되돌립니다. **살아 있는** 라운드(running·orphan)는 항상 보이고, 다른 세션 소유면 `⇄`가 앞에 붙습니다. 중첩 발사된 라운드가 리드 자신의 워크트리에서 돌고 있는데 스코프 필터가 정확히 그것을 숨긴 적이 있어서입니다. 끝난 라운드는 내 것만 보이고, 고아는 하루가 지나면 한 줄 뷰에서 내려갑니다(`OUTSOURCE_RUN_ORPHAN_LINE`; 9일을 눌러앉은 사례가 실측됐습니다).
 
 쿼터 줄 전체를 빼려면 `OUTSOURCE_STATUSLINE_PROVIDERS=""`, 하나만 남기려면 `"zai"`처럼 지정합니다. 런타임 의존성은 없습니다 — 도구들은 하나의 정적 Go 바이너리입니다.
 
-## 텔레메트리 — 로컬 전용
+## 가드레일
 
-도구 호출마다 한 줄이 남습니다: 어떤 도구, 종료 코드, 소요 시간, 그리고 전달된 플래그
-*이름*. 머신을 벗어나는 것은 없습니다 — 엔드포인트도, 업로드도, 식별자도 없습니다.
-`OUTSOURCE_TELEMETRY=0` 으로 끕니다.
-
-```
-$ bin/outsource telemetry --since 7d
-TOOL            CALLS   FAIL   RATE      p50      p95
-outsource-run      31      4    13%    11m04s   1h22m
-runs              210      0     0%      4ms      9ms
-
-failures by kind
-    3 x guard          exit 2    a delegate tried a git/gh command it is not allowed
-    2 x outsource-run  exit 72   the round ran and its completion marker never appeared
-```
-
-요점은 두 번째 표입니다. 그 종료 코드들은 프로바이더가 실패한 방식이 아니라 **발사가
-잘못된 방식**을 이름 부르므로, 비율 하나가 곧 "라운드를 어떻게 돌리고 있나"에 대한
-발견입니다: 64는 플래그를 짐작하고 있다는 뜻, 65는 비전 작업이 눈 없는 백엔드로 가고
-있다는 뜻, 72는 완료 마커를 스펙에 안 넣고 있다는 뜻, 그리고 가드 카운트는 어느 위임자가
-계속 리드의 일을 하려 드는지 말해 줍니다.
-
-**절대 기록하지 않는 것:** 플래그 값, 경로, 스펙 내용, stdin, 환경변수, 자격증명. 플래그
-*이름*이 신호이고 그것이 가리킨 대상은 아닙니다. 값이 남는 것은 이 레포가 정의한 닫힌
-열거형 셋(하네스·프로바이더·git 프로파일)뿐입니다. 가드는 차단된 명령의 *종류*만 남기고
-명령 자체는 남기지 않습니다. 테스트 둘이 이를 단언하며, 하나는 경로·스펙·라벨·마커에
-코드네임을 심어 두고 그것이 파일에 나타나면 실패합니다.
-
-파일은 실행 레지스트리 옆에 있고, 모드 0600이며, 2MB에서 한 세대를 남기고 롤합니다.
-
-## 바이너리 검증
-
-git에는 바이너리를 커밋하지 않습니다. 커밋하는 것은 `bin/outsource.sha256`으로, 릴리즈 버전과
-네 가지 릴리즈 바이너리의 sha256이 들어 있습니다. 실행 스크립트는 받아 온 파일의 해시가 이
-목록과 다르면 실행하지 않습니다.
-
-직접 빌드하지 않은 바이트를 돌리기 싫으시면 그러지 않으셔도 됩니다. Go가 있으면 `./build.sh`가
-이 기계용 바이너리를 실행 스크립트 옆에 빌드하고, 그 바이너리가 항상 먼저 쓰입니다. Go가 있는
-상태에서 `install.sh`를 실행해도 다운로드 대신 빌드합니다.
-
-릴리즈 바이너리를 소스와 대조하려면:
+**발사 전**
 
 ```bash
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
-  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
-shasum -a 256 /tmp/outsource-darwin-arm64   # bin/outsource.sha256의 outsource-darwin-arm64 줄과 같아야 합니다
+bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 깨끗 · 1 발견
+bin/outsource-run.sh --require-quota 15 …            # 플랜이 부족하면 66
+bin/outsource-run.sh --resume-on-reset …             # 429가 나면 플랜이 풀릴 때까지 기다렸다가 같은 세션을 이어 돌림(최대 2번)
 ```
 
-확인할 플랫폼에 맞게 `GOOS`/`GOARCH`를 바꾸십시오. 플래그는 모두 필요합니다.
+z.ai로 띄울 때마다 플랜 quota도 한 번 읽고(3초 안에), 가장 빠듯한 창이 25% 미만이면 경고 한 줄을 냅니다. 그래도 라운드는 띄웁니다. 거부하는 것은 여전히 `--require-quota`뿐입니다. `--resume-on-reset`과 함께 쓰면 `--max-seconds`는 실행 전체가 아니라 시도 하나의 상한입니다. 한 번 실행에서 시도는 최대 세 번이고, 그 사이에 기다린 시간은 세지 않습니다. 둘을 함께 주면 런처가 이 점을 한 줄로 알려 줍니다.
 
-- `-trimpath`는 빌드 경로가 결과물에 들어가지 않게 합니다.
-- `CGO_ENABLED=0`은 정적 바이너리를 만들어 호스트 툴체인의 영향을 없앱니다.
-- `-buildvcs=false`는 Go가 커밋 해시와 `+dirty` 표시를 모듈 버전에 새기지 않게 합니다. 이게
-  없으면 커밋할 때마다 바이트가 바뀝니다.
+**라운드 후** — 모델 정체성 단언(exit 70), 완료 표식 검사(깨끗이 끝났는데 표식이 없으면 exit 72), 완료 센티넬, 그리고 로그 `usage`의 토큰 수를 담은 비용 한 줄. 그 옆의 `total_cost_usd`는 Anthropic 단가라 여기 있는 어느 프로바이더에도 맞지 않습니다. 그리고 `bin/wait.sh <log>`는 센티넬이 떨어질 때까지 블록합니다 — 발사 시점에 백그라운드로 걸어 두면 완료가 폴링 대상이 아니라 알림이 됩니다.
 
-매니페스트가 실제 소스와 맞는지는 세 군데에서 지킵니다.
+플랜 크레딧은 **의도적으로 라운드별로 보고하지 않습니다.** 플랜 쿼터는 동시에 도는 다른 라운드와 다른 세션까지 함께 움직이는 플랜 전역 카운터라, 한 라운드 전후 차이는 라운드가 아니라 그 시각의 머신을 잰 값입니다. 쿼터는 **발사 전 신호**입니다 — 이 세션이 어느 프로바이더를 쓸지, 그리고 시작해도 되는지.
 
-- `tests/reproducible-build.test.sh`가 네 플랫폼 모두에서 위 빌드를 돌려 커밋된 매니페스트와
-  비교합니다. `./build.sh`를 빠뜨린 소스 수정은 배포될 수 없습니다.
-- Go가 있으면 `install.sh`도 새로 빌드한 결과가 매니페스트와 다를 때 설치를 거부합니다.
-- `scripts/release-assets.sh <X.Y.Z>`는 네 바이너리를 빌드하고 매니페스트와 대조한 뒤 릴리즈
-  자산으로 올립니다. 커밋된 매니페스트가 바로 그 바이트를 가리키지 않으면 거부합니다.
+```
+$ bin/quota.sh
+z.ai coding plan: level max — GLM Coding Max (status VALID, valid 2026-08-15~09-15)
+5h window: 6692/28000 consumed, 21307 remaining, 23% used / 76.1% left, resets at 12:24 (in 3h 46m)  <- tightest
+1w window: 27758/140000 consumed, 112241 remaining, 19% used / 80.2% left, resets at 17:52 (in 153h 14m)
 
-darwin/arm64 빌드에는 Go 링커가 ad-hoc 서명을 붙입니다. 크로스컴파일한 macOS 빌드가 실행될 수
-있는 것은 이 서명 덕분입니다.
+$ bin/quota.sh --provider grok
+1w window: exact counts not exposed by this API, 98.0% used / 2.0% left, resets at 15:13 (in 6h 36m)
+```
+
+## 무거운 단계는 기계를 나눠 씁니다
+
+한 기계에서 여러 라운드가 저마다 프로젝트의 전체 빌드, 테스트, 린트를 돌리면 같은 코어를 두고 다툽니다. 2026-10-06 10코어 Mac에서 측정했습니다. 라운드 약 6개가 동시에 돌자 부하가 23–28까지 올랐고, 모든 검증 단계가 기어갔습니다. `outsource slot`은 이런 단계가 차례를 지키게 하는 기계 전체의 카운팅 세마포어입니다.
+
+```bash
+"$OUTSOURCE_SLOT" -- npm test          # 라운드 안: 런처가 경로를 넣어 줍니다
+bin/slot.sh --max 2 -- make check      # 손으로
+bin/slot.sh --status                   # 모든 풀: 쥔 쪽(pid, 라벨, 경과)과 기다리는 쪽
+```
+
+- **풀**은 `--name <pool>`이 없으면 `heavy`입니다. 슬롯은 `${XDG_CACHE_HOME:-~/.cache}/outsource/slots/<pool>/` 아래의 락 파일입니다. 슬롯은 `flock`으로 쥐므로, 쥔 프로세스가 죽으면(SIGKILL이라도) 바로 풀립니다. 치워야 할 낡은 락이 없습니다.
+- **N**(동시에 도는 수)은 `--max N`, 없으면 `OUTSOURCE_SLOTS`, 없으면 max(1, 코어 수/4)입니다. 10코어 기계라면 2입니다. N은 부르는 쪽이 정합니다. N=1로 부르면 풀의 첫 슬롯만 쓰므로, N을 서로 다르게 부르더라도 각자의 예산을 넘지 않습니다.
+- **기다리는 동안** 슬롯을 쥔 쪽을 적은 줄을 하나 출력하고, 슬롯을 얻으면 한 줄을 더 출력합니다. 종료 코드는 감싼 명령의 것을 그대로 돌려줍니다(신호로 죽었으면 128+n). TERM, INT, HUP은 명령에 전달하고, 명령이 끝나야 함께 끝납니다. 이 도구가 SIGKILL을 받으면 슬롯은 풀리고 명령은 계속 돕니다.
+- **중첩 호출**은 그대로 통과합니다. slot으로 감싼 검사 스크립트가 안에서 다시 slot을 부르면, 부모가 쥔 슬롯을 기다리지 않고 바로 실행합니다.
+- **라운드는** `OUTSOURCE_SLOT`(스킬의 `bin/slot.sh`)으로 이 도구를 찾고, 슬롯 기록에는 `OUTSOURCE_RUN_LABEL`(라운드의 `--label`)로 이름이 남습니다. `outsource-run`이 두 변수를 모든 하네스에 넣어 줍니다.
+- **git은 거부합니다**(종료 코드 64). 그냥 부르든 `env`, `nice`, `command` 뒤에 붙이든 마찬가지입니다. git은 무거운 단계가 아니고, 이 래퍼가 git 가드를 피해 가는 길이 되어서는 안 됩니다.
+
+**프로젝트 자체의 무거운 단계 실행기.** [프로젝트 오버레이](#로컬-오버레이)가 무거운 단계용 실행기를 지정하면, 그 프로젝트의 라운드는 `$OUTSOURCE_SLOT` 대신 그것을 씁니다. 예를 들어 테스트를 노트북이 아니라 빌드 서버에서 돌려야 하는 프로젝트라면 오버레이에 이렇게 적습니다.
+
+```markdown
+## Heavy steps
+Run every heavy proof step (full build, `just test`, `just lint`) as
+`tools/remote-run.sh -- <cmd>`: it syncs this worktree to the build box, runs
+the step there under that machine's own slot, and streams the output back with
+the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
+(one test, `git diff`) still run locally.
+```
+
+실행기는 그 프로젝트의 스크립트이므로, 작업을 다른 기계나 그 기계의 대기열로 옮기는 것처럼 slot이 못 하는 일을 할 수 있습니다. preamble 규칙도 이미 이런 실행기를 우선합니다.
+
+## 로컬 오버레이
+
+두 층이며, 더 구체적인 쪽이 나중에 옵니다:
+
+- **사용자 오버레이** — 설치된 스킬 옆 `references/local-overlay.md`. 모든 레포에서 참인 것만(기본 백엔드, 모델 플래그). `install.sh` 업그레이드에도 보존, 이 레포는 절대 배포하지 않습니다. 설치본에 오버레이가 없으면 `install.sh`가 clone 루트의 추적되지 않는 `local-overlay*.md`로 채웁니다. 이미 설치된 오버레이가 있으면 그쪽이 이깁니다.
+- **프로젝트 오버레이** — base 브랜치, 사내 게이트 레시피, 사고 이력: 한 레포에서만 참인 사실들. 붙이는 방법이 둘입니다:
+  - **인레포** — `<repo>/.outsource/overlay.md`, 설명 대상 코드 옆에 체크인. 기본값입니다.
+  - **선언형** — 유저 스코프의 `references/overlays/<name>.md`. `.claude/rules/*` 와 같은 방식으로 front matter 에 적용 경로를 선언합니다:
+
+    ```markdown
+    ---
+    paths:
+      - ~/repo/ds*          # 클론 전부
+      - ~/repo/uf*/**       # 그 아래 워크트리까지
+    ---
+    ```
+
+**선언형**은 한 레포의 체크아웃이 한 머신에 여러 개일 때 씁니다 — 클론 여러 벌 + 워크트리, 각자 다른 브랜치. 체크인된 오버레이는 브랜치 수만큼 갈라지는 사본이 되고, 리드가 그때 서 있던 클론에서 고치면 나머지 전부의 규칙이 조용히 포크됩니다. 실측: 체크아웃 16개인 레포에서 몇 달 간격으로 쓰인 오버레이 두 벌이 서로를 모른 채 공존했고 게이트 표가 서로 달랐습니다.
+
+`outsource overlays --root <repo>` 가 적용 대상을 조립 순서대로 출력합니다 — 사용자 → 선언형 → 인레포 순이라 체크인된 파일이 충돌 시 이깁니다. `--explain` 은 종류와 매칭된 패턴을 같이 찍고, paths 가 아무것도 못 맞추는 선언은 조용히 빠지는 대신 stderr 로 이름이 나옵니다.
 
 ## 모델 비교
 
@@ -366,7 +378,7 @@ Go + Svelte 제품의 실제 티켓 5개, 각 티켓을 모든 팔에 **같은 �
 | **만족시킬 수 없는 계약** | 거부하고 논증한 뒤 재설계 | **알아채고도 그대로 구현** | 알아채지 못함 |
 | 얻을 수 없는 증거 | 무엇이 판정 불가인지 명명하고 부분 미달 신고 | — | 그럴듯한 답을 만들어 냄 |
 | 2차 효과 | 시키지 않아도 찾음 | GLM이 잡은 걸 하나 놓침 | grok이 놓친 걸 하나 잡음 |
-| 이미지 판독 | 가능 | **가능 — 싼 팔 중 유일** | **전혀 불가** (`supports_attachments: false`) |
+| 이미지 판독 | 가능 | **가능** | **전혀 불가** (`supports_attachments: false`) |
 | 자기검증·공개 | 시키지 않아도 함 | preamble 있으면 | **preamble 있을 때만** |
 | 상대 비용 | 최고 | 구독 | **최저** |
 
@@ -401,6 +413,13 @@ muse가 풀에 들어온 뒤 첫 같은-스펙 A/B이고, 객관 게이트가 �
 | 만난 툴체인 결함 | 없음(`u32` 루프의 `#[unroll]` 작동) | `usize` 카운터의 `#[unroll]`에서 컴파일러 ICE — 보고, 업스트림 후보 |
 | 보고의 진단 | **SASS 읽기**(`ptxas -v`), 원인 명명 | 패스별 표, 먹힌 걸음 명명 |
 | 쓴 토큰(출력, 추론 포함 / 모델 턴) | 357k / 224 | **79k + 추론 45k / 76** |
+
+1라운드에서는 두 팔 모두 0.9× 목표에 못 미쳤고 스펙대로 1회 뒤 멈췼습니다. 2라운드에서는 둘 다 넘었고, 그 2라운드 스펙은 1라운드의 두 진단이 겹쳤기 때문에 존재했습니다. 산출물은 muse, 진단은 GLM. 배정을 바꾸는 행은 둘입니다: muse가 절반 시간에 2.1~3.8배 빠른 커널을 냈고, 스펙이 틀렸다고 말한 쪽도 muse였습니다.
+
+같은 두 팔로 세 라운드를 더 돌렸습니다(아래). 네 라운드 열 팔에 걸쳐 GLM은 모든 과제에서 muse의 1.9~3.6배 토큰을 썼고(양쪽 출력+추론 기준; 출력만 보면 3~6배로 읽히는데 z.ai가 추론을 출력에 접기 때문입니다), 한 팔을 고른 네 번의 채택 중 세 번을 이겼습니다. 이 두 사실 중 어느 쪽이 배정을 정해야 하는지 시리즈는 말하지 않습니다. 다음 라운드가 추측하지 않도록 표를 둡니다.
+
+<details>
+<summary><b>2~4라운드</b> — ggml mmvq 구조, 두 팔 모두 <code>max</code>, 그리고 새 과제 부류 둘</summary>
 
 **2라운드, 같은 두 팔, 같은 날** — 스펙은 1라운드 두 보고가 함께 가리킨 레버였습니다(ggml mmvq 구조: q8_1 활성값, `dp4a`, 코얼레스된 가중치 워드). 그 설계에 맞게 오차 게이트를 다시 명시했고, 둘 다 넘었습니다:
 
@@ -450,9 +469,9 @@ muse가 풀에 들어온 뒤 첫 같은-스펙 A/B이고, 객관 게이트가 �
 | 채택 | **예** (트리 + 초안), muse의 `1u64/1u32` 행을 초안에 추가 | |
 | 토큰(출력, 추론 포함 / 턴) | 129k / 150 | **34k + 추론 13k / 88** |
 
-같은 컴파일러 버그를 받은 두 팔이 서로를 보지 않고 같은 두 소스 줄에 도달했습니다 — 원인이 하나일 때 원인 규명은 그렇게 보입니다. CPU 커널에서는 둘이 같은 비율로 게이트를 넘었고, 결정은 게이트가 덮지 않은 행(M=8, SMT, 작은 형상)에서 나왔습니다. 두 팔에서 포화하는 게이트는 게이트일 뿐 비교가 아닙니다. 네 라운드 열 팔에 걸쳐 GLM은 모든 과제에서 muse의 1.9~3.6배 토큰을 썼고(양쪽 출력+추론 기준; 출력만 보면 3~6배로 읽히는데 z.ai가 추론을 출력에 접기 때문입니다), 한 팔을 고른 네 번의 채택 중 세 번을 이겼습니다. 이 두 사실 중 어느 쪽이 배정을 정해야 하는지 시리즈는 말하지 않습니다. 다음 라운드가 추측하지 않도록 표를 둡니다.
+같은 컴파일러 버그를 받은 두 팔이 서로를 보지 않고 같은 두 소스 줄에 도달했습니다 — 원인이 하나일 때 원인 규명은 그렇게 보입니다. CPU 커널에서는 둘이 같은 비율로 게이트를 넘었고, 결정은 게이트가 덮지 않은 행(M=8, SMT, 작은 형상)에서 나왔습니다. 두 팔에서 포화하는 게이트는 게이트일 뿐 비교가 아닙니다.
 
-1라운드에서는 두 팔 모두 0.9× 목표에 못 미쳤고 스펙대로 1회 뒤 멈췼습니다. 2라운드에서는 둘 다 넘었고, 그 2라운드 스펙은 1라운드의 두 진단이 겹쳤기 때문에 존재했습니다. 산출물은 muse, 진단은 GLM. 배정을 바꾸는 행은 둘입니다: muse가 절반 시간에 2.1~3.8배 빠른 커널을 냈고, 스펙이 틀렸다고 말한 쪽도 muse였습니다. 과제 하나는 데이터 포인트 하나입니다. 다음 비교가 기댈 행으로 여기 둡니다.
+</details>
 
 ### 어떻게 알아냈나
 
@@ -539,7 +558,8 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 | 라운드 도중 플랜이 바닥남 | **`--require-quota N`, exit 66** — **가장 짧은** 창이 아니라 **가장 빡빡한** 창 기준(실측: 주간 81.7% 남았을 때 5시간은 83.8%). 닫히는 쪽으로 실패합니다. |
 | 위임받은 쪽의 "완료"가 완료가 아님 | **완료 센티넬 `<log>.rc`** — `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`. claude-code에서는 `quota_exhausted`도 남기고(1이면 `reset_at`, `quota_reset_at`, `api_error`도), `--resume-on-reset`이면 `resumed_after_reset`도 남깁니다. 하네스의 수명 신호는 완료 증거가 아닙니다. |
 | 플랜의 5시간 한도(HTTP 429)에 걸려 끊긴 라운드가 `rc=1`로만 보였고, `last-report`는 API 오류 줄을 보고서로 출력했음 | **센티널이 그렇다고 말합니다.** `quota_exhausted=1`, `reset_at`(429 메시지의 리셋, RFC3339 UTC 또는 `unknown`), `quota_reset_at`(죽은 시점에 읽은 플랜 quota API의 리셋), `api_error=429 […]`. `last-report`는 `no report: rate-limited (429) at 15:30, plan resets at 20:32 (plan); resume with --session <sid>`를 내고 65로 끝납니다. `--resume-on-reset`(claude-code)은 5분마다 플랜을 읽다가 창이 다시 열리면(가장 빠듯한 창이 1% 이상 남으면) 같은 세션을 바로 이어 돌리며, 최대 두 번입니다. 429 메시지의 리셋 + 60초는 상한일 뿐입니다. 실측: 06:32:00Z의 429는 08:23:45Z를 리셋으로 적었지만, 이어 돌린 세션은 06:33:39Z에 응답을 받았습니다. |
-| 표식 없이 깨끗이 끝난 라운드 | **`--done-marker`, exit 72** — 두 런처 동일. 예전에는 grok이 70(모델 정체성 단언과 충돌), GLM은 조용한 rc=0이라 같은 사실이 자매에 따라 실패 또는 완료로 보였습니다. 72는 표식 부재만 이름 붙이고, 판정은 여전히 트리에 있습니다. |
+| 표식 없이 깨끗이 끝난 라운드 | **`--done-marker`, exit 72** — 두 런처 동일. 한 사실에 한 코드이고, 모델 정체성의 70과 겹치지 않습니다. 72는 표식 부재만 이름 붙이고, 판정은 여전히 트리에 있습니다. |
+| 도구 호출을 한 번도 하지 않은 라운드가 자신 있는 보고서를 냄(2026-09-29 실측: 23줄짜리 트랜스크립트에 `tool_use` 블록 0개, 쓴 파일 없음, 그런데 "32 passed") | **exit 73**(claude-code): 하네스가 끝나면 런처가 트랜스크립트의 `tool_use` 블록을 세어 센티널에 `tool_calls=<N>`으로 남깁니다. 일부러 답만 하는 라운드는 `--allow-no-tools`를 씁니다. 72가 우선합니다. |
 | 위임받은 쪽의 저장소 상태 변경 | **`bin/git-guard.sh`**, 실제 명령 문자열을 파싱하는 `PreToolUse` 훅 — `git -C … commit`, `env … git push`, `sudo git …`, 체인된 변경 전부 차단, 읽기 전용 git은 의도적으로 개방. 파일 하나가 두 하네스의 호출 규약을 모두 처리합니다. 바이너리를 마련하지 못하면 훅이 차단(종료 코드 2)으로 끝나므로, git 금지는 닫힌 쪽으로 실패합니다. |
 | z.ai가 `glm-5.2` 요청에 glm-5.3으로 조용히 답함 (2회 측정 — 응답 `model` 필드가 요청과 달라 에코가 아님) | **발사 시점에 거부, exit 70.** crush에는 정체성 단언이 없어 이 오배정은 영원히 조용했을 것입니다. `OUTSOURCE_ALLOW_MAPPED_MODEL=1`은 재측정용이지 라우팅용이 아닙니다. |
 | 위임받은 쪽이 스펙에 딸려 들어온 리드 측 발사 절차를 읽고 자기가 리드라고 판단, 같은 워크트리에 중첩 라운드를 발사 — 깨끗한 종료, 구현은 0 | **중첩 발사 거부, exit 64** — 모든 하네스 자식이 `OUTSOURCE_ROUND=1`을 달고, 두 런처 모두 그 아래에서는 시작을 거부합니다(의도적 중첩은 `OUTSOURCE_ALLOW_NESTED=1`). |
@@ -571,94 +591,6 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 </details>
 
-## arm은 어떻게 배선되나
-
-`internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 둘입니다.
-
-**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 그 프로바이더의 어느 모델이 픽셀을 보는지, 어떤 환경변수가 모델을 핀할 수 있는지, 그리고 엔드포인트가 **다른 모델로 조용히 대답해 버리는** id가 무엇인지. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter, agy)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있으니까요.
-
-**하네스**는 그 모델을 헤드리스로 어떻게 몰 것인가입니다 — PATH에 있어야 할 바이너리, 구동하는 프로바이더 목록, 라운드가 살아있는 흔적을 남기는 위치, 디스패치, 그리고 거기서 `--model`이 가져야 할 형태.
-
-그 아래는 전부 이 둘에서 파생됩니다 — `--harness` 검증, `--detach`의 PATH 조회, `runs`가 들여다보는 progress 디렉터리, 디스패치, 페어링 거부, `--help` 문구까지. 반쯤 배선된 줄은 일관성 테스트가 막습니다 — 자기 프로바이더를 구동하지 않는 기본 하네스, 디스패치나 PATH 바이너리가 빈 하네스, 규칙 없이 힌트만 있는 `--model` 형태.
-
-거부 메시지도 같은 테이블에서 나옵니다. 그래서 "여기서는 안 된다"만이 아니라 **어디로 가야 하는지**까지 말합니다:
-
-```
-$ outsource-run --provider openrouter --harness claude-code …
-harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
-provider openrouter runs on: opencode (opencode owns its own auth store and resolves
-endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
-```
-
-## 가드레일
-
-**발사 전**
-
-```bash
-bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 깨끗 · 1 발견
-bin/outsource-run.sh --require-quota 15 …            # 플랜이 부족하면 66
-bin/outsource-run.sh --resume-on-reset …             # 429가 나면 플랜이 풀릴 때까지 기다렸다가 같은 세션을 이어 돌림(최대 2번)
-```
-
-z.ai로 띄울 때마다 플랜 quota도 한 번 읽고(3초 안에), 가장 빠듯한 창이 25% 미만이면 경고 한 줄을 냅니다. 그래도 라운드는 띄웁니다. 거부하는 것은 여전히 `--require-quota`뿐입니다. `--resume-on-reset`과 함께 쓰면 `--max-seconds`는 실행 전체가 아니라 시도 하나의 상한입니다. 한 번 실행에서 시도는 최대 세 번이고, 그 사이에 기다린 시간은 세지 않습니다. 둘을 함께 주면 런처가 이 점을 한 줄로 알려 줍니다.
-
-**라운드 후** — 모델 정체성 단언(exit 70), 완료 표식 검사(깨끗이 끝났는데 표식이 없으면 exit 72), 완료 센티넬, 그리고 로그 `usage`의 토큰 수를 담은 비용 한 줄. 그 옆의 `total_cost_usd`는 Anthropic 단가라 여기 있는 어느 프로바이더에도 맞지 않습니다. 그리고 `bin/wait.sh <log>`는 센티넬이 떨어질 때까지 블록합니다 — 발사 시점에 백그라운드로 걸어 두면 완료가 폴링 대상이 아니라 알림이 됩니다.
-
-플랜 크레딧은 **의도적으로 라운드별로 보고하지 않습니다.** 플랜 쿼터는 동시에 도는 다른 라운드와 다른 세션까지 함께 움직이는 플랜 전역 카운터라, 한 라운드 전후 차이는 라운드가 아니라 그 시각의 머신을 잰 값입니다. 쿼터는 **발사 전 신호**입니다 — 이 세션이 어느 프로바이더를 쓸지, 그리고 시작해도 되는지.
-
-```
-$ bin/quota.sh
-z.ai coding plan: level max — GLM Coding Max (status VALID, valid 2026-08-15~09-15)
-5h window: 6692/28000 consumed, 21307 remaining, 23% used / 76.1% left, resets at 12:24 (in 3h 46m)  <- tightest
-1w window: 27758/140000 consumed, 112241 remaining, 19% used / 80.2% left, resets at 17:52 (in 153h 14m)
-
-$ bin/quota.sh --provider grok
-1w window: exact counts not exposed by this API, 98.0% used / 2.0% left, resets at 15:13 (in 6h 36m)
-```
-
-## 무거운 단계는 기계를 나눠 씁니다
-
-한 기계에서 여러 라운드가 저마다 프로젝트의 전체 빌드, 테스트, 린트를 돌리면 같은 코어를 두고 다툽니다. 2026-10-06 10코어 Mac에서 측정했습니다. 라운드 약 6개가 동시에 돌자 부하가 23–28까지 올랐고, 모든 검증 단계가 기어갔습니다. `outsource slot`은 이런 단계가 차례를 지키게 하는 기계 전체의 카운팅 세마포어입니다.
-
-```bash
-"$OUTSOURCE_SLOT" -- npm test          # 라운드 안: 런처가 경로를 넣어 줍니다
-bin/slot.sh --max 2 -- make check      # 손으로
-bin/slot.sh --status                   # 모든 풀: 쥔 쪽(pid, 라벨, 경과)과 기다리는 쪽
-```
-
-- **풀**은 `--name <pool>`이 없으면 `heavy`입니다. 슬롯은 `${XDG_CACHE_HOME:-~/.cache}/outsource/slots/<pool>/` 아래의 락 파일입니다. 슬롯은 `flock`으로 쥐므로, 쥔 프로세스가 죽으면(SIGKILL이라도) 바로 풀립니다. 치워야 할 낡은 락이 없습니다.
-- **N**(동시에 도는 수)은 `--max N`, 없으면 `OUTSOURCE_SLOTS`, 없으면 max(1, 코어 수/4)입니다. 10코어 기계라면 2입니다. N은 부르는 쪽이 정합니다. N=1로 부르면 풀의 첫 슬롯만 쓰므로, N을 서로 다르게 부르더라도 각자의 예산을 넘지 않습니다.
-- **기다리는 동안** 슬롯을 쥔 쪽을 적은 줄을 하나 출력하고, 슬롯을 얻으면 한 줄을 더 출력합니다. 종료 코드는 감싼 명령의 것을 그대로 돌려줍니다(신호로 죽었으면 128+n). TERM, INT, HUP은 명령에 전달하고, 명령이 끝나야 함께 끝납니다. 이 도구가 SIGKILL을 받으면 슬롯은 풀리고 명령은 계속 돕니다.
-- **중첩 호출**은 그대로 통과합니다. slot으로 감싼 검사 스크립트가 안에서 다시 slot을 부르면, 부모가 쥔 슬롯을 기다리지 않고 바로 실행합니다.
-- **라운드는** `OUTSOURCE_SLOT`(스킬의 `bin/slot.sh`)으로 이 도구를 찾고, 슬롯 기록에는 `OUTSOURCE_RUN_LABEL`(라운드의 `--label`)로 이름이 남습니다. `outsource-run`이 두 변수를 모든 하네스에 넣어 줍니다.
-- **git은 거부합니다**(종료 코드 64). 그냥 부르든 `env`, `nice`, `command` 뒤에 붙이든 마찬가지입니다. git은 무거운 단계가 아니고, 이 래퍼가 git 가드를 피해 가는 길이 되어서는 안 됩니다.
-
-## 안에 무엇이 있나
-
-| 파일 | 용도 |
-|---|---|
-| `skills/outsource/SKILL.md` | 라우터: 백엔드 표, 스펙 조립, 리드 검수 체크리스트 |
-| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` · `codex.md` | 백엔드별 운영 매뉴얼: 플래그, git 안전 프로파일, 하네스 특이점, 실측된 행동 프로필 |
-| `references/spec-preamble.md` | 모든 스펙 앞에 붙는 공유 규칙 — 조항 하나하나가 실제 사고에서 나옴 |
-| `references/spec-preamble-core.md` | 짧은 대체본: 없으면 사라진다고 실측된 공개(disclosure) 부분만 |
-| `references/glm-preamble.md` | GLM 런타임 델타 (어느 모델이 픽셀을 보고 어느 모델이 못 보는지, 플래그 아닌 훅, 증거 규칙) |
-| `references/spec-authoring.md` · `references/spec-template.md` | 품질 번들, 그리고 태스크별 스펙 골격 |
-| `bin/outsource` | **하나의 Go 바이너리가 아래 도구 전부입니다. 바이너리는 기계마다 빌드하거나 받아 오고, 커밋하지 않습니다.** `bin/outsource` 자체는 POSIX `sh` 실행 스크립트입니다. 함께 커밋된 `bin/outsource.sha256`은 다운로드를 검증하는 매니페스트입니다. 실행 스크립트는 로컬 빌드, 캐시, Go 빌드, 검증된 다운로드 순으로 바이너리를 찾습니다. `bin/*.sh` 이름들은 이 바이너리로 exec하는 호환 shim입니다. 문서·훅·설치본·테스트가 모두 경로로 부르기 때문에 이름을 유지합니다. 런처가 쓰는 훅은 찾아 둔 바이너리를 직접 가리킵니다 |
-| `outsource-run` | 런처: 프로바이더·하네스 배선 테이블, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--detach` / non-TTY 포그라운드 거절 |
-| `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명, `--detach` / `--foreground` |
-| `guard` | git 금지 `PreToolUse` 훅. 두 하네스 공용 (54 회귀 케이스 + 670건 판정 골든) |
-| `credential` · `setup-key.sh` | 키 **와 호스트** 해석의 단일 소유자, 그리고 그 대화형 절반. `setup-key.sh` 는 의도적으로 셸로 남았습니다(TTY 상호작용 전용, `tests/shell-boundary.test.sh` 가 경계를 강제) |
-| `verify-key` | 저장 전 키 검증. 키는 argv가 아니라 stdin으로 받습니다 |
-| `glm.sh` | 반대 방향: 위임 라운드가 아니라 *당신의* 대화형 Claude Code 세션을 z.ai 플랜 위에서 띄웁니다. 의도적으로 셸입니다 — 키를 해석하고, alias 경로가 우회할 수 있는 여섯 개 변수 전부에 모델을 못박고, CLI를 `exec` 합니다. alias 로 걸어 둘 만합니다 |
-| `spec-lint` · `quota` | 발사 전 스펙 검사; `--require-window` 로 게이트화되는 플랜 쿼터 |
-| `runs` | 실행 레지스트리: 어떤 라운드가 무엇 위에서 얼마나 오래 살아 있는지 — 그리고 시작만 하고 끝나지 않은 것 |
-| `wait` | 라운드의 센티넬이 나타날 때까지 블록 — 발사 시점에 백그라운드로 걸어 두면, 끝난 라운드가 폴링할 대상이 아니라 알림이 됩니다 |
-| `slot` | 라운드가 무거운 검증 단계를 감싸는 기계 전체의 카운팅 세마포어 — 동시에 도는 라운드가 다 함께 기어가는 대신 차례를 지킵니다. `--status`가 누가 쥐고 누가 기다리는지 보여 줍니다 |
-| `last-report` | 두 로그 형태 어느 쪽에서든 라운드의 최종 보고 추출, 없으면 exit 65 |
-| `statusline` | Claude Code 스테이터스라인: 세션 한도, 플랜 쿼터, 진행 중 라운드 — 렌더 7ms |
-| `telemetry` | 도구 호출·종료코드·이유의 로컬 기록과 요약. 로컬 전용, 업로드 없음, `OUTSOURCE_TELEMETRY=0` 로 끔 |
-| `scripts/grok-progress.py` | grok NDJSON 스트림을 한 줄짜리 진행 이벤트로 압축 (리드 쪽 도구; 설치본에는 미포함) |
-
 ## 품질 번들
 
 실측으로 품질 격차를 닫은 장치들, 각각 뒤에 효과가 있습니다:
@@ -670,39 +602,132 @@ bin/slot.sh --status                   # 모든 풀: 쥔 쪽(pid, 라벨, 경과
 5. **로직 설계 원칙** — 저장 말고 파생 · 로드 시 재정규화 · 3분류 입력 방어
 6. **증거 규칙** — 콜드 스타트로 검증하고 테스트 개수를 CI와 대조, 모든 숫자에 그걸 만든 명령을 붙이기, 재발 방지층은 문장이 아니라 파일로
 
-## 로컬 오버레이
+## 내부 구조
 
-두 층이며, 더 구체적인 쪽이 나중에 옵니다:
+고치거나 감사하는 사람을 위한, 부품이 어떻게 맞물리는지에 대한 절입니다.
 
-- **사용자 오버레이** — 설치된 스킬 옆 `references/local-overlay.md`. 모든 레포에서 참인 것만(기본 백엔드, 모델 플래그). `install.sh` 업그레이드에도 보존, 이 레포는 절대 배포하지 않습니다.
-- **프로젝트 오버레이** — base 브랜치, 사내 게이트 레시피, 사고 이력: 한 레포에서만 참인 사실들. 붙이는 방법이 둘입니다:
-  - **인레포** — `<repo>/.outsource/overlay.md`, 설명 대상 코드 옆에 체크인. 기본값입니다.
-  - **선언형** — 유저 스코프의 `references/overlays/<name>.md`. `.claude/rules/*` 와 같은 방식으로 front matter 에 적용 경로를 선언합니다:
+### arm은 어떻게 배선되나
 
-    ```markdown
-    ---
-    paths:
-      - ~/repo/ds*          # 클론 전부
-      - ~/repo/uf*/**       # 그 아래 워크트리까지
-    ---
-    ```
+`internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 둘입니다.
 
-**선언형**은 한 레포의 체크아웃이 한 머신에 여러 개일 때 씁니다 — 클론 여러 벌 + 워크트리, 각자 다른 브랜치. 체크인된 오버레이는 브랜치 수만큼 갈라지는 사본이 되고, 리드가 그때 서 있던 클론에서 고치면 나머지 전부의 규칙이 조용히 포크됩니다. 실측: 체크아웃 16개인 레포에서 몇 달 간격으로 쓰인 오버레이 두 벌이 서로를 모른 채 공존했고 게이트 표가 서로 달랐습니다.
+**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 그 프로바이더의 어느 모델이 픽셀을 보는지, 어떤 환경변수가 모델을 핀할 수 있는지, 그리고 엔드포인트가 **다른 모델로 조용히 대답해 버리는** id가 무엇인지. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter, agy)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있으니까요.
 
-`outsource overlays --root <repo>` 가 적용 대상을 조립 순서대로 출력합니다 — 사용자 → 선언형 → 인레포 순이라 체크인된 파일이 충돌 시 이깁니다. `--explain` 은 종류와 매칭된 패턴을 같이 찍고, paths 가 아무것도 못 맞추는 선언은 조용히 빠지는 대신 stderr 로 이름이 나옵니다.
+**하네스**는 그 모델을 헤드리스로 어떻게 몰 것인가입니다 — PATH에 있어야 할 바이너리, 구동하는 프로바이더 목록, 라운드가 살아있는 흔적을 남기는 위치, 디스패치, 그리고 거기서 `--model`이 가져야 할 형태.
 
-**프로젝트 자체의 무거운 단계 실행기.** 프로젝트 오버레이가 무거운 단계용 실행기를 지정하면, 그 프로젝트의 라운드는 `$OUTSOURCE_SLOT` 대신 그것을 씁니다. 예를 들어 테스트를 노트북이 아니라 빌드 서버에서 돌려야 하는 프로젝트라면 오버레이에 이렇게 적습니다.
+그 아래는 전부 이 둘에서 파생됩니다 — `--harness` 검증, `--detach`의 PATH 조회, `runs`가 들여다보는 progress 디렉터리, 디스패치, 페어링 거부, `--help` 문구까지. 반쯤 배선된 줄은 일관성 테스트가 막습니다 — 자기 프로바이더를 구동하지 않는 기본 하네스, 디스패치나 PATH 바이너리가 빈 하네스, 규칙 없이 힌트만 있는 `--model` 형태.
 
-```markdown
-## Heavy steps
-Run every heavy proof step (full build, `just test`, `just lint`) as
-`tools/remote-run.sh -- <cmd>`: it syncs this worktree to the build box, runs
-the step there under that machine's own slot, and streams the output back with
-the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
-(one test, `git diff`) still run locally.
+`outsource-run --list-wiring`이 지금 두 테이블이 무엇을 어디로 보내는지 그대로 찍어 줍니다:
+
+```
+PROVIDER     HARNESS        DEFAULT MODEL            NOTES
+zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                 default harness
+xai          crush          grok-4.6                 --model form provider/id
+openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
+muse         muse           muse-spark-1.3-contributor default harness
+agy          agy            gemini-3.8-flash-high    default harness
 ```
 
-실행기는 그 프로젝트의 스크립트이므로, 작업을 다른 기계나 그 기계의 대기열로 옮기는 것처럼 slot이 못 하는 일을 할 수 있습니다. preamble 규칙도 이미 이런 실행기를 우선합니다.
+거부 메시지도 같은 테이블에서 나옵니다. 그래서 "여기서는 안 된다"만이 아니라 **어디로 가야 하는지**까지 말합니다:
+
+```
+$ outsource-run --provider openrouter --harness claude-code …
+harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
+provider openrouter runs on: opencode (opencode owns its own auth store and resolves
+endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+```
+
+### 바이너리 검증
+
+git에는 바이너리를 커밋하지 않습니다. `bin/outsource`는 작은 POSIX `sh` 실행 스크립트(dispatcher)이고, 함께 커밋된 `bin/outsource.sha256`에는 릴리즈 버전과 네 가지 릴리즈 바이너리(darwin-arm64, darwin-amd64, linux-amd64, linux-arm64)의 sha256이 적혀 있습니다. 처음 실행할 때 이 스크립트가 다음 순서로 바이너리를 마련합니다.
+
+1. 바로 옆의 로컬 빌드(clone에서 `./build.sh`, 또는 Go가 있는 상태의 `install.sh`)
+2. 캐시(`~/.cache/outsource/<version>/`)
+3. Go와 소스가 있으면 소스에서 빌드(마켓플레이스 설치본에는 소스가 함께 들어 있습니다)
+4. GitHub Release에서 다운로드. sha256이 매니페스트와 같을 때만 실행합니다.
+
+이 검사를 끄는 스위치는 없습니다. `OUTSOURCE_RELEASE_URL`은 받아 오는 곳(미러, 폐쇄망 서버)만 바꿀 뿐 검사 여부는 바꾸지 않습니다. 처음 호출이 여럿 겹치면 락 아래에서 다운로드 한 번을 나눠 쓰고, 캐시는 현재 버전과 직전 버전을 남깁니다. 바이너리를 마련하지 못하면 `bin/git-guard.sh`는 종료 코드 2를 돌려 git을 막습니다. 다운로드가 실패해도 git 가드가 열리지 않습니다. `bin/*.sh` 이름으로 부르려면 bash가 필요하고(Alpine에서는 `apk add bash`), `bin/outsource <도구>`는 `sh`와 `curl` 또는 `wget`만 있으면 됩니다.
+
+직접 빌드하지 않은 바이트를 돌리기 싫으시면 그러지 않으셔도 됩니다. Go가 있으면 `./build.sh`가 이 기계용 바이너리를 실행 스크립트 옆에 빌드하고, 그 바이너리가 항상 먼저 쓰입니다. Go가 있는 상태에서 `install.sh`를 실행해도 다운로드 대신 빌드합니다.
+
+릴리즈 바이너리를 소스와 대조하려면:
+
+```bash
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
+  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
+shasum -a 256 /tmp/outsource-darwin-arm64   # bin/outsource.sha256의 outsource-darwin-arm64 줄과 같아야 합니다
+```
+
+확인할 플랫폼에 맞게 `GOOS`/`GOARCH`를 바꾸십시오. 플래그는 모두 필요합니다.
+
+- `-trimpath`는 빌드 경로가 결과물에 들어가지 않게 합니다.
+- `CGO_ENABLED=0`은 정적 바이너리를 만들어 호스트 툴체인의 영향을 없앱니다.
+- `-buildvcs=false`는 Go가 커밋 해시와 `+dirty` 표시를 모듈 버전에 새기지 않게 합니다. 이게 없으면 커밋할 때마다 바이트가 바뀝니다.
+
+매니페스트가 실제 소스와 맞는지는 세 군데에서 지킵니다.
+
+- `tests/reproducible-build.test.sh`가 네 플랫폼 모두에서 위 빌드를 돌려 커밋된 매니페스트와 비교합니다. `./build.sh`를 빠뜨린 소스 수정은 배포될 수 없습니다.
+- Go가 있으면 `install.sh`도 새로 빌드한 결과가 매니페스트와 다를 때 설치를 거부합니다.
+- `scripts/release-assets.sh <X.Y.Z>`는 네 바이너리를 빌드하고 매니페스트와 대조한 뒤 릴리즈 자산으로 올립니다. 커밋된 매니페스트가 바로 그 바이트를 가리키지 않으면 거부합니다.
+
+darwin/arm64 빌드에는 Go 링커가 ad-hoc 서명을 붙입니다. 크로스컴파일한 macOS 빌드가 실행될 수 있는 것은 이 서명 덕분입니다.
+
+### 텔레메트리 — 로컬 전용
+
+도구 호출마다 한 줄이 남습니다: 어떤 도구, 종료 코드, 소요 시간, 그리고 전달된 플래그 *이름*. 머신을 벗어나는 것은 없습니다 — 엔드포인트도, 업로드도, 식별자도 없습니다. `OUTSOURCE_TELEMETRY=0` 으로 끕니다.
+
+```
+$ bin/outsource telemetry --since 7d
+TOOL            CALLS   FAIL   RATE      p50      p95
+outsource-run      31      4    13%    11m04s   1h22m
+guard            —(blocks only)
+runs              210      0     0%      4ms      9ms
+
+failures by kind
+    3 x guard          exit 2    a delegate tried a git/gh command it is not allowed
+    2 x outsource-run  exit 72   the round ran and its completion marker never appeared
+    1 x outsource-run  exit 65   a spec that needs eyes was sent to a backend that has none
+```
+
+요점은 두 번째 표입니다. 그 종료 코드들은 프로바이더가 실패한 방식이 아니라 **발사가 잘못된 방식**을 이름 부르므로, 비율 하나가 곧 "라운드를 어떻게 돌리고 있나"에 대한 발견입니다: 64는 플래그를 짐작하고 있다는 뜻, 65는 비전 작업이 눈 없는 백엔드로 가고 있다는 뜻, 72는 완료 마커를 스펙에 안 넣고 있다는 뜻, 그리고 가드 카운트는 어느 위임자가 계속 리드의 일을 하려 드는지 말해 줍니다.
+
+**절대 기록하지 않는 것:** 플래그 값, 경로, 스펙 내용, stdin, 환경변수, 자격증명. 플래그 *이름*이 신호이고 그것이 가리킨 대상은 아닙니다. 값이 남는 것은 이 레포가 정의한 닫힌 열거형 셋(하네스·프로바이더·git 프로파일)뿐입니다. 가드는 차단된 명령의 *종류*만 남기고 명령 자체는 남기지 않습니다. 테스트 둘이 이를 단언하며, 하나는 경로·스펙·라벨·마커에 코드네임을 심어 두고 그것이 파일에 나타나면 실패합니다.
+
+파일은 실행 레지스트리 옆에 있고, 모드 0600이며, 2MB에서 한 세대를 남기고 롤합니다.
+
+### 안에 무엇이 있나
+
+| 파일 | 용도 |
+|---|---|
+| `skills/outsource/SKILL.md` | 라우터: 백엔드 표, 스펙 조립, 리드 검수 체크리스트 |
+| `references/grok.md` · `glm.md` · `agy.md` · `muse.md` · `opencode.md` · `codex.md` | 백엔드별 운영 매뉴얼: 플래그, git 안전 프로파일, 하네스 특이점, 실측된 행동 프로필 |
+| `references/spec-preamble.md` | 모든 스펙 앞에 붙는 공유 규칙 — 조항 하나하나가 실제 사고에서 나옴 |
+| `references/spec-preamble-core.md` | 짧은 대체본: 없으면 사라진다고 실측된 공개(disclosure) 부분만 |
+| `references/glm-preamble.md` | GLM 런타임 델타 (어느 모델이 픽셀을 보고 어느 모델이 못 보는지, 플래그 아닌 훅, 증거 규칙) |
+| `references/spec-authoring.md` · `references/spec-template.md` | 품질 번들, 그리고 태스크별 스펙 골격 |
+| `bin/outsource` | 실행 스크립트(dispatcher). **하나의 Go 바이너리가 아래 도구 전부입니다.** 바이너리는 기계마다 빌드하거나 받아 오고, 커밋하지 않습니다([바이너리 검증](#바이너리-검증)). `bin/*.sh` 이름들은 이 바이너리로 exec하는 호환 shim입니다. 문서·훅·설치본·테스트가 모두 경로로 부르기 때문에 이름을 유지합니다. 런처가 쓰는 훅은 찾아 둔 바이너리를 직접 가리킵니다 |
+| `outsource-run` | 런처: 프로바이더·하네스 배선 테이블, 트랙별 격리 config, 세션 재개, 비전·쿼터 가드, 모델 정체성 단언, 완료 센티넬, `--resume-on-reset`, `--detach` / non-TTY 포그라운드 거절 |
+| `grok-run` | grok 런처: 같은 레지스트리 등록·센티넬·done-marker 판정, git 프로파일 플래그 문자열의 단일 소유자, 시작 증명, `--detach` / `--foreground` |
+| `guard` · `git-shim` | git 금지: 두 하네스 공용 `PreToolUse` 훅(54 회귀 케이스 + 670건 판정 골든), 그리고 muse 라운드 `PATH` 맨 앞의 `git` shim |
+| `credential` · `setup-key.sh` | 키 **와 호스트** 해석의 단일 소유자, 그리고 그 대화형 절반. `setup-key.sh` 는 의도적으로 셸로 남았습니다(TTY 상호작용 전용, `tests/shell-boundary.test.sh` 가 경계를 강제) |
+| `verify-key` | 저장 전 키 검증. 키는 argv가 아니라 stdin으로 받습니다 |
+| `glm.sh` | 반대 방향: 위임 라운드가 아니라 *당신의* 대화형 Claude Code 세션을 z.ai 플랜 위에서 띄웁니다. 의도적으로 셸입니다 — 키를 해석하고, alias 경로가 우회할 수 있는 여섯 개 변수 전부에 모델을 못박고, CLI를 `exec` 합니다. alias 로 걸어 둘 만합니다 |
+| `spec-lint` · `quota` | 발사 전 스펙 검사; `--require-window` 로 게이트화되는 플랜 쿼터 |
+| `overlays` | 레포에 적용되는 오버레이를 조립 순서대로 출력; `--explain`이 이유를 붙임 |
+| `runs` | 실행 레지스트리: 어떤 라운드가 무엇 위에서 얼마나 오래 살아 있는지 — 그리고 시작만 하고 끝나지 않은 것. `runs stop`으로 멈춤 |
+| `tail` | 라운드의 살아 있는 흔적을 턴마다 한 줄로; `-f`는 라운드가 끝날 때까지 따라감 |
+| `audit` | 라운드가 실제로 실행한 것: 요청마다 답한 모델, 셸 명령, 쓴 파일, 거부, trail 봉인 |
+| `wait` | 라운드의 센티넬이 나타날 때까지 블록 — 발사 시점에 백그라운드로 걸어 두면, 끝난 라운드가 폴링할 대상이 아니라 알림이 됩니다 |
+| `slot` | 라운드가 무거운 검증 단계를 감싸는 기계 전체의 카운팅 세마포어 — 동시에 도는 라운드가 다 함께 기어가는 대신 차례를 지킵니다. `--status`가 누가 쥐고 누가 기다리는지 보여 줍니다 |
+| `last-report` | 두 로그 형태 어느 쪽에서든 라운드의 최종 보고 추출, 없으면 exit 65 |
+| `statusline` | Claude Code 스테이터스라인: 세션 한도, 플랜 쿼터, 진행 중 라운드 — 렌더 약 20 ms |
+| `telemetry` | 도구 호출·종료코드·이유의 로컬 기록과 요약. 로컬 전용, 업로드 없음, `OUTSOURCE_TELEMETRY=0` 로 끔 |
+| `bin/codex-ci` | Codex 사이드카: `~/.codex/config.toml`을 건드리지 않고 `codex` CLI를 Cheaper Inference로 돌림 |
+| `mods/outsource-panel` | [패널](#패널-claude-code-mod): `/rounds` 창, 밴드, 토스트, 리드 깨우기와 도구 두 개 |
+| `install.sh` · `build.sh` | 스킬 설치·업그레이드; 바이너리 빌드와 매니페스트 재생성 |
+| `scripts/release-assets.sh` | 네 릴리즈 바이너리를 빌드해 매니페스트와 대조하고 업로드 |
+| `scripts/grok-progress.py` | grok NDJSON 스트림을 한 줄짜리 진행 이벤트로 압축 (리드 쪽 도구; 설치본에는 미포함) |
 
 ## 알려진 한계
 
@@ -710,7 +735,7 @@ the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
 - 설계 무게가 실린 로직은 번들 v3로도 완전히 닫히지 않았습니다. 그건 Claude로 쓰고 백엔드로 리뷰하세요.
 - 기본 glm-5.3은 이미지를 못 읽습니다. 다만 실측상 **추측하지 않고 못 읽는다고 말합니다.** flash와 agy는 봅니다 — 정밀 색·미감 판정은 A/B 측정 전까지 프런티어 비전 판정자 몫입니다.
 - 싼 팔 어느 것도 만족 불가능한 계약 앞에서 확실히 멈추지 못합니다. 그 검사는 리드의 몫입니다.
-- 플랜 쿼터는 z.ai와 xAI에서만 읽힙니다. agy 뒤의 Google 플랜은 쿼터 API가 없고, 종량제 키는 확인할 창 자체가 없습니다.
+- 플랜 쿼터는 z.ai와 xAI에서만 읽힙니다. agy 뒤의 Google 플랜은 쿼터 API가 없고, Muse Code에는 플랜 쿼터 창이 없으며, 종량제 키는 확인할 창 자체가 없습니다.
 - 아직은 Claude Code 전용입니다. SKILL.md 형식은 이식 가능하지만, 끝까지 검증한 것만 공개합니다.
 
 ## 라이선스
