@@ -10,27 +10,17 @@ It is not a wrapper. It is an operating manual with receipts: every rule in it c
 
 | Backend | Runs via | Use it for | Hard limit |
 |---|---|---|---|
-| **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on **either harness** — headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | the default model is **blind**; does not flag a contract it cannot satisfy |
-| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel). This is the officially unveiled identity of what OpenRouter listed as the stealth **ox-alpha**, which stopped serving on 2026-09-10 — route it here, on the plan (that slot has since emptied twice more — `union-alpha` went the same way on 2026-09-18) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
+| **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | **blind** — it cannot read images; does not flag a contract it cannot satisfy |
+| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
 | **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
-| **gemini-3.8-flash-high** — Google plan (3.7 was the measured default until 2026-09-05) | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool** — the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly) | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
-| **muse-spark-1.3-contributor** — Muse Code | the `muse` CLI, via `--provider muse` | a fourth process family on its own account, with a **262k context** and a reasoning-effort knob (`--effort` → `--reasoning-effort`); reads **shape and colour family** (a drawn `H` read back as `H`, a `#1E50DC` fill as "blue") | the CLI has **no hook and no definable permission profile**, so an unguarded round commits — measured. The git guard here is a `git` shim first on the round's `PATH` (refuses with exit 97), which is a belt an absolute-path call still gets past. Its Anthropic-compatible endpoint is a dead end: an API key there answers `billing_error`, the CLI's OAuth session is the only way in |
-| **OpenRouter** — **you name the id; there is no default** | `opencode` CLI, via `--provider openrouter --model openrouter/<vendor>/<id>` | a third process family for when both plans are out of headroom | **the stealth slot is borrowed, not owned, and it has now emptied twice**: `stealth/ox-alpha` stopped serving on 2026-09-10 and `stealth/union-alpha` on 2026-09-18, the latter measured here — the endpoint answered a probe round with its own 404, naming its successor `unbiased/pareto` (live, but priced). A bare `--provider openrouter` is exit 64 until someone refills the row. It reads **shape but not colour** (measured: a blue fill called "dark maroon", an orange one "off-white", both confidently), and a stealth endpoint publishes **no data policy** — so no proprietary work here |
+| **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool**. Its predecessor 3.7 was the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly); 3.8 is not re-measured yet | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
+| **muse-spark-1.3-contributor** — Muse Code | the `muse` CLI, via `--provider muse` | a fourth process family on its own account, with a **262k context** and a reasoning-effort knob (`--effort` → `--reasoning-effort`); reads **shape and colour family** (a drawn `H` read back as `H`, a `#1E50DC` fill as "blue") | the CLI has **no hook and no definable permission profile**, so an unguarded round commits — measured. The git guard here is a `git` shim first on the round's `PATH` (refuses with exit 97), which an absolute-path call still gets past. Its Anthropic-compatible endpoint answers an API key with `billing_error`; the CLI's OAuth session is the only way in |
+| **OpenRouter** — **you name the id; there is no default** | `opencode` CLI, via `--provider openrouter --model openrouter/<vendor>/<id>` | a third process family for when both plans are out of headroom | a bare `--provider openrouter` is exit 64. Free stealth ids are borrowed, not owned: two of them stopped serving in September 2026. It reads **shape but not colour** (measured: a blue fill called "dark maroon", an orange one "off-white", both confidently), and a stealth endpoint publishes **no data policy** — so no proprietary work here |
 | **Codex on Cheaper Inference** — a sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` at [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) | ad-hoc, hand-supervised rounds in Codex's own harness, paid per token instead of per subscription — `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (default `medium`) pick the arm | **outside the launcher**: no run registry, no git guard, no done-marker, no identity assertion, no quota gate |
 
-Adding or withdrawing an arm is a row, not a refactor: `internal/launch/wiring.go` holds one table of providers and one of harnesses, and everything else derives from them. `outsource-run --list-wiring` prints what that currently routes:
+Adding or withdrawing an arm is a row in one table, not a refactor ([How an arm is wired](#how-an-arm-is-wired)).
 
-```
-PROVIDER     HARNESS        DEFAULT MODEL            NOTES
-zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
-zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
-xai          claude-code    grok-4.6                 default harness
-xai          crush          grok-4.6                 --model form provider/id
-openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
-agy          agy            gemini-3.8-flash-high    default harness
-```
-
-It also ships the [status line](#status-line) that makes delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
+A [status line](#status-line) and a [panel](#the-panel-a-claude-code-mod) make delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 
 ```
 opus │ you@example.com │ CTX 12% │ 5H 8%/3h20m │ 1W 38%/4d2h
@@ -39,19 +29,40 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 
 ## Install
 
+### What you need
+
+[Claude Code](https://claude.com/claude-code), plus at least one backend:
+
+- a z.ai coding-plan key, for GLM-5.3 and glm-5.3-flash;
+- a signed-in `agy` CLI (Antigravity, Google plan);
+- an authenticated `grok` CLI;
+- a signed-in `muse` CLI (Muse Code);
+- an authenticated `opencode` CLI (`opencode auth login`) for OpenRouter. There is no default id, and every id needs credits on the account.
+
+The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
+
+Go is optional. No binary is committed to this repository: each machine builds one with Go, or downloads a release binary and runs it only if its sha256 matches the committed manifest ([Verifying the binaries](#verifying-the-binaries)).
+
+### Two ways to install
+
+| | Marketplace | Install script |
+|---|---|---|
+| The skill lives in | `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/` | `~/.claude/skills/outsource/` (`--project`: `./.claude/skills/outsource/`) |
+| The panel | loaded with the skill | `claude --plugin-dir <clone>/mods/outsource-panel` |
+| A [local overlay](#local-overlays) | inside the version folder, so an update replaces it | kept across upgrades |
+
+Pick the install script if you keep a local overlay.
+
+**Marketplace** — inside Claude Code:
+
 ```
 /plugin marketplace add midagedev/outsource
 /plugin install outsource@outsource
 ```
 
-That one install brings the skill **and** [the panel](#the-panel-a-claude-code-mod) (the `/rounds` pane, the band, the toasts, the wake): the root plugin loads `mods/outsource-panel` through its `hooks/hooks.json`. From a clone, `claude --plugin-dir <clone>` loads the same two for one session.
+The root plugin loads `mods/outsource-panel` through its `hooks/hooks.json`, so the skill and [the panel](#the-panel-a-claude-code-mod) arrive together. Every path in this README that starts `~/.claude/skills/outsource/` starts in the plugin cache folder above instead. To keep an overlay with this install, set `OUTSOURCE_SKILL_DIR` to a folder you keep whose `references/` holds `local-overlay.md` and `overlays/`.
 
-Claude Code keeps a marketplace install in its plugin cache, `~/.claude/plugins/cache/outsource/outsource/<version>/`, so the skill is `<version>/skills/outsource/` and every path below that starts `~/.claude/skills/outsource/` starts there instead. Two consequences:
-
-- The key setup script is `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/bin/setup-key.sh`.
-- The binary finds its skill folder from the `bin/outsource` it was started through (the folder above `bin/`), so a marketplace install reads its user overlay from `~/.claude/plugins/cache/outsource/outsource/<version>/skills/outsource/references/local-overlay.md` — inside a version folder that an update replaces. Keep the overlay with an install-script install (which preserves it), or set `OUTSOURCE_SKILL_DIR` to a folder you keep whose `references/` holds `local-overlay.md` and `overlays/`.
-
-Or with the install script (preferred if you'll use a [local overlay](#local-overlays)):
+**Install script:**
 
 ```bash
 git clone https://github.com/midagedev/outsource
@@ -60,16 +71,9 @@ cd outsource
 ./install.sh --project  # project scope: ./.claude/skills/outsource/
 ```
 
-You need [Claude Code](https://claude.com/claude-code) plus at least one backend: a z.ai coding-plan key, an authenticated `grok` CLI, a signed-in `agy` CLI (Antigravity, Google plan), and/or an authenticated `opencode` CLI (`opencode auth login` for OpenRouter — there is no default id and every id needs credits on the account). The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
+With Go, `install.sh` builds the binary. Without Go, it downloads and verifies one at install time, so a missing network fails the install rather than the first round (`--no-fetch` skips the download). From a clone, `claude --plugin-dir <clone>` also loads the skill and the panel together for one session.
 
-**Platforms and binaries.** No binary is committed to this repository. `bin/outsource` is a small POSIX `sh` dispatcher, and `bin/outsource.sha256` is a committed manifest: the release version and the sha256 of each release binary (darwin-arm64, darwin-amd64, linux-amd64, linux-arm64). On first use the dispatcher gives this machine a binary. It tries these in order:
-
-1. a local build beside it (`./build.sh` in a clone, or `install.sh` with Go);
-2. its cache (`~/.cache/outsource/<version>/`);
-3. a build from source, when Go and the marketplace's copy of the source are present;
-4. a download from the GitHub Release, which runs only if its sha256 equals the manifest line.
-
-No switch skips that check. `OUTSOURCE_RELEASE_URL` only changes where the bytes come from (a mirror, an air-gapped server). Without Go, `install.sh` fetches at install time, so a missing network fails the install rather than the first round (`--no-fetch` skips the fetch). If no binary can be produced, `bin/git-guard.sh` exits 2 and so blocks git; a failed fetch never opens the guard. The `bin/*.sh` tool names need bash (on Alpine, `apk add bash`); `bin/outsource <tool>` needs only `sh` plus `curl` or `wget`.
+### The z.ai key
 
 **If you already set up z.ai** — with `npx @z_ai/coding-helper`, or the `crush` CLI — there is nothing to do. Your key is found where those tools put it.
 
@@ -83,7 +87,21 @@ No switch skips that check. `OUTSOURCE_RELEASE_URL` only changes where the bytes
 
 > **Referral link:** https://z.ai/subscribe?ic=P7NR6BGEGL — 10% off for you, credit for this project. Optional; every other z.ai link here is the plain https://z.ai/subscribe.
 
-**Updating.** Marketplace: `/plugin marketplace update outsource`, then `claude plugin update outsource`. Script installs: `git pull && ./install.sh` — a checksum manifest lets unmodified installs upgrade without flags; hand-edited installs need `--force` (`references/local-overlay.md` always survives).
+### Setting up another machine
+
+The repository carries the skill, not your setup. On a new machine:
+
+1. Install it, either way above.
+2. Bring your user overlay from the old machine. Either put it in the clone's root as `local-overlay-<name>.md` before `./install.sh` (the script seeds `references/local-overlay.md` from it when the install has none), or copy it straight to `references/local-overlay.md` in the installed skill. Copy `references/overlays/` too if you declared project overlays. The repository never ships them.
+3. Set the z.ai key (above), and sign in to the other CLIs you route to.
+4. Add the [status line](#status-line) to `~/.claude/settings.json`, and copy any shell alias you use, such as one for `bin/glm.sh`.
+5. With the install script, load the panel with `--plugin-dir`, as in the table above.
+6. Check it: `~/.claude/skills/outsource/bin/quota.sh` prints your z.ai plan. The first call also builds or fetches the binary if this machine has none.
+
+### Updating
+
+- **Marketplace:** `claude plugin marketplace update outsource`, then `claude plugin update outsource@outsource`, then restart Claude Code.
+- **Install script:** `git pull && ./install.sh`. A checksum manifest lets an unmodified install upgrade without flags; a hand-edited install needs `--force`. `references/local-overlay.md` always survives.
 
 ## Use
 
@@ -129,28 +147,22 @@ $ bin/tail.sh test-backfill -f
 
 One line per turn, newest last: `💬` what the round said, `🔧` what it ran, `✗` a tool call that came back an error. `-f` follows and returns when the round does — the registry's exit code ends it, never a timeout. `--all` adds thinking blocks and successful tool results, `--raw` hands back the trail's own lines for `jq`, `-n` bounds how much history is rendered.
 
-Finding that file used to be the hard part, and it is the reason this exists. On the claude-code harness `--log` is written once, at exit, so there is nothing to follow there at all; the live record is the harness's own session transcript. Which of the `.jsonl` files under `<config-dir>/claude/projects/<cwd-slug>/` belongs to *this* round is not something a reader can work out — taking the newest is right until two rounds share a cwd, and then it is silently the wrong round. So the round says it itself: a `SessionStart` hook records its transcript path into the registry on the first turn, `runs.sh` prints it as `trail=`, and the completion sentinel keeps it after `prune` drops the record. A label that several live rounds share is refused with the candidates listed rather than resolved by a guess.
+The trail is the harness's own session transcript. On the claude-code harness `--log` is written once, at exit, so there is nothing to follow there. Which `.jsonl` under `<config-dir>/claude/projects/<cwd-slug>/` belongs to *this* round cannot be worked out from outside: the newest file is right until two rounds share a cwd, and then it is silently the wrong round. So the round says it itself: a `SessionStart` hook records its transcript path into the registry on the first turn, `runs.sh` prints it as `trail=`, and the completion sentinel keeps it after `prune` drops the record. A label that several live rounds share is refused with the candidates listed rather than resolved by a guess.
 
 ### A long round is not a stuck round
 
-Neither GLM harness can stop itself — `crush run` exposes no turn or time limit in its flag set at all, and this `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. The tempting fix is a time limit. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
+Neither GLM harness can stop itself: `crush run` has no turn or time limit in its flag set, and the `claude` CLI has no `--max-turns`, only `--max-budget-usd` at Anthropic's prices, which says nothing about a z.ai plan. A time limit is the tempting fix. Measured across ten delivered rounds, it is the wrong one: they ran 13 minutes to **1h50m**, with duration tracking message count almost linearly (66 messages / 13m … 848 messages / 1h50m). Long rounds were long because there was a lot of work. A time limit truncates those and still misses a round that wedged at minute three.
 
-So the registry measures **output, not duration**. The GLM harnesses write continuously into their own data directory; opencode and agy flush JSONL into `--log` per event. `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
+So the registry measures **output, not duration**. `runs.sh` reports an `IDLE` column and flags `⏳` only when a running round has written nothing for ten minutes (`OUTSOURCE_RUN_STALL`):
 
 ```
 ▶refshot zai·crush 1h41m        # 101 minutes in, wrote a second ago — leave it alone
 ⏳frozen  zai·crush 22m ⋯14m     # silent for 14 of its 22 minutes — go read its trail
 ```
 
-Those two are the real discrimination: an elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. The `--log` file is *not* the signal for claude-code — that harness writes it once, at the end, so a perfectly healthy round shows an empty log for its entire life; the trail is `data/crush.db-wal` and `data/logs/crush.log` for crush, the session transcript named by `trail=` for the claude-code harness. opencode and agy are the exceptions: their stream-JSON logs flush one event at a time onto `--log` while the process is still running, so there that file *is* the trail.
+An elapsed-time rule would have flagged the healthy 101-minute round and said nothing about the wedged one. What counts as output depends on the harness: `data/crush.db-wal` and `data/logs/crush.log` for crush, the session transcript named by `trail=` for claude-code, and `--log` itself for opencode and agy, which flush stream-JSON there one event at a time.
 
-**Reading the trail is step one, not the verdict.** Measured 2026-08-28: a
-round sat at `⏳ ⋯57m`, and its transcript's last line read
-"Adding the Core-level quarantine gates" — indistinguishable from a delegate
-mid-edit. It was not. The round had shelled out to a test runner that
-deadlocked, and the harness was blocked on a child that would never return;
-the round had been dead for an hour while looking busy. What separated the
-two was the **descendant process tree**, which the log cannot show:
+**Reading the trail is step one, not the verdict.** Measured 2026-08-28: a round sat at `⏳ ⋯57m`, and its transcript's last line read "Adding the Core-level quarantine gates" — indistinguishable from a delegate mid-edit. It was not. The round had shelled out to a test runner that deadlocked, and the harness was blocked on a child that would never return; the round had been dead for an hour while looking busy. What separated the two was the **descendant process tree**, which the log cannot show:
 
 ```
 pgrep -P <round-pid>                   # what the round is actually blocked on
@@ -158,16 +170,11 @@ ps -o pid,%cpu,etime -p <child-pid>    # 0.0% CPU for minutes = wedged, not work
 sample <child-pid> 2 -file /tmp/s.txt  # macOS: where it is parked
 ```
 
-A working child burns CPU. A child at 0.0% for minutes, with the round's
-IDLE past the stall threshold, is a hang — and the frame it is parked in
-usually names the cause outright (here: `XCTWaiter` inside a test whose two
-awaits were ordered so it waited on work its own held lock blocked). Kill
-the *child*, not the round: the harness notices the runner died, reports,
-and the round's completed edits survive on disk.
+A working child burns CPU. A child at 0.0% for minutes, with the round's IDLE past the stall threshold, is a hang — and the frame it is parked in usually names the cause outright (here: `XCTWaiter` inside a test whose two awaits were ordered so it waited on work its own held lock blocked). Kill the *child*, not the round: the harness notices the runner died, reports, and the round's completed edits survive on disk.
 
-A stall is a reason to read the trail, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume) — it has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
+A stall is a reason to read the trail, not to kill anything. `bin/outsource-run.sh --max-seconds N` does hard-kill at N seconds (SIGTERM then SIGKILL to the whole process group, exit 124 in both the sentinel and the registry, session id still recovered so a follow-up can resume). It has no default and should not get one, because the kill lands mid-edit. Use it only where losing the round is acceptable up front.
 
-`--label` is what the track is **for**, and it is worth typing on every launch, because the listing only earns its keep in parallel and that is exactly when the derived default fails: this skill's documented layout writes every track's spec to `<scratch>/spec.md`, one dir per track, so a basename-derived label would read `spec` three times. The default therefore falls back to the directory holding the spec — usually the track's own scratch dir — and a label that still collides renders as `name`, `name#2`: a warning that the round you are looking at cannot be identified, not a naming scheme.
+`--label` is what the track is **for**. Type it on every launch: the listing earns its keep in parallel, and that is exactly when the derived default fails. This skill writes every track's spec to `<scratch>/spec.md`, one dir per track, so a label taken from the file name would read `spec` three times. The default therefore falls back to the directory holding the spec, and a label that still collides renders as `name`, `name#2` — a warning that the round you are looking at cannot be identified, not a naming scheme.
 
 ### Talking to a running round
 
@@ -180,13 +187,24 @@ running  api-migration    zai    cc          12m     4s …
 
 Send a correction there with Claude Code's SendMessage tool (`to` = that address). The round reads it between two tool calls, without a restart. Measured 2026-10-06: the message reached the round about 56 s later, and the round quoted it verbatim in its report. The address is needed because a round runs with its own `CLAUDE_CONFIG_DIR`, and cross-session discovery is split by config dir: the round never appears in `ListAgents`. Each round's settings carry `crossSessionInbound: accept`. Otherwise a `-p` round in bypass mode would hold a message from a lead outside bypass mode, then drop it after five minutes.
 
-Each launch also tells the round who its lead is. The round's prompt opens with a "Launcher notice: your lead" section. A message that comes from the launching session's socket, or whose first line is `lead-token: <token>`, is an amendment to the spec with the spec's authority. It cannot lift the preamble's bans (git writes, launching rounds, spawning agents). A message from any other session is information only. The token is minted per launch (16 random bytes) and stored in the run's registry record, which is owner-only (mode 0600). `outsource runs json` shows it as `leadToken`; the sentinel records only `lead_socket=`. The panel's `round_send` puts the token line in front of your text. To send by hand, read `messagingSocket` and `leadToken` from `outsource runs json`, then use SendMessage with `to` = `uds:<messagingSocket>` and a message whose first line is `lead-token: <leadToken>`. The token survives a lead restart; the socket does not.
+Each launch also tells the round who its lead is. The round's prompt opens with a "Launcher notice: your lead" section:
 
-A round launched before lead tokens still receives a note, but may read it as a peer's: relaunch it with `--session <id>` for a binding correction. A round launched before inbox support cannot receive at all. `crossSessionInbound: accept` is written into its settings at launch, and an older launch holds the message instead of delivering it, so stop it and resume with `--session`. The panel and `mcp__outsource__rounds` say which case a row is in (`inbox=no (<reason>)`).
+- A message from the launching session's socket, or whose first line is `lead-token: <token>`, is an amendment to the spec with the spec's authority. It cannot lift the preamble's bans (git writes, launching rounds, spawning agents).
+- A message from any other session is information only.
+
+The token is minted per launch (16 random bytes) and stored in the run's registry record, which is owner-only (mode 0600). `outsource runs json` shows it as `leadToken`; the sentinel records only `lead_socket=`. The panel's `round_send` puts the token line in front of your text. To send by hand, read `messagingSocket` and `leadToken` from `outsource runs json`, then use SendMessage with `to` = `uds:<messagingSocket>` and a message whose first line is `lead-token: <leadToken>`. The token survives a lead restart; the socket does not.
+
+A round from an older launcher may have no lead notice, or no inbox at all. The panel and `mcp__outsource__rounds` say which (`inbox=no (<reason>)`); stop it and resume with `--session <id>` to get both.
 
 ### Stopping a round
 
-`outsource runs stop <label|id> [--reason <text>]` stops a running round. It sends TERM to the round's harness child: the pid the launcher recorded at spawn, after checking it is alive and its parent is the round's wrapper. If the child is still alive 20 s later (`--kill-after N`), it sends KILL to the child's process group. It then waits up to 30 s for the sentinel and prints its `rc=` line, and the sentinel carries `stopped_by=lead` and `stop_reason=`. While a harness child runs, a TERM to the `outsource-run` wrapper itself does nothing, on purpose: the wrapper holds it so the sentinel survives a caller's timeout. A round that `--resume-on-reset` is holding has no child, so `runs stop` sends TERM to its wrapper, which ends the wait and writes the sentinel. A label that several live rounds share is refused with the candidates; another session's round (`⇄`) needs `--any-owner`. A round launched by an older `outsource-run`, or by `grok-run`, has no recorded child and is refused. Exit codes: 0 stopped, 3 no such round, 64 usage, ambiguous, foreign or pid mismatch, 1 anything else.
+`outsource runs stop <label|id> [--reason <text>]` stops a running round:
+
+1. It sends TERM to the round's harness child: the pid the launcher recorded at spawn, after checking it is alive and its parent is the round's wrapper.
+2. If the child is still alive 20 s later (`--kill-after N`), it sends KILL to the child's process group.
+3. It waits up to 30 s for the sentinel and prints its `rc=` line. The sentinel carries `stopped_by=lead` and `stop_reason=`.
+
+Do not TERM the `outsource-run` wrapper yourself. While a harness child runs, the wrapper holds TERM on purpose, so the sentinel survives a caller's timeout. A round that `--resume-on-reset` is holding has no child, so `runs stop` sends TERM to its wrapper, which ends the wait and writes the sentinel. A label that several live rounds share is refused with the candidates; another session's round (`⇄`) needs `--any-owner`. A round with no recorded child — one launched by `grok-run` or by an older `outsource-run` — is refused. Exit codes: 0 stopped, 3 no such round, 64 usage, ambiguous, foreign or pid mismatch, 1 anything else.
 
 When a signal ended the harness, the sentinel says which signal and where it came from: `harness_signal=<NAME>` and `signal_source=lead-stop|watchdog|wrapper|external` (`watchdog` is `--max-seconds`). `runs` shows such a finished round as `■<label> stopped` or `✗<label> TERM ext`. The `claude` CLI catches TERM and exits 143 itself (measured on 2.1.291), so `rc=143` with `harness_signal=TERM` is a caught TERM, and `rc=-1` is a child that died by the signal. The sender's pid cannot be known, so `external` means: no stop request, no watchdog, and no signal to the wrapper.
 
@@ -210,13 +228,7 @@ A report says what a round claims, and the diff says what it left behind. Neithe
 
 ### The panel (a Claude Code mod)
 
-`mods/outsource-panel` draws all of this inside the lead session, without spending a turn. The marketplace install includes it, and so does `claude --plugin-dir <clone>`: the root plugin loads the panel's module through its `hooks/hooks.json`. With an install-script install, load the panel on its own:
-
-```
-claude --plugin-dir <clone>/mods/outsource-panel
-```
-
-Load it one way, not both: if the marketplace install and that flag meet in one session, only the bundled copy runs — the standalone one registers nothing and says why in the debug log. The panel runs the `outsource` binary it finds first: `OUTSOURCE_PANEL_BIN`, then the plugin's own `skills/outsource/bin/outsource`, then the clone around a standalone copy, then `~/.claude/skills/outsource/bin/outsource`; the debug log names the one it chose.
+`mods/outsource-panel` draws all of this inside the lead session, without spending a turn. The marketplace install includes it; with the install script, load it with `claude --plugin-dir <clone>/mods/outsource-panel` ([Install](#two-ways-to-install)). Load it one way, not both: if the marketplace install and that flag meet in one session, only the bundled copy runs — the standalone one registers nothing and says why in the debug log. The panel runs the `outsource` binary it finds first: `OUTSOURCE_PANEL_BIN`, then the plugin's own `skills/outsource/bin/outsource`, then the clone around a standalone copy, then `~/.claude/skills/outsource/bin/outsource`; the debug log names the one it chose.
 
 - `/rounds` opens a pane with:
   - the round list: own rounds first, then other sessions' (⇄);
@@ -229,7 +241,12 @@ Load it one way, not both: if the marketplace install and that flag meet in one 
 - While the pane is closed, a one-line band above the prompt follows your most recently active round.
 - Toasts announce an own round that finished, failed, went silent or lost its process.
 
-The panel also talks to the lead **model**, not only to you. When one of this session's rounds finishes, fails, is orphaned or stalls, the mod submits one `[outsource-panel]` prompt, so a lead with the panel loaded no longer needs to arm `wait.sh` for rounds it launched here. Measured 2026-10-06: a plugin-submitted prompt starts its own turn once the session is idle, queues behind a running one, and fires the `UserPromptSubmit` hooks like a typed prompt. One prompt per poll that saw transitions, never twice for the same round and state (a dedup the mod keeps in its store), and a restarted lead is woken for rounds that finished, failed or were orphaned while it was down — a session id the panel has never polled seeds silently, so the first load does not replay history. The wake text carries only launcher-written fields (label, state, rc, timings, log, cwd, id), never the round's own trail output, and closes with the review routine as commands, one per line, each spelled with the installed binary's absolute path (`outsource` is not on PATH): last-report, the `.rc` sentinel, the diff, the gates, audit. The model also gets the tools `mcp__outsource__rounds` and `mcp__outsource__round_send` (`mcp__outsource-panel__rounds` and `mcp__outsource-panel__round_send` when the panel is loaded on its own), and a system-prompt section stating all of this and naming the tools by the names they have; with the wake off, the section says "arm wait.sh as usual".
+The panel also talks to the lead **model**, not only to you. When one of this session's rounds finishes, fails, is orphaned or stalls, the mod submits one `[outsource-panel]` prompt, so a lead with the panel loaded does not need to arm `wait.sh` for rounds it launched here.
+
+- **How it arrives.** Measured 2026-10-06: a plugin-submitted prompt starts its own turn once the session is idle, queues behind a running one, and fires the `UserPromptSubmit` hooks like a typed prompt.
+- **How often.** One prompt per poll that saw transitions, never twice for the same round and state (a dedup the mod keeps in its store). A restarted lead is woken for rounds that finished, failed or were orphaned while it was down; a session id the panel has never polled seeds silently, so the first load does not replay history.
+- **What it says.** Only launcher-written fields (label, state, rc, timings, log, cwd, id), never the round's own trail output. It closes with the review routine, one command per line — last-report, the `.rc` sentinel, the diff, audit — and then a line to re-run the gates. The `outsource` commands are spelled with the installed binary's absolute path, because `outsource` is not on PATH.
+- **Tools.** The model also gets `mcp__outsource__rounds` and `mcp__outsource__round_send` (`mcp__outsource-panel__rounds` and `mcp__outsource-panel__round_send` when the panel is loaded on its own), and a system-prompt section that states all of this and names the tools as they are registered. With the wake off, the section says "arm wait.sh as usual".
 
 All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id>`, plus the same `--plugin-dir` if that is how you load the panel) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs. A round labelled `send`, `wake`, `on` or `off` is reachable through the pane's round Select — those words are subcommands first.
 
@@ -237,14 +254,7 @@ A round that its plan limit cut, which `--resume-on-reset` is holding, shows as 
 
 ## Status line
 
-`bin/statusline.sh` puts the registry above, and the plan quotas from [`bin/quota.sh`](#guardrails), into Claude Code's status line — the budgets that stop this session, the ones that stop the next round, and what is running right now:
-
-```
-opus │ you@example.com │ CTX 12% │ 5H 8%/3h20m │ 1W 38%/4d2h
-z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·cc 4m │ repo (main)
-```
-
-Add it to `~/.claude/settings.json`:
+`bin/statusline.sh` puts the run registry, and the plan quotas from [`bin/quota.sh`](#guardrails), into Claude Code's status line — the two lines at the top of this page. Add it to `~/.claude/settings.json`:
 
 ```json
 "statusLine": {
@@ -253,93 +263,100 @@ Add it to `~/.claude/settings.json`:
 }
 ```
 
+With a marketplace install the script lives in the versioned plugin cache folder ([Install](#two-ways-to-install)), so that path changes with each update.
+
 Every budget is one token — `NAME used%/until-it-resets`. The percentage says how much is gone; the second half says how long until it comes back. Neither is actionable alone, which is why there is no bar here: a bar spends thirty columns on the first half and cannot render the second at all. Colour carries the alarm instead (green under 50, yellow under 80, red at 80+), and `grok 98%/2h19m` reads at a glance as *nearly out, but not for long*.
 
-It costs about 120 ms per render because it never calls a quota API on the render path: those take one to two seconds, so a lock-guarded background refresh writes a small cache every `OUTSOURCE_STATUSLINE_TTL` seconds (default 180) and a burst of renders makes one fetch.
+A render takes about 20 ms, because it never calls a quota API on the render path. Those calls take one to two seconds, so a lock-guarded background refresh writes a small cache every `OUTSOURCE_STATUSLINE_TTL` seconds (default 180), and a burst of renders makes one fetch.
 
-**Silence means exactly one thing: this backend is not set up here.** Everything else has its own mark, so an absent segment is never ambiguous — a number not measured yet shows `…`, and a measurement that can no longer be refreshed is carried forward prefixed `~` rather than erased. That last rule was written after shipping without it: an expired `grok` sign-in made the whole segment vanish, reporting a backend that had just stopped working exactly like one that was never configured. Nothing is ever silently rendered as `0%`.
+**Silence means exactly one thing: this backend is not set up here.** Everything else has its own mark, so an absent segment is never ambiguous — a number not measured yet shows `…`, and a measurement that can no longer be refreshed is carried forward prefixed `~` rather than erased. Without that rule an expired `grok` sign-in once made the whole segment vanish, so a backend that had just stopped working looked exactly like one that was never configured. Nothing is ever silently rendered as `0%`.
 
-**The rounds shown are this session's.** The registry is machine-wide on purpose — an orphan has to be findable from wherever you are — but a status line reports on *your* window, and two Claude Code windows open on two repos would otherwise narrate each other's work as if it were yours. So the store stays global and the filter lives at the reading end: each launch records the session that owns it, and each status line asks only for its own. Ownership is matched on both the session id and the Claude Code process, so a round an in-process teammate launched still counts as yours. `runs.sh` unfiltered still shows the whole machine with an `OWNER` column, which is where you look when something is missing; `OUTSOURCE_STATUSLINE_SCOPE=all` puts that view back in the status line. One exception was measured into place: **live** rounds (running or orphaned) always show, prefixed `⇄` when another session owns them — a nested round once ran in the lead's own worktree and the scoped line hid exactly the thing it exists to surface. Finished rounds stay scoped to yours, and an orphan ages off the one-line view after a day (`OUTSOURCE_RUN_ORPHAN_LINE`; one was measured squatting there for 9 days).
+**The rounds shown are this session's.** The registry is machine-wide on purpose — an orphan has to be findable from wherever you are — but a status line reports on *your* window, and two Claude Code windows open on two repos would otherwise narrate each other's work as if it were yours. So the store stays global and the filter lives at the reading end: each launch records the session that owns it, and each status line asks only for its own. Ownership is matched on both the session id and the Claude Code process, so a round an in-process teammate launched still counts as yours. `runs.sh` unfiltered still shows the whole machine with an `OWNER` column, which is where you look when something is missing; `OUTSOURCE_STATUSLINE_SCOPE=all` puts that view back in the status line. **Live** rounds (running or orphaned) always show, prefixed `⇄` when another session owns them: a nested round once ran in the lead's own worktree, and a scoped line hid exactly the thing it exists to surface. Finished rounds stay scoped to yours, and an orphan ages off the one-line view after a day (`OUTSOURCE_RUN_ORPHAN_LINE`; one was measured squatting there for 9 days).
 
 Set `OUTSOURCE_STATUSLINE_PROVIDERS=""` to drop the quota row entirely, or e.g. `"zai"` to keep one. No runtime dependencies: the tools are one static Go binary.
 
-## Telemetry — local only
+## Guardrails
 
-Every tool call records one line: which tool, its exit code, how long it took, and
-which flag *names* were passed. Nothing leaves the machine — there is no endpoint,
-no upload and no identifier. `OUTSOURCE_TELEMETRY=0` turns it off.
-
-```
-$ bin/outsource telemetry --since 7d
-TOOL            CALLS   FAIL   RATE      p50      p95
-outsource-run      31      4    13%    11m04s   1h22m
-guard            —(blocks only)
-runs              210      0     0%      4ms      9ms
-
-failures by kind
-    3 x guard          exit 2    a delegate tried a git/gh command it is not allowed
-    2 x outsource-run  exit 72   the round ran and its completion marker never appeared
-    1 x outsource-run  exit 65   a spec that needs eyes was sent to a backend that has none
-```
-
-The point is the second table. Each of those exit codes names a way a *launch* was
-wrong rather than a way the provider failed, so a rate on one is a finding about
-how you are running rounds: 64s mean flags are being guessed, 65s mean vision work
-is going to a blind backend, 72s mean completion markers are not being written into
-specs, and the guard count says which delegates keep trying to do the lead's job.
-
-**What is never recorded:** flag values, paths, spec text, stdin, environment, or
-any credential. Flag *names* are the signal; what they pointed at is not. The only
-values kept are three closed enums this repo defines — harness, provider, git
-profile. The guard records which *kind* of command was blocked, never the command.
-Two tests assert this, one of them by planting a codename in a path, a spec, a
-label and a marker and then failing if any of it appears in the file.
-
-The file lives beside the run registry, is mode 0600, and rolls at 2MB keeping one
-generation.
-
-## Verifying the binaries
-
-No binary is committed to git. What git commits is `bin/outsource.sha256`: the release version plus
-the sha256 of each of the four release binaries. The dispatcher refuses to run any downloaded file
-that does not hash to its line.
-
-You do not have to run bytes you did not build. With Go installed, `./build.sh` builds the host
-binary beside the dispatcher, and that binary wins every lookup. `install.sh` with Go present also
-builds instead of fetching.
-
-To check a release binary against the source:
+**Before launch**
 
 ```bash
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
-  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
-shasum -a 256 /tmp/outsource-darwin-arm64   # must equal the outsource-darwin-arm64 line in bin/outsource.sha256
+bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 clean · 1 findings
+bin/outsource-run.sh --require-quota 15 …            # 66 if the plan is too low
+bin/outsource-run.sh --resume-on-reset …             # a 429 waits for the plan, then resumes the session (max 2)
 ```
 
-Set `GOOS`/`GOARCH` to the platform you want to check. Every flag there is load-bearing:
+Every zai launch also reads the plan quota (3 s budget) and prints one warning line when the tightest window has under 25 % left; it launches anyway. `--require-quota` is still the only refusal. With `--resume-on-reset`, `--max-seconds` bounds each attempt, not the launch: a launch runs up to three attempts, and the waits between them are not counted. The launcher says so in one line when both are given.
 
-- `-trimpath` keeps build paths out of the artifact.
-- `CGO_ENABLED=0` makes the binary static, so the host toolchain does not matter.
-- `-buildvcs=false` stops Go stamping the commit hash and a `+dirty` marker into the module version.
-  Without it the bytes would change on every commit.
+**After the round** — the model-identity assertion (exit 70), the done-marker check (exit 72 when a clean exit lacks the marker), the completion sentinel, and a cost line carrying the round's token counts from the log's `usage`. The `total_cost_usd` beside them is Anthropic-priced and wrong for every provider here. And `bin/wait.sh <log>` blocks until the sentinel lands — armed at launch and backgrounded, completion becomes a notification instead of a thing to poll.
 
-Three tools keep the manifest honest:
+Plan credits are deliberately **not** reported per round: a plan quota is a plan-wide counter that concurrent rounds and other sessions move too, so a before/after delta around one round measures the machine, not the round. Quota is a pre-flight signal — which provider this session should use, and whether to start at all.
 
-- `tests/reproducible-build.test.sh` runs exactly this build for all four platforms and compares
-  the results with the committed manifest. A source edit that skipped `./build.sh` cannot ship.
-- With Go present, `install.sh` refuses when the manifest does not match a fresh build.
-- `scripts/release-assets.sh <X.Y.Z>` builds the four binaries, checks them against the manifest
-  and uploads them as release assets. It refuses unless the committed manifest already names those
-  exact bytes.
+```
+$ bin/quota.sh
+z.ai coding plan: level max — GLM Coding Max (status VALID, valid 2026-08-15~09-15)
+5h window: 6692/28000 consumed, 21307 remaining, 23% used / 76.1% left, resets at 12:24 (in 3h 46m)  <- tightest
+1w window: 27758/140000 consumed, 112241 remaining, 19% used / 80.2% left, resets at 17:52 (in 153h 14m)
 
-Go's linker ad-hoc signs darwin/arm64, and that signature is what lets a cross-compiled macOS build
-run at all.
+$ bin/quota.sh --provider grok
+1w window: exact counts not exposed by this API, 98.0% used / 2.0% left, resets at 15:13 (in 6h 36m)
+```
+
+## Heavy steps share the machine
+
+Several rounds on one machine each run their project's full build, tests and linters, and those steps compete for the same cores — measured 2026-10-06 on a 10-core Mac: about six rounds at once, load 23–28, every proof step crawling. `outsource slot` is a machine-wide counting semaphore those steps take turns on:
+
+```bash
+"$OUTSOURCE_SLOT" -- npm test          # inside a round: the launcher exports the path
+bin/slot.sh --max 2 -- make check      # by hand
+bin/slot.sh --status                   # every pool: holders (pid, label, age) and waiters
+```
+
+- **The pool** is `heavy` unless `--name <pool>` says otherwise; its slots are lock files under `${XDG_CACHE_HOME:-~/.cache}/outsource/slots/<pool>/`. A slot is held by `flock`, so a holder that dies — even by SIGKILL — frees it at once; there is no stale lock to clean up.
+- **N**, how many run at once, is `--max N`, else `OUTSOURCE_SLOTS`, else max(1, cores/4) — 2 on a 10-core machine. N belongs to the caller: a caller with N=1 only ever uses the pool's first slot, so callers that disagree about N never exceed their own budget.
+- **While it waits** it prints one line naming the holders, and one more when it gets a slot. The command's exit code is the tool's (128+n when a signal killed it). TERM, INT and HUP are forwarded to the command, and the tool exits only when the command has; SIGKILL of the tool frees the slot while the command runs on.
+- **Nested calls** — a wrapped check script that wraps its own steps — run straight through on the same pool instead of waiting for the slot their own parent holds.
+- **Rounds find it** through `OUTSOURCE_SLOT` (the skill's `bin/slot.sh`) and are named in the holder records by `OUTSOURCE_RUN_LABEL` (the round's `--label`); `outsource-run` exports both to every harness child.
+- **git is refused** (exit 64), bare or behind `env`, `nice` or `command`: it is never a heavy step, and the wrapper must not become a way around the git guard.
+
+**A project's own runner.** A [project overlay](#local-overlays) may name a runner for heavy steps, and rounds on that project use it instead of `$OUTSOURCE_SLOT`. For example, a project whose test suite belongs on a build box rather than the laptop puts this in its overlay:
+
+```markdown
+## Heavy steps
+Run every heavy proof step (full build, `just test`, `just lint`) as
+`tools/remote-run.sh -- <cmd>`: it syncs this worktree to the build box, runs
+the step there under that machine's own slot, and streams the output back with
+the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
+(one test, `git diff`) still run locally.
+```
+
+The runner is the project's own script, so it can do what the slot cannot — move the work to another machine, or into that machine's queue — and the preamble's rule already defers to it.
+
+## Local overlays
+
+Two layers, most specific last:
+
+- **User overlay** — `references/local-overlay.md` next to the installed skill. Only what is true for you on every repo (default backend, model flags). Preserved by `install.sh` across upgrades, never shipped by this repo. When the install has none, `install.sh` seeds it from an untracked `local-overlay*.md` at the clone's root; an installed overlay always wins over that seed.
+- **Project overlay** — base branch, house gate recipes, incident history: the facts true in one repo only. Two ways to attach one:
+  - **In-repo** — `<repo>/.outsource/overlay.md`, committed next to the code it describes. The default.
+  - **Declared** — `references/overlays/<name>.md` in user scope, whose front matter lists the paths it applies to, the way `.claude/rules/*` declare theirs:
+
+    ```markdown
+    ---
+    paths:
+      - ~/repo/ds*          # every clone
+      - ~/repo/uf*/**       # and the worktrees under them
+    ---
+    ```
+
+Reach for **declared** when one repo has several checkouts on one machine — clones plus worktrees, each parked on a different branch. A committed overlay is then N copies drifting with N branches, and the lead who edits it in whichever checkout they are standing in silently forks the rules for everyone else. Measured on a repo with 16 checkouts: two overlays written months apart, neither aware of the other, with disagreeing gate tables.
+
+`outsource overlays --root <repo>` prints what applies, in assembly order — user, then declared, then in-repo, so the committed file wins on conflict. `--explain` adds the kind and the pattern that matched, and a declaration whose paths could never match is named on stderr instead of quietly doing nothing.
 
 ## The models
 
 Fourteen rounds, five real tickets from a Go + Svelte product, each ticket sent to every arm as the **same task spec** in its own git worktree.
 
-**All fourteen passed `build` / `vet` / the affected suite when the lead re-ran the gates himself.** That is the finding that matters most: on ordinary work, the gates do not separate these models. Everything below lives outside the gates.
+**All fourteen passed `build` / `vet` / the affected suite when the lead re-ran the gates itself.** That is the finding that matters most: on ordinary work, the gates do not separate these models. Everything below lives outside the gates.
 
 | | **Opus 5** | **grok-4.6** | **GLM-5.3** |
 |---|---|---|---|
@@ -347,7 +364,7 @@ Fourteen rounds, five real tickets from a Go + Svelte product, each ticket sent 
 | Contract that **cannot be satisfied** | refuses, argues why, redesigns | **notices, then implements it anyway** | doesn't notice |
 | Evidence it cannot obtain | names what's undecidable, flags a partial miss | — | produces a plausible-looking answer instead |
 | Second-order effects | finds them unprompted | missed one the GLM arm caught | caught one grok missed |
-| Reads images | yes | **yes — the only cheap arm that does** | **no, at all** (`supports_attachments: false`) |
+| Reads images | yes | **yes** | **no, at all** (`supports_attachments: false`) |
 | Self-verification / disclosure | unprompted | with the preamble | **only with the preamble** |
 | Relative cost | highest | subscription | **lowest** |
 
@@ -382,6 +399,13 @@ The first same-spec A/B with muse in the pool, and the first on a task where the
 | toolchain defect met | none (`#[unroll]` on `u32` loops worked) | compiler ICE on `#[unroll]` with `usize` counters — reported, upstream candidate |
 | diagnosis in the report | **SASS read** (`ptxas -v`), cause named | pass-by-pass table, the step that mattered named |
 | tokens spent (output incl. reasoning / model turns) | 357k / 224 | **79k + 45k reasoning / 76** |
+
+Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong.
+
+Three more rounds followed on the same pair (below). Across four rounds and ten arms GLM spent 1.9–3.6× muse's tokens on every task (output + reasoning on both sides; output alone reads 3–6× because z.ai folds reasoning into it), and won three of the four adoption decisions where one arm was picked. Nothing in the series says which of those two facts should drive routing; the table exists so the next round does not have to guess.
+
+<details>
+<summary><b>Rounds 2–4</b> — ggml's mmvq structure, both arms at <code>max</code>, and two new task classes</summary>
 
 **Round 2, same two arms, same day** — the spec was the lever both round-1 reports had pointed at (ggml's mmvq structure: q8_1 activations, `dp4a`, coalesced weight words), with the accuracy gate re-stated for that design. Both cleared it:
 
@@ -431,9 +455,9 @@ Both arms used *fewer* tokens at `max` than at `high` in round 2, because the ta
 | adopted | **yes** (tree + draft), muse's `1u64/1u32` row added to the draft | |
 | tokens (output incl. reasoning / turns) | 129k / 150 | **34k + 13k reasoning / 88** |
 
-Two arms on the same compiler bug converged on the same two source lines without seeing each other — that is what a root cause looks like when it is one. On the CPU kernel both cleared the gate at the same ratio, and the decision came from the rows the gate did not cover (M=8, SMT, small shapes): a gate that saturates on both arms is a gate, not a comparison. Across four rounds and ten arms GLM spent 1.9–3.6× muse's tokens on every task (output + reasoning on both sides; output alone reads 3–6× because z.ai folds reasoning into it), and won three of the four adoption decisions where one arm was picked. Nothing in the series says which of those two facts should drive routing; the table exists so the next round does not have to guess.
+Two arms on the same compiler bug converged on the same two source lines without seeing each other — that is what a root cause looks like when it is one. On the CPU kernel both cleared the gate at the same ratio, and the decision came from the rows the gate did not cover (M=8, SMT, small shapes): a gate that saturates on both arms is a gate, not a comparison.
 
-Neither arm reached the 0.9× target in round 1 and both stopped after one pass as the spec said; in round 2 both cleared it, and the round-2 spec existed because the two round-1 diagnoses overlapped. The artifact went to muse, the diagnosis to GLM. Two rows change routing on their own: muse produced a 2.1–3.8× faster kernel in half the wall time, and it was the arm that said the spec was wrong. One task is one data point; the row is here so the next one has something to compare against.
+</details>
 
 ### How we found out
 
@@ -519,7 +543,8 @@ Every row is a mechanism with an exit code, not advice in a document.
 | grok blocked from producing its own required evidence | **Per-subcommand git denies.** A blanket `git worktree*` also blocked `git worktree list`, which every spec asks for as the first line of the report. |
 | The plan runs dry mid-round | **`--require-quota N`, exit 66** — keyed on the **tightest** window, not the shortest (measured: weekly at 81.7% remaining while the 5-hour sat at 83.8%). Fails closed. |
 | A delegate reports "done" that isn't | **Completion sentinel `<log>.rc`** with `rc`, `finished`, `harness`, `provider`, `model_requested`, `model_actual`, `session`; on claude-code `quota_exhausted` (with `reset_at`, `quota_reset_at`, `api_error` when 1) and, under `--resume-on-reset`, `resumed_after_reset`. The harness's own lifecycle is not completion proof. |
-| A clean exit without the spec's completion marker | **`--done-marker`, exit 72** on both launchers. Was 70 on grok (colliding with model-identity) and a silent rc=0 on GLM, so the same fact read as failed or completed depending on the sister. 72 names the missing marker; the tree is still the verdict. |
+| A clean exit without the spec's completion marker | **`--done-marker`, exit 72** on both launchers: one code for one fact, distinct from model identity's 70. 72 names the missing marker; the tree is still the verdict. |
+| A confident report from a round that never made a tool call (measured 2026-09-29: "32 passed" over a 23-line transcript with zero `tool_use` blocks, no file written) | **Exit 73** on claude-code: after the harness exits, the launcher counts the transcript's `tool_use` blocks and records `tool_calls=<N>` in the sentinel. `--allow-no-tools` is for rounds that are answer-only on purpose; 72 keeps precedence. |
 | Repository-state git from a delegate | **`bin/git-guard.sh`**, a `PreToolUse` hook parsing the real command string — `git -C … commit`, `env … git push`, `sudo git …`, chained mutations all blocked; read-only git deliberately open. One file, both harnesses' calling conventions. If no binary can be produced, the hook exits 2 (block), never a non-blocking error, so the git ban fails closed. |
 | z.ai silently answers a `glm-5.2` request with glm-5.3 (measured twice — the response `model` field differs from the request, so it is not an echo) | **Refused at launch, exit 70.** On crush there is no identity assertion, so the misassignment would otherwise stay silent forever; `OUTSOURCE_ALLOW_MAPPED_MODEL=1` exists to re-measure, not to route. |
 | A delegate reads the lead-side launch procedure that rode into its spec, decides it *is* the lead, and launches a nested round into the same worktree — clean exit, zero implementation | **Nested launches refused, exit 64** — every harness child carries `OUTSOURCE_ROUND=1` and both launchers refuse to start under it (`OUTSOURCE_ALLOW_NESTED=1` for deliberate nesting). |
@@ -552,94 +577,6 @@ Every row is a mechanism with an exit code, not advice in a document.
 
 </details>
 
-## How an arm is wired
-
-`internal/launch/wiring.go` is the single owner of "what can run where", and it is two tables.
-
-A **provider** is an account and an endpoint: base URL, default model, default harness, which of its models see pixels, which environment variable may pin a model, and which ids the endpoint answers with a *different* model. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter via opencode, agy) carries an empty URL and no credential row — its CLI already logged the user in.
-
-A **harness** is how a model is driven headlessly: the binary that must be on PATH, the providers it drives, where the round leaves a live trail, the dispatch, and the shape `--model` must take there.
-
-Everything downstream derives from those two — the `--harness` validation, the `--detach` PATH lookup, the progress directory `runs` watches, the dispatch, the pairing refusal, and the `--help` line. A consistency test refuses a half-wired row: a default harness that does not drive its own provider, a harness with no dispatch or no PATH binary, a `--model` form hint with no rule behind it.
-
-The refusal messages come from the same tables, so they say where the round *should* go rather than only where it cannot:
-
-```
-$ outsource-run --provider openrouter --harness claude-code …
-harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
-provider openrouter runs on: opencode (opencode owns its own auth store and resolves
-endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
-```
-
-## Guardrails
-
-**Before launch**
-
-```bash
-bin/spec-lint.sh --root <repo> <scratch>/spec.md     # 0 clean · 1 findings
-bin/outsource-run.sh --require-quota 15 …            # 66 if the plan is too low
-bin/outsource-run.sh --resume-on-reset …             # a 429 waits for the plan, then resumes the session (max 2)
-```
-
-Every zai launch also reads the plan quota (3 s budget) and prints one warning line when the tightest window has under 25 % left; it launches anyway. `--require-quota` is still the only refusal. With `--resume-on-reset`, `--max-seconds` bounds each attempt, not the launch: a launch runs up to three attempts, and the waits between them are not counted. The launcher says so in one line when both are given.
-
-**After the round** — the model-identity assertion (exit 70), the done-marker check (exit 72 when a clean exit lacks the marker), the completion sentinel, and a cost line carrying the round's token counts from the log's `usage`. The `total_cost_usd` beside them is Anthropic-priced and wrong for every provider here. And `bin/wait.sh <log>` blocks until the sentinel lands — armed at launch and backgrounded, completion becomes a notification instead of a thing to poll.
-
-Plan credits are deliberately **not** reported per round: a plan quota is a plan-wide counter that concurrent rounds and other sessions move too, so a before/after delta around one round measures the machine, not the round. Quota is a pre-flight signal — which provider this session should use, and whether to start at all.
-
-```
-$ bin/quota.sh
-z.ai coding plan: level max — GLM Coding Max (status VALID, valid 2026-08-15~09-15)
-5h window: 6692/28000 consumed, 21307 remaining, 23% used / 76.1% left, resets at 12:24 (in 3h 46m)  <- tightest
-1w window: 27758/140000 consumed, 112241 remaining, 19% used / 80.2% left, resets at 17:52 (in 153h 14m)
-
-$ bin/quota.sh --provider grok
-1w window: exact counts not exposed by this API, 98.0% used / 2.0% left, resets at 15:13 (in 6h 36m)
-```
-
-## Heavy steps share the machine
-
-Several rounds on one machine each run their project's full build, tests and linters, and those steps compete for the same cores — measured 2026-10-06 on a 10-core Mac: about six rounds at once, load 23–28, every proof step crawling. `outsource slot` is a machine-wide counting semaphore those steps take turns on:
-
-```bash
-"$OUTSOURCE_SLOT" -- npm test          # inside a round: the launcher exports the path
-bin/slot.sh --max 2 -- make check      # by hand
-bin/slot.sh --status                   # every pool: holders (pid, label, age) and waiters
-```
-
-- **The pool** is `heavy` unless `--name <pool>` says otherwise; its slots are lock files under `${XDG_CACHE_HOME:-~/.cache}/outsource/slots/<pool>/`. A slot is held by `flock`, so a holder that dies — even by SIGKILL — frees it at once; there is no stale lock to clean up.
-- **N**, how many run at once, is `--max N`, else `OUTSOURCE_SLOTS`, else max(1, cores/4) — 2 on a 10-core machine. N belongs to the caller: a caller with N=1 only ever uses the pool's first slot, so callers that disagree about N never exceed their own budget.
-- **While it waits** it prints one line naming the holders, and one more when it gets a slot. The command's exit code is the tool's (128+n when a signal killed it). TERM, INT and HUP are forwarded to the command, and the tool exits only when the command has; SIGKILL of the tool frees the slot while the command runs on.
-- **Nested calls** — a wrapped check script that wraps its own steps — run straight through on the same pool instead of waiting for the slot their own parent holds.
-- **Rounds find it** through `OUTSOURCE_SLOT` (the skill's `bin/slot.sh`) and are named in the holder records by `OUTSOURCE_RUN_LABEL` (the round's `--label`); `outsource-run` exports both to every harness child.
-- **git is refused** (exit 64), bare or behind `env`, `nice` or `command`: it is never a heavy step, and the wrapper must not become a way around the git guard.
-
-## What's inside
-
-| File | Purpose |
-|---|---|
-| `skills/outsource/SKILL.md` | The router: backend table, spec assembly, lead review checklist |
-| `references/grok.md` · `glm.md` · `agy.md` · `opencode.md` · `codex.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
-| `references/spec-preamble.md` | Shared rules prepended to every spec — every clause from a real incident |
-| `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
-| `references/glm-preamble.md` | GLM runtime delta (which model sees pixels and which does not, hooks not flags, evidence rules) |
-| `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
-| `bin/outsource` | **One Go binary is every tool below. It is built or fetched on each machine and never committed.** `bin/outsource` itself is a POSIX `sh` dispatcher. `bin/outsource.sha256` is the committed manifest it checks downloads against; the dispatcher tries a local build, then its cache, then a Go build, then a verified download. The `bin/*.sh` names beside it are compatibility shims that exec into it. They stay because docs, hooks, installed copies and tests all call these tools by path. Hooks written by the launchers point at the resolved binary directly |
-| `outsource-run` | The launcher: the provider/harness wiring tables, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--detach` / non-TTY foreground refusal |
-| `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, a startup proof, `--detach` / `--foreground` |
-| `guard` | The git-ban `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden) |
-| `credential` · `setup-key.sh` | The single owner of key *and* host resolution, and its interactive half. `setup-key.sh` stays shell on purpose — its whole job is TTY interaction, and `tests/shell-boundary.test.sh` enforces that boundary |
-| `verify-key` | Checks a key before it is stored; the key arrives on stdin, never in argv |
-| `glm.sh` | The other direction: *your own* interactive Claude Code session on the z.ai plan, not a delegate round. Shell on purpose — it resolves the key, pins the model on all six variables an alias could route around, and `exec`s the CLI. Worth an alias |
-| `spec-lint` · `quota` | Pre-launch spec check; plan quota with `--require-window` as a gate |
-| `runs` | The run registry: which rounds are alive, on what, for how long — and which started and never finished |
-| `wait` | Blocks until a round's sentinel appears — armed at launch and backgrounded, a finished round becomes a notification instead of something you remember to poll |
-| `slot` | A machine-wide counting semaphore rounds wrap their heavy proof steps in, so concurrent rounds take turns on the machine instead of all crawling at once; `--status` shows who holds and who waits |
-| `last-report` | The round's final report out of either log shape, exit 65 when there is none |
-| `statusline` | A Claude Code status line: session budgets, plan quotas, live rounds — 7ms per render |
-| `telemetry` | A local record of tool calls, exit codes and reasons, and a summary of them. Local only, never uploaded, `OUTSOURCE_TELEMETRY=0` to disable |
-| `scripts/grok-progress.py` | Compress a grok NDJSON stream into one-line progress events (lead-side; not installed) |
-
 ## The quality bundle
 
 What closed the measured quality gap, each device with an effect behind it:
@@ -651,39 +588,132 @@ What closed the measured quality gap, each device with an effect behind it:
 5. **Logic design principles** — derive-don't-store · re-normalize on load · 3-class input defense
 6. **Evidence rules** — verify from a cold start and compare test counts with CI; every number carries the command that produced it; the recurrence layer lands as a file, not a sentence
 
-## Local overlays
+## Internals
 
-Two layers, most specific last:
+How the pieces fit, for readers who change or audit them.
 
-- **User overlay** — `references/local-overlay.md` next to the installed skill. Only what is true for you on every repo (default backend, model flags). Preserved by `install.sh` across upgrades, never shipped by this repo.
-- **Project overlay** — base branch, house gate recipes, incident history: the facts true in one repo only. Two ways to attach one:
-  - **In-repo** — `<repo>/.outsource/overlay.md`, committed next to the code it describes. The default.
-  - **Declared** — `references/overlays/<name>.md` in user scope, whose front matter lists the paths it applies to, the way `.claude/rules/*` declare theirs:
+### How an arm is wired
 
-    ```markdown
-    ---
-    paths:
-      - ~/repo/ds*          # every clone
-      - ~/repo/uf*/**       # and the worktrees under them
-    ---
-    ```
+`internal/launch/wiring.go` is the single owner of "what can run where", and it is two tables.
 
-Reach for **declared** when one repo has several checkouts on one machine — clones plus worktrees, each parked on a different branch. A committed overlay is then N copies drifting with N branches, and the lead who edits it in whichever checkout they are standing in silently forks the rules for everyone else. Measured on a repo with 16 checkouts: two overlays written months apart, neither aware of the other, with disagreeing gate tables.
+A **provider** is an account and an endpoint: base URL, default model, default harness, which of its models see pixels, which environment variable may pin a model, and which ids the endpoint answers with a *different* model. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter via opencode, agy) carries an empty URL and no credential row — its CLI already logged the user in.
 
-`outsource overlays --root <repo>` prints what applies, in assembly order — user, then declared, then in-repo, so the committed file wins on conflict. `--explain` adds the kind and the pattern that matched, and a declaration whose paths could never match is named on stderr instead of quietly doing nothing.
+A **harness** is how a model is driven headlessly: the binary that must be on PATH, the providers it drives, where the round leaves a live trail, the dispatch, and the shape `--model` must take there.
 
-**A heavy-step runner of the project's own.** A project overlay may name a runner for heavy steps, and rounds on that project use it instead of `$OUTSOURCE_SLOT`. For example, a project whose test suite belongs on a build box rather than the laptop puts this in its overlay:
+Everything downstream derives from those two — the `--harness` validation, the `--detach` PATH lookup, the progress directory `runs` watches, the dispatch, the pairing refusal, and the `--help` line. A consistency test refuses a half-wired row: a default harness that does not drive its own provider, a harness with no dispatch or no PATH binary, a `--model` form hint with no rule behind it.
 
-```markdown
-## Heavy steps
-Run every heavy proof step (full build, `just test`, `just lint`) as
-`tools/remote-run.sh -- <cmd>`: it syncs this worktree to the build box, runs
-the step there under that machine's own slot, and streams the output back with
-the step's exit code. Do not use `$OUTSOURCE_SLOT` in this repo; cheap steps
-(one test, `git diff`) still run locally.
+`outsource-run --list-wiring` prints what the two tables currently route:
+
+```
+PROVIDER     HARNESS        DEFAULT MODEL            NOTES
+zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                 default harness
+xai          crush          grok-4.6                 --model form provider/id
+openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
+muse         muse           muse-spark-1.3-contributor default harness
+agy          agy            gemini-3.8-flash-high    default harness
 ```
 
-The runner is the project's own script, so it can do what the slot cannot — move the work to another machine, or into that machine's queue — and the preamble's rule already defers to it.
+The refusal messages come from the same tables, so they say where the round *should* go rather than only where it cannot:
+
+```
+$ outsource-run --provider openrouter --harness claude-code …
+harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
+provider openrouter runs on: opencode (opencode owns its own auth store and resolves
+endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+```
+
+### Verifying the binaries
+
+No binary is committed to git. `bin/outsource` is a small POSIX `sh` dispatcher, and `bin/outsource.sha256` is a committed manifest: the release version plus the sha256 of each of the four release binaries (darwin-arm64, darwin-amd64, linux-amd64, linux-arm64). On first use the dispatcher gives this machine a binary. It tries these in order:
+
+1. a local build beside it (`./build.sh` in a clone, or `install.sh` with Go);
+2. its cache (`~/.cache/outsource/<version>/`);
+3. a build from source, when Go and the marketplace's copy of the source are present;
+4. a download from the GitHub Release, which runs only if its sha256 equals the manifest line.
+
+No switch skips that check. `OUTSOURCE_RELEASE_URL` only changes where the bytes come from (a mirror, an air-gapped server). Concurrent first calls share one fetch under a lock, and the cache keeps the current and the previous version. If no binary can be produced, `bin/git-guard.sh` exits 2 and so blocks git; a failed fetch never opens the guard. The `bin/*.sh` tool names need bash (on Alpine, `apk add bash`); `bin/outsource <tool>` needs only `sh` plus `curl` or `wget`.
+
+You do not have to run bytes you did not build. With Go installed, `./build.sh` builds the host binary beside the dispatcher, and that binary wins every lookup. `install.sh` with Go present also builds instead of fetching.
+
+To check a release binary against the source:
+
+```bash
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -buildvcs=false -ldflags="-s -w" \
+  -o /tmp/outsource-darwin-arm64 ./cmd/outsource
+shasum -a 256 /tmp/outsource-darwin-arm64   # must equal the outsource-darwin-arm64 line in bin/outsource.sha256
+```
+
+Set `GOOS`/`GOARCH` to the platform you want to check. Every flag there is load-bearing:
+
+- `-trimpath` keeps build paths out of the artifact.
+- `CGO_ENABLED=0` makes the binary static, so the host toolchain does not matter.
+- `-buildvcs=false` stops Go stamping the commit hash and a `+dirty` marker into the module version. Without it the bytes would change on every commit.
+
+Three tools keep the manifest honest:
+
+- `tests/reproducible-build.test.sh` runs exactly this build for all four platforms and compares the results with the committed manifest. A source edit that skipped `./build.sh` cannot ship.
+- With Go present, `install.sh` refuses when the manifest does not match a fresh build.
+- `scripts/release-assets.sh <X.Y.Z>` builds the four binaries, checks them against the manifest and uploads them as release assets. It refuses unless the committed manifest already names those exact bytes.
+
+Go's linker ad-hoc signs darwin/arm64, and that signature is what lets a cross-compiled macOS build run at all.
+
+### Telemetry — local only
+
+Every tool call records one line: which tool, its exit code, how long it took, and which flag *names* were passed. Nothing leaves the machine — there is no endpoint, no upload and no identifier. `OUTSOURCE_TELEMETRY=0` turns it off.
+
+```
+$ bin/outsource telemetry --since 7d
+TOOL            CALLS   FAIL   RATE      p50      p95
+outsource-run      31      4    13%    11m04s   1h22m
+guard            —(blocks only)
+runs              210      0     0%      4ms      9ms
+
+failures by kind
+    3 x guard          exit 2    a delegate tried a git/gh command it is not allowed
+    2 x outsource-run  exit 72   the round ran and its completion marker never appeared
+    1 x outsource-run  exit 65   a spec that needs eyes was sent to a backend that has none
+```
+
+The point is the second table. Each of those exit codes names a way a *launch* was wrong rather than a way the provider failed, so a rate on one is a finding about how you are running rounds: 64s mean flags are being guessed, 65s mean vision work is going to a blind backend, 72s mean completion markers are not being written into specs, and the guard count says which delegates keep trying to do the lead's job.
+
+**What is never recorded:** flag values, paths, spec text, stdin, environment, or any credential. Flag *names* are the signal; what they pointed at is not. The only values kept are three closed enums this repo defines — harness, provider, git profile. The guard records which *kind* of command was blocked, never the command. Two tests assert this, one of them by planting a codename in a path, a spec, a label and a marker and then failing if any of it appears in the file.
+
+The file lives beside the run registry, is mode 0600, and rolls at 2MB keeping one generation.
+
+### What's inside
+
+| File | Purpose |
+|---|---|
+| `skills/outsource/SKILL.md` | The router: backend table, spec assembly, lead review checklist |
+| `references/grok.md` · `glm.md` · `agy.md` · `muse.md` · `opencode.md` · `codex.md` | Per-backend operating manuals: flags, git-safety profiles, harness quirks, measured behavior |
+| `references/spec-preamble.md` | Shared rules prepended to every spec — every clause from a real incident |
+| `references/spec-preamble-core.md` | The short substitute: the disclosure half, measured to vanish without it |
+| `references/glm-preamble.md` | GLM runtime delta (which model sees pixels and which does not, hooks not flags, evidence rules) |
+| `references/spec-authoring.md` · `references/spec-template.md` | The quality bundle, and the per-task spec skeleton |
+| `bin/outsource` | The dispatcher. **One Go binary is every tool below**; it is built or fetched on each machine and never committed ([Verifying the binaries](#verifying-the-binaries)). The `bin/*.sh` names beside it are compatibility shims that exec into it, kept because docs, hooks, installed copies and tests call the tools by path. Hooks written by the launchers point at the resolved binary directly |
+| `outsource-run` | The launcher: the provider/harness wiring tables, isolated config per track, session resume, vision/quota guards, model-identity assertion, completion sentinel, `--resume-on-reset`, `--detach` / non-TTY foreground refusal |
+| `grok-run` | The grok launcher: same registry entry, sentinel and done-marker verdict, the git-profile flag strings it owns, a startup proof, `--detach` / `--foreground` |
+| `guard` · `git-shim` | The git ban: the `PreToolUse` hook, one implementation for both harnesses (54 regression cases + a 670-verdict golden), and the `git` shim first on a muse round's `PATH` |
+| `credential` · `setup-key.sh` | The single owner of key *and* host resolution, and its interactive half. `setup-key.sh` stays shell on purpose — its whole job is TTY interaction, and `tests/shell-boundary.test.sh` enforces that boundary |
+| `verify-key` | Checks a key before it is stored; the key arrives on stdin, never in argv |
+| `glm.sh` | The other direction: *your own* interactive Claude Code session on the z.ai plan, not a delegate round. Shell on purpose — it resolves the key, pins the model on all six variables an alias could route around, and `exec`s the CLI. Worth an alias |
+| `spec-lint` · `quota` | Pre-launch spec check; plan quota with `--require-window` as a gate |
+| `overlays` | Which overlays apply to a repo, in assembly order; `--explain` says why |
+| `runs` | The run registry: which rounds are alive, on what, for how long — and which started and never finished. `runs stop` ends one |
+| `tail` | A round's live trail, one line per turn; `-f` follows it until the round ends |
+| `audit` | What a round ran: the model behind each request, shell commands, files written, denials, and the trail's seal |
+| `wait` | Blocks until a round's sentinel appears — armed at launch and backgrounded, a finished round becomes a notification instead of something you remember to poll |
+| `slot` | A machine-wide counting semaphore rounds wrap their heavy proof steps in, so concurrent rounds take turns on the machine instead of all crawling at once; `--status` shows who holds and who waits |
+| `last-report` | The round's final report out of either log shape, exit 65 when there is none |
+| `statusline` | A Claude Code status line: session budgets, plan quotas, live rounds — about 20 ms per render |
+| `telemetry` | A local record of tool calls, exit codes and reasons, and a summary of them. Local only, never uploaded, `OUTSOURCE_TELEMETRY=0` to disable |
+| `bin/codex-ci` | The Codex sidecar: runs the `codex` CLI against Cheaper Inference without writing to `~/.codex/config.toml` |
+| `mods/outsource-panel` | [The panel](#the-panel-a-claude-code-mod): the `/rounds` pane, the band, the toasts, the lead wake and its two tools |
+| `install.sh` · `build.sh` | Install or upgrade a copy of the skill; build the binaries and regenerate the manifest |
+| `scripts/release-assets.sh` | Build the four release binaries, check them against the manifest, upload them |
+| `scripts/grok-progress.py` | Compress a grok NDJSON stream into one-line progress events (lead-side; not installed) |
 
 ## Known limits
 
@@ -691,7 +721,7 @@ The runner is the project's own script, so it can do what the slot cannot — mo
 - Design-weight logic didn't fully close even with bundle v3; write those with Claude, review with a backend.
 - The default glm-5.3 cannot read images — and, measured, it says so instead of guessing. flash and agy can; precise-color and aesthetic verdicts still go to a frontier vision judge until A/B-measured.
 - No cheap arm reliably stops at a contract it cannot satisfy. That check is the lead's.
-- Plan quota is readable for z.ai and xAI only; the Google plan behind agy exposes no quota API, and pay-per-token keys expose no window to gate on.
+- Plan quota is readable for z.ai and xAI only. The Google plan behind agy exposes no quota API, Muse Code has no plan-quota window, and pay-per-token keys expose no window to gate on.
 - Claude Code only for now. The SKILL.md format is portable, but we publish only what we've verified end to end.
 
 ## License
