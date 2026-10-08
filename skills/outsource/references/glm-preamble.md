@@ -99,6 +99,15 @@ in foreground calls of at most 9 minutes each. A round that polls a lock on
 its own interval loses the window to the runner's waiters (measured: polling
 every 75–360 s starved a round for 40 minutes).
 
+Each check is one call that blocks until the job ends or the 9 minutes run
+out: `timeout 540 bash -c 'while kill -0 $(cat <pidfile>) 2>/dev/null; do
+sleep 30; done'`, then read the log. Never wait with a stream of short calls
+(`true`, `date`, a grep of the log): every call is a turn the plan's quota
+pays for, and the job does not finish sooner (measured 2026-10-09: a round
+issued 36 `true` calls 2–3 s apart while its batch waited on another track's
+card lock, and another re-armed an `until grep … DONE` that an earlier DONE
+line in the same log satisfied at once).
+
 ## 5. Working directory
 
 `--cwd` points at the tree you may edit. Bash keeps its own cwd between
