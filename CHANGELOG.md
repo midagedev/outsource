@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 — 2026-10-09 — OpenRouter on Claude Code, free models picked from the live catalogue, and one file for your own defaults
 
 - **OpenRouter runs on the claude-code harness by default.** Its
   Anthropic-compatible endpoint works (measured: tool calls through
