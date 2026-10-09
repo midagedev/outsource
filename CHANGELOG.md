@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- **OpenCode Zen as provider `zen`, defaulting to its free Step 5 Preview.**
+  `--provider zen` runs `step-5-preview-free` on the opencode harness: no
+  login (measured: it answered with only an OpenRouter key in opencode's
+  auth store), a 1M context, free for a limited time. Measured end to end
+  through the launcher: identity checked by `opencode export`, the file
+  landed in `--cwd`, `git commit` refused by the permission config. It reads
+  shape and colour family (`#1E50DC` as `#3A5BF0`), and once answered a
+  glyph probe without opening the image. Zen's privacy terms are per id;
+  `references/opencode.md` quotes them.
+
+- **Model, provider and harness are three tables now.** `wiring.go` gains a
+  model table for what was measured about one id — vision level, a silent
+  remap refused at launch, a context-window override — and the provider
+  keeps the answer for ids nobody measured. A provider column `qualifier`
+  says which id the CLI writes before the model id (zen's is `opencode`,
+  the harness's own name), so the opencode harness drives more than
+  OpenRouter. `--list-wiring` prints a MODELS block, the `--model` form per
+  provider (`zai/<id>`, `opencode/<id>`), and no longer lets a long default
+  model run into its notes. SKILL.md and both READMEs present the three
+  axes as three tables.
+
+- **Install no longer deletes `bin/outsource-run.sh`.** The cleanup meant
+  for local build binaries matched the shim too, so every install left the
+  documented launch path missing. The install test now requires every
+  tracked shim to survive.
+
+- **A flaky dispatcher test, fixed.** The wget stub read any argument with
+  a capital O as `-O`, so a temp dir like `tmp.dAtGlSN4vO` failed the wget
+  case about one run in seven.
+
 ## 0.20.0 — 2026-10-06 — One install with verified binaries, and rounds a lead can steer, stop and resume
 
 - **One install brings the panel.** `/plugin install outsource@outsource`
