@@ -103,23 +103,40 @@ var (
 	quotaSleep = time.Sleep
 )
 
-// resumeRefusal is the --resume-on-reset pre-flight: the harness table says
-// which harness leaves a plan-limit death this launcher can read and resume.
-func resumeRefusal(harnessName string, on bool) string {
+// resumeRefusal is the --resume-on-reset pre-flight, in two halves. The
+// harness table says which harness leaves a plan-limit death this launcher
+// can read and resume; checked first, so a wrong harness is named as such.
+// Then the provider: internal/planlimit says whose 429 text carries a reset
+// time it can read (planlimit.HasResetForm). For any other provider every
+// death reads reset_at=unknown and the wait loop stops at once, so the flag
+// would promise a resume it can never make — refused at launch instead
+// (2026-10-09, when openrouter, whose free-tier 429s name no reset, came to
+// claude-code; xai has no reset form either and is refused the same way).
+func resumeRefusal(harnessName, providerName string, on bool) string {
 	if !on {
 		return ""
 	}
-	if h, ok := findHarness(harnessName); ok && h.resumeOnReset {
+	if h, ok := findHarness(harnessName); !ok || !h.resumeOnReset {
+		var where []string
+		for _, h := range harnessTable {
+			if h.resumeOnReset {
+				where = append(where, h.name)
+			}
+		}
+		return fmt.Sprintf("outsource: --resume-on-reset works on the %s harness only — harness '%s' leaves no plan-limit death this launcher can read and resume; drop the flag",
+			strings.Join(where, ", "), harnessName)
+	}
+	if planlimit.HasResetForm(providerName) {
 		return ""
 	}
-	var where []string
-	for _, h := range harnessTable {
-		if h.resumeOnReset {
-			where = append(where, h.name)
+	var readable []string
+	for _, p := range providerTable {
+		if planlimit.HasResetForm(p.name) {
+			readable = append(readable, p.name)
 		}
 	}
-	return fmt.Sprintf("outsource: --resume-on-reset works on the %s harness only — harness '%s' leaves no plan-limit death this launcher can read and resume; drop the flag",
-		strings.Join(where, ", "), harnessName)
+	return fmt.Sprintf("outsource: --resume-on-reset is refused for provider '%s' — its rate limits (HTTP 429) carry no reset time this launcher can read, so there is nothing to wait for; it works for: %s; drop the flag",
+		providerName, strings.Join(readable, ", "))
 }
 
 // maxSecondsPerAttemptNote says, at launch, what --max-seconds means next to

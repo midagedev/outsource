@@ -100,6 +100,34 @@ func TestUnparsableResetIsUnknown(t *testing.T) {
 	}
 }
 
+// HasResetForm is the launcher's answer to "can --resume-on-reset wait for
+// this provider", so it must agree with ParseReset: true exactly where a 429
+// text in the provider's form yields a reset. zai has the one row (measured
+// 2026-10-06); xai and openrouter have none — OpenRouter's free-tier 429s
+// ("temporarily rate-limited upstream", 2026-10-09) name no reset at all.
+// FAIL-first: make HasResetForm return true and the xai and openrouter rows
+// fail.
+func TestHasResetFormAgreesWithParseReset(t *testing.T) {
+	const zaiText = "API Error: Request rejected (429) · [1308][Usage limit reached for 5 hour. Your limit will reset at 2026-10-06 16:23:45][x]"
+	for _, c := range []struct {
+		provider string
+		want     bool
+	}{
+		{"zai", true},
+		{"xai", false},
+		{"openrouter", false},
+		{"", false},
+	} {
+		if got := HasResetForm(c.provider); got != c.want {
+			t.Errorf("HasResetForm(%q) = %v, want %v", c.provider, got, c.want)
+		}
+		text, _ := ParseReset(c.provider, zaiText)
+		if (text != "") != c.want {
+			t.Errorf("ParseReset(%q, zai's form) = %q; HasResetForm says %v — the two must agree", c.provider, text, c.want)
+		}
+	}
+}
+
 // error=rate_limit without a recorded status is still the plan limit; a
 // different API error at the end (a 500) is not.
 func TestRateLimitKindAndOtherErrors(t *testing.T) {

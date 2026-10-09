@@ -555,6 +555,53 @@ func TestResumeOnResetRefusesOtherHarnesses(t *testing.T) {
 	}
 }
 
+// The provider half of the --resume-on-reset pre-flight (2026-10-09). A
+// provider whose 429 text carries no reset this launcher can read
+// (planlimit.HasResetForm) would see every death as reset_at=unknown and
+// never resume, so the flag is refused at launch, naming the provider and
+// where it does work. The harness half is checked first and keeps its text.
+// xai is asserted as the derivation gives it: planlimit has no reset form
+// for xai, so it is refused the same way — a change from before, when xai on
+// claude-code took the flag and then never resumed.
+//
+// FAIL-first: drop the HasResetForm check from resumeRefusal and the
+// openrouter and xai rows come back "" (allowed).
+func TestResumeRefusalNamesAProviderWithNoReadableReset(t *testing.T) {
+	if msg := resumeRefusal("claude-code", "zai", true); msg != "" {
+		t.Fatalf("claude-code+zai must be allowed, got: %s", msg)
+	}
+	for _, p := range []string{"openrouter", "xai"} {
+		msg := resumeRefusal("claude-code", p, true)
+		mustContain(t, "refusal for "+p, msg,
+			"--resume-on-reset is refused for provider '"+p+"'",
+			"carry no reset time this launcher can read",
+			"it works for: zai")
+	}
+	// The harness reason wins, whatever the provider.
+	for _, p := range []string{"zai", "openrouter"} {
+		msg := resumeRefusal("crush", p, true)
+		mustContain(t, "crush refusal for "+p, msg, "--resume-on-reset works on the claude-code harness only", "'crush'")
+		mustNotContain(t, "crush refusal for "+p, msg, "refused for provider")
+	}
+	// Off is off.
+	if msg := resumeRefusal("claude-code", "openrouter", false); msg != "" {
+		t.Fatalf("without the flag nothing is refused, got: %s", msg)
+	}
+}
+
+// End to end: refused before the registry records a round.
+func TestResumeOnResetRefusesOpenrouterAtLaunch(t *testing.T) {
+	dir, spec := isolateOpenrouterLaunch(t)
+	rc, errs := launchOpenrouter(t, dir, spec, "--model", "nvidia/nemotron-3-ultra-550b-a55b:free", "--resume-on-reset")
+	if rc != ExitUsage {
+		t.Fatalf("rc = %d, want %d; stderr=%s", rc, ExitUsage, errs)
+	}
+	mustContain(t, "stderr", errs, "--resume-on-reset is refused for provider 'openrouter'")
+	if recs, _ := runs.List(); len(recs) != 0 {
+		t.Fatalf("a refused launch registered %d rounds", len(recs))
+	}
+}
+
 // Item 4: the warning fires under 25 % left and is silent at 25 % and on a
 // failed read. FAIL-first: with `<=` for `<` the 25.0 case prints.
 func TestLaunchWarningThreshold(t *testing.T) {

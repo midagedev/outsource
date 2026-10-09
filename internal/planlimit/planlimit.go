@@ -138,6 +138,17 @@ var resetForms = map[string]resetForm{
 	},
 }
 
+// HasResetForm reports whether this package can read a reset time out of the
+// provider's 429 text — whether resetForms has a row for it. A provider
+// without one still dies of a rate limit, but its reset is always "unknown",
+// so --resume-on-reset would have nothing to wait for; the launcher refuses
+// the flag for it from this answer rather than from a provider list of its
+// own.
+func HasResetForm(provider string) bool {
+	_, ok := resetForms[provider]
+	return ok
+}
+
 // ParseReset finds the reset time in an error text in the provider's form.
 // text is "" when the form does not match (or the provider has no row); at is
 // zero when it matched but did not parse — "unknown", never a guess.

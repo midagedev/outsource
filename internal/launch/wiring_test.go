@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/midagedev/outsource/internal/runs"
 	"github.com/midagedev/outsource/internal/tail"
 )
 
@@ -201,6 +202,116 @@ func TestProviderQualifiersAreUniquePerHarness(t *testing.T) {
 	}
 }
 
+// anthropicHarness is the harness that consumes a provider's url column
+// (ANTHROPIC_BASE_URL) — the subject of the pairing rule.
+const anthropicHarness = "claude-code"
+
+// findHarnessIn is findHarness over a given table, for the same reason as
+// findProviderIn: a violation is shown on a broken COPY.
+func findHarnessIn(harnesses []harness, name string) (harness, bool) {
+	for _, h := range harnesses {
+		if h.name == name {
+			return h, true
+		}
+	}
+	return harness{}, false
+}
+
+// pairingRuleProblems checks the owner's rule (2026-10-09) over given tables:
+// a provider that has a working Anthropic-compatible endpoint runs on the
+// claude-code harness by default; a provider's own CLI harness is for
+// providers that cannot. Two clauses:
+//
+//   - a provider with a non-empty url defaults to claude-code, and the
+//     claude-code harness drives it;
+//   - a provider claude-code does NOT drive carries a pairingNote saying why,
+//     so the reason it cannot is written down where the refusal prints it.
+//
+// Empty means the tables obey the rule.
+func pairingRuleProblems(providers []provider, harnesses []harness) []string {
+	var probs []string
+	cc, ok := findHarnessIn(harnesses, anthropicHarness)
+	if !ok {
+		return []string{"there is no " + anthropicHarness + " harness to run Anthropic-compatible providers on"}
+	}
+	for _, p := range providers {
+		if p.url != "" {
+			if p.defaultHarness != anthropicHarness {
+				probs = append(probs, fmt.Sprintf(
+					"provider %s has an Anthropic-compatible url (%s) but defaults to harness %s, not %s",
+					p.name, p.url, p.defaultHarness, anthropicHarness))
+			}
+			if !cc.drives(p.name) {
+				probs = append(probs, fmt.Sprintf(
+					"provider %s has an Anthropic-compatible url (%s) but the %s harness does not drive it",
+					p.name, p.url, anthropicHarness))
+			}
+		}
+		if !cc.drives(p.name) && strings.TrimSpace(p.pairingNote) == "" {
+			probs = append(probs, fmt.Sprintf(
+				"provider %s is not driven by the %s harness and its pairingNote does not say why",
+				p.name, anthropicHarness))
+		}
+	}
+	return probs
+}
+
+// TestPairingRule is the recurrence gate for the owner's pairing rule: the
+// live tables obey it, and each clause is shown failing on a broken copy.
+//
+// FAIL-first: make pairingRuleProblems return nil and all three fixtures fail
+// with "the checker must flag"; on the live tables, set the openrouter row's
+// defaultHarness back to "opencode" and the live assertion names it.
+func TestPairingRule(t *testing.T) {
+	for _, p := range pairingRuleProblems(providerTable, harnessTable) {
+		t.Errorf("live tables: %s", p)
+	}
+
+	// Fixture 1: a provider with a url defaulted elsewhere — openrouter back
+	// on its pre-2026-10-09 default.
+	providers := append([]provider(nil), providerTable...)
+	for i := range providers {
+		if providers[i].name == "openrouter" {
+			providers[i].defaultHarness = "opencode"
+		}
+	}
+	if probs := strings.Join(pairingRuleProblems(providers, harnessTable), "\n"); !strings.Contains(probs,
+		"provider openrouter has an Anthropic-compatible url (https://openrouter.ai/api) but defaults to harness opencode, not claude-code") {
+		t.Errorf("the checker must flag a url provider defaulted off claude-code, got: %q", probs)
+	}
+
+	// Fixture 2: a provider with a url the claude-code row does not list. A
+	// fresh providers slice, never an element write: the copy's rows share
+	// their slices' backing arrays with the live table.
+	harnesses := append([]harness(nil), harnessTable...)
+	for i := range harnesses {
+		if harnesses[i].name == anthropicHarness {
+			harnesses[i].providers = []string{"zai", "xai"}
+		}
+	}
+	if probs := strings.Join(pairingRuleProblems(providerTable, harnesses), "\n"); !strings.Contains(probs,
+		"provider openrouter has an Anthropic-compatible url (https://openrouter.ai/api) but the claude-code harness does not drive it") {
+		t.Errorf("the checker must flag a url provider claude-code does not drive, got: %q", probs)
+	}
+
+	// Fixture 3: a provider off claude-code that has lost its reason.
+	providers = append([]provider(nil), providerTable...)
+	for i := range providers {
+		if providers[i].name == "zen" {
+			providers[i].pairingNote = " "
+		}
+	}
+	if probs := strings.Join(pairingRuleProblems(providers, harnessTable), "\n"); !strings.Contains(probs,
+		"provider zen is not driven by the claude-code harness and its pairingNote does not say why") {
+		t.Errorf("the checker must flag a provider off claude-code without a reason, got: %q", probs)
+	}
+
+	// The fixtures did not leak into the live tables.
+	if cc, _ := findHarness(anthropicHarness); !cc.drives("openrouter") {
+		t.Fatal("a fixture mutated the live claude-code row")
+	}
+}
+
 // The pairing matrix is derived from one column, so an allowed cell and a
 // refused one cannot disagree. These are the cells that must keep working.
 func TestPairingAllowedCells(t *testing.T) {
@@ -209,6 +320,7 @@ func TestPairingAllowedCells(t *testing.T) {
 		{"crush", "zai"},
 		{"claude-code", "xai"},
 		{"crush", "xai"},
+		{"claude-code", "openrouter"},
 		{"opencode", "openrouter"},
 		{"opencode", "zen"},
 		{"agy", "agy"},
@@ -237,7 +349,21 @@ func TestPairingMatrixRefusals(t *testing.T) {
 	}{
 		{"zai", "opencode", "harness opencode does not drive provider zai"},
 		{"xai", "opencode", "harness opencode does not drive provider xai"},
-		{"openrouter", "claude-code", "harness claude-code does not drive provider openrouter"},
+		// Re-pinned 2026-10-09: the case {"openrouter", "claude-code",
+		// "harness claude-code does not drive provider openrouter"} is gone,
+		// because that pair is now wired. Derivation, measured that day:
+		// POST https://openrouter.ai/api/v1/messages with a tools list
+		// answered HTTP 200 with a tool_use block, and a real `claude -p`
+		// with ANTHROPIC_BASE_URL=https://openrouter.ai/api ran
+		// nvidia/nemotron-3-ultra-550b-a55b:free and
+		// thinkingmachines/inkling:free to rc 0 with the file written. The
+		// owner's rule (2026-10-09) puts a provider with a working
+		// Anthropic-compatible endpoint on claude-code by default, which
+		// TestPairingRule now holds. The old case, run on the new tables,
+		// failed with: stderr "provider openrouter has no default model —
+		// pass --model explicitly.", want substring "harness claude-code does
+		// not drive provider openrouter". crush stays refused: it has not been
+		// measured against OpenRouter.
 		{"openrouter", "crush", "harness crush does not drive provider openrouter"},
 		{"zen", "claude-code", "harness claude-code does not drive provider zen"},
 		{"zen", "crush", "harness crush does not drive provider zen"},
@@ -303,6 +429,14 @@ func TestDefaultHarnessComesFromTheProviderRow(t *testing.T) {
 	// An explicit --harness always wins over the row's default.
 	if got := defaultHarness("openrouter", "crush"); got != "crush" {
 		t.Fatalf("explicit harness must win, got %q", got)
+	}
+	// openrouter by name, both ways (2026-10-09): claude-code when the flag is
+	// absent, opencode — its second harness — when asked for.
+	if got := defaultHarness("openrouter", ""); got != "claude-code" {
+		t.Fatalf("defaultHarness(openrouter) = %q, want claude-code", got)
+	}
+	if got := defaultHarness("openrouter", "opencode"); got != "opencode" {
+		t.Fatalf("defaultHarness(openrouter, --harness opencode) = %q, want opencode", got)
 	}
 	// An unknown provider still resolves to something dispatchable rather than
 	// an empty harness name.
@@ -610,6 +744,21 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 			}
 		}
 	}
+	// openrouter: two cells since 2026-10-09 — claude-code, marked as the
+	// default harness and with no form hint (a bare id there), and opencode,
+	// not the default, with its openrouter/<id> form.
+	orLines := map[string]string{}
+	for _, l := range strings.Split(out, "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "openrouter" {
+			orLines[f[1]] = l
+		}
+	}
+	if l := orLines["claude-code"]; !strings.Contains(l, "default harness") || strings.Contains(l, "--model form") {
+		t.Errorf("the openrouter claude-code line must be the default harness with no form hint: %q", l)
+	}
+	if l := orLines["opencode"]; l == "" || strings.Contains(l, "default harness") || !strings.Contains(l, "--model form openrouter/<id>") {
+		t.Errorf("the openrouter opencode line must carry the openrouter/<id> form and not the default: %q", l)
+	}
 	// Every routable cell must name the model a bare launch would run, because
 	// that is the question the matrix is read to answer.
 	for _, p := range providerTable {
@@ -766,5 +915,225 @@ func TestUnmeasuredContextWindowIsLeftUnset(t *testing.T) {
 		// because they measured grok's window, not because they copied zai's.
 		t.Logf("xai now declares contextWindow=%d; that number must come from a "+
 			"measurement against x.ai, not from zai's row", p.contextWindow)
+	}
+}
+
+// ---- openrouter on claude-code (2026-10-09) ---------------------------------
+
+// isolateOpenrouterLaunch is isolateLaunch plus every path the openrouter
+// pre-flights and the cred row can read, pointed at the test's own dir:
+// opencode's auth store (XDG_DATA_HOME), this skill's store
+// (XDG_CONFIG_HOME) and HOME, with OPENROUTER_API_KEY blank — so no test here
+// reads the real auth.json or a real key. Returns the dir and a spec in it.
+func isolateOpenrouterLaunch(t *testing.T) (dir, spec string) {
+	t.Helper()
+	dir = isolateLaunch(t)
+	for k, v := range map[string]string{
+		"HOME":                filepath.Join(dir, "home"),
+		"XDG_DATA_HOME":       filepath.Join(dir, "data"),
+		"XDG_CONFIG_HOME":     filepath.Join(dir, "config"),
+		"OPENROUTER_API_KEY":  "",
+		"OPENROUTER_BASE_URL": "", "OUTSOURCE_OPENROUTER_BASE_URL": "",
+		"OUTSOURCE_PROVIDER": "",
+		"OUTSOURCE_HARNESS":  "",
+	} {
+		t.Setenv(k, v)
+	}
+	spec = filepath.Join(dir, "spec.md")
+	if err := os.WriteFile(spec, []byte("do a thing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, spec
+}
+
+// writeOpencodeAuth writes (body != "") or removes (body == "") the test's
+// opencode auth store.
+func writeOpencodeAuth(t *testing.T, dir, body string) {
+	t.Helper()
+	p := filepath.Join(dir, "data", "opencode", "auth.json")
+	if body == "" {
+		_ = os.Remove(p)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// launchOpenrouter runs a --detach launch for provider openrouter. On the
+// isolated PATH no harness CLI exists, so a launch that passes every
+// pre-flight stops at the detach PATH lookup with exit 69 — never a round.
+func launchOpenrouter(t *testing.T, dir, spec string, extra ...string) (int, string) {
+	t.Helper()
+	args := append([]string{"--detach", "--cwd", dir, "--spec", spec, "--log", filepath.Join(dir, "l"),
+		"--config-dir", filepath.Join(dir, "cfg"), "--provider", "openrouter", "--label", "or-test"}, extra...)
+	var errb bytes.Buffer
+	rc := OutsourceMain(args, &bytes.Buffer{}, &errb)
+	return rc, errb.String()
+}
+
+// Contract 3 and desired 3, end to end. On claude-code (the default) a bare
+// OpenRouter id — slash and colon included — passes every pre-flight, and a
+// user whose only key is OPENROUTER_API_KEY is not refused for an opencode
+// auth store that lacks openrouter. On opencode the same bare id is refused
+// for its form, the qualified one passes, and the auth-store gate still fires
+// there. The rc is the evidence: 69 means the launch reached the detach PATH
+// lookup, i.e. every check before it passed.
+//
+// FAIL-first: with opencodeCredsMissing ignoring the harness, the claude-code
+// launch exits 1 ("no OpenRouter credentials in opencode's auth store").
+func TestOpenrouterPreflightsPerHarness(t *testing.T) {
+	const bare = "nvidia/nemotron-3-ultra-550b-a55b:free"
+	dir, spec := isolateOpenrouterLaunch(t)
+
+	writeOpencodeAuth(t, dir, `{}`)
+	t.Setenv("OPENROUTER_API_KEY", "test-key-not-a-real-credential")
+	rc, errs := launchOpenrouter(t, dir, spec, "--model", bare)
+	if rc != ExitHarnessMissing || !strings.Contains(errs, "harness claude-code needs the 'claude' CLI on PATH") {
+		t.Fatalf("claude-code, bare id: rc=%d, want %d at the PATH lookup; stderr=%s", rc, ExitHarnessMissing, errs)
+	}
+	if strings.Contains(errs, "no OpenRouter credentials") || strings.Contains(errs, "this round runs") {
+		t.Fatalf("claude-code, bare id: refused for opencode's store, or rewritten: %s", errs)
+	}
+
+	// opencode, with no auth store at all (the gate fails open), so the form
+	// rule is what decides.
+	writeOpencodeAuth(t, dir, "")
+	rc, errs = launchOpenrouter(t, dir, spec, "--harness", "opencode", "--model", bare)
+	if rc != ExitUsage || !strings.Contains(errs, "--model must be openrouter/<id> for provider openrouter on the opencode harness, got: "+bare) {
+		t.Fatalf("opencode, bare id: rc=%d, want %d with the form refusal; stderr=%s", rc, ExitUsage, errs)
+	}
+	rc, errs = launchOpenrouter(t, dir, spec, "--harness", "opencode", "--model", "openrouter/"+bare)
+	if rc != ExitHarnessMissing || !strings.Contains(errs, "harness opencode needs the 'opencode' CLI on PATH") {
+		t.Fatalf("opencode, qualified id: rc=%d, want %d; stderr=%s", rc, ExitHarnessMissing, errs)
+	}
+	// The opencode gate still fires on its own harness.
+	writeOpencodeAuth(t, dir, `{}`)
+	rc, errs = launchOpenrouter(t, dir, spec, "--harness", "opencode", "--model", "openrouter/"+bare)
+	if rc != ExitNoCredential || !strings.Contains(errs, "no OpenRouter credentials in opencode's auth store") {
+		t.Fatalf("opencode, store without openrouter: rc=%d, want %d; stderr=%s", rc, ExitNoCredential, errs)
+	}
+
+	// The table half of the same fact.
+	openrouter, _ := findProvider("openrouter")
+	if cc, _ := findHarness("claude-code"); cc.modelForm != nil {
+		t.Fatal("claude-code must keep no modelForm: a bare id is its form for every provider it drives")
+	}
+	oc, _ := findHarness("opencode")
+	if _, ok := oc.modelForm(bare, openrouter); ok {
+		t.Fatal("opencode must refuse a bare openrouter id")
+	}
+	if _, ok := oc.modelForm("openrouter/"+bare, openrouter); !ok {
+		t.Fatal("opencode must accept openrouter/<vendor>/<id>")
+	}
+}
+
+// Contract 2: the new default does not give openrouter a model. A bare
+// `--provider openrouter` is still exit 64 asking for --model — now on
+// claude-code, whose refusal carries no form hint (a bare id is its form).
+func TestBareOpenrouterStillAsksForAModel(t *testing.T) {
+	dir, spec := isolateOpenrouterLaunch(t)
+	rc, errs := launchOpenrouter(t, dir, spec)
+	if rc != ExitUsage || !strings.Contains(errs, "provider openrouter has no default model — pass --model explicitly.") {
+		t.Fatalf("rc=%d, want %d asking for --model; stderr=%s", rc, ExitUsage, errs)
+	}
+}
+
+// normalizeModel, cell by cell (desired 6). FAIL-first: make it return the
+// model unchanged and the two rewrite rows fail; drop the segment test and
+// openrouter/auto is mangled to "auto".
+func TestNormalizeModel(t *testing.T) {
+	get := func(name string) provider {
+		p, ok := findProvider(name)
+		if !ok {
+			t.Fatalf("provider %s is gone", name)
+		}
+		return p
+	}
+	for _, c := range []struct {
+		provider, harness, model, want string
+	}{
+		// The 0.20.0 form on the new default: rewritten.
+		{"openrouter", "claude-code", "openrouter/z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash"},
+		{"openrouter", "claude-code", "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-ultra-550b-a55b:free"},
+		// OpenRouter's own two-segment ids, written with the qualifier.
+		{"openrouter", "claude-code", "openrouter/openrouter/auto", "openrouter/auto"},
+		// Real two-segment ids: left alone.
+		{"openrouter", "claude-code", "openrouter/auto", "openrouter/auto"},
+		{"openrouter", "claude-code", "openrouter/free", "openrouter/free"},
+		{"openrouter", "claude-code", "nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-ultra-550b-a55b:free"},
+		{"openrouter", "claude-code", "openrouter//x", "openrouter//x"},
+		{"openrouter", "claude-code", "", ""},
+		// On opencode the qualified form is the required one.
+		{"openrouter", "opencode", "openrouter/z-ai/glm-5.3-flash", "openrouter/z-ai/glm-5.3-flash"},
+		// Every other provider, on every harness it runs on: untouched.
+		{"zai", "claude-code", "glm-5.3", "glm-5.3"},
+		{"zai", "claude-code", "zai/glm-5.3", "zai/glm-5.3"},
+		{"zai", "claude-code", "zai/x/y", "zai/x/y"},
+		{"zai", "crush", "zai/glm-5.3", "zai/glm-5.3"},
+		{"xai", "claude-code", "grok-4.6", "grok-4.6"},
+		{"xai", "crush", "xai/grok-4.6", "xai/grok-4.6"},
+		{"zen", "opencode", "opencode/step-5-preview-free", "opencode/step-5-preview-free"},
+	} {
+		got, note := normalizeModel(get(c.provider), c.harness, c.model)
+		if got != c.want {
+			t.Errorf("normalizeModel(%s, %s, %q) = %q, want %q", c.provider, c.harness, c.model, got, c.want)
+		}
+		if changed := got != c.model; changed != (note != "") {
+			t.Errorf("normalizeModel(%s, %s, %q): changed=%v but note=%q — a rewrite always says so, and only a rewrite does", c.provider, c.harness, c.model, changed, note)
+		}
+		if note != "" && (!strings.Contains(note, c.model) || !strings.Contains(note, "--model "+c.want)) {
+			t.Errorf("the note must name both ids, got: %s", note)
+		}
+	}
+}
+
+// The rewrite is wired into the launch, not only the helper: on claude-code
+// the note is printed before the --detach re-exec (exit 69 here, no CLI), and
+// the same arguments on opencode print none. FAIL-first: delete the
+// normalizeModel call in OutsourceMain and the claude-code half fails.
+func TestNormalizeModelIsWiredIntoTheLaunch(t *testing.T) {
+	dir, spec := isolateOpenrouterLaunch(t)
+	rc, errs := launchOpenrouter(t, dir, spec, "--model", "openrouter/z-ai/glm-5.3-flash")
+	if rc != ExitHarnessMissing {
+		t.Fatalf("claude-code: rc=%d, want %d; stderr=%s", rc, ExitHarnessMissing, errs)
+	}
+	if !strings.Contains(errs, "outsource: --model openrouter/z-ai/glm-5.3-flash is the opencode harness's form; on the claude-code harness OpenRouter takes the bare id, so this round runs --model z-ai/glm-5.3-flash") {
+		t.Fatalf("claude-code: the rewrite note is missing: %s", errs)
+	}
+	rc, errs = launchOpenrouter(t, dir, spec, "--harness", "opencode", "--model", "openrouter/z-ai/glm-5.3-flash")
+	if rc != ExitHarnessMissing || strings.Contains(errs, "this round runs") {
+		t.Fatalf("opencode: rc=%d (want %d) and no rewrite note; stderr=%s", rc, ExitHarnessMissing, errs)
+	}
+}
+
+// The normalized id is the round's id everywhere downstream: the registry
+// record, the sentinel's model_requested and the identity assertion. Run on
+// the plan-limit rig's fake claude, which answers as glm-5.3 — not
+// z-ai/glm-5.3 — so the assertion fails (70), and its message names the id it
+// compared: the normalized one.
+func TestNormalizedModelIsWhatTheRoundRecords(t *testing.T) {
+	g := newQuotaRig(t, "ok")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("OUTSOURCE_PROVIDER", "openrouter")
+	t.Setenv("OPENROUTER_API_KEY", "test-key-not-a-real-credential")
+	t.Setenv("OPENROUTER_BASE_URL", "")
+	t.Setenv("OUTSOURCE_OPENROUTER_BASE_URL", "")
+	rc, _, errb := g.launch("--model", "openrouter/z-ai/glm-5.3")
+	if rc != ExitModelIdentity {
+		t.Fatalf("rc=%d, want %d (the fake answers as glm-5.3); stderr:\n%s", rc, ExitModelIdentity, errb)
+	}
+	mustContain(t, "stderr", errb, "so this round runs --model z-ai/glm-5.3", "requested 'z-ai/glm-5.3'")
+	mustNotContain(t, "stderr", errb, "requested 'openrouter/z-ai/glm-5.3'")
+	mustContain(t, "sentinel", g.sentinel(), "harness=claude-code\n", "provider=openrouter\n", "model_requested=z-ai/glm-5.3\n")
+	rec := runs.FindByLog(g.log)
+	if rec == nil || rec.Model != "z-ai/glm-5.3" {
+		t.Fatalf("the registry must record the normalized id, got %+v", rec)
 	}
 }

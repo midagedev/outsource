@@ -213,10 +213,14 @@ func TestRequestedModelIDKeepsInnerSlash(t *testing.T) {
 
 // The credential preflight's seam is openrouter-only by measurement: a free
 // Zen id answered rc=0 with no Zen key stored (2026-10-09), so gating zen on
-// openrouterCredsPositivelyAbsent would refuse rounds that run.
+// openrouterCredsPositivelyAbsent would refuse rounds that run. And it is
+// opencode-only: on claude-code (openrouter's default since 2026-10-09) the
+// key resolves through internal/cred, so opencode's auth store lacking
+// openrouter says nothing about whether that round can run.
 //
 // FAIL-first: drop the p.name == "openrouter" gate from opencodeCredsMissing
-// and the zen half of this fails.
+// and the zen half of this fails; drop the harnessName == "opencode" gate and
+// the claude-code half fails.
 func TestOpencodeCredsMissingGatesOpenRouterOnly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dir)
@@ -235,16 +239,19 @@ func TestOpencodeCredsMissingGatesOpenRouterOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(oc, "auth.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !opencodeCredsMissing(openrouter) {
-		t.Fatal("a parseable auth.json without openrouter must gate openrouter")
+	if !opencodeCredsMissing(openrouter, "opencode") {
+		t.Fatal("a parseable auth.json without openrouter must gate openrouter on the opencode harness")
 	}
-	if opencodeCredsMissing(zen) {
+	if opencodeCredsMissing(openrouter, "claude-code") {
+		t.Fatal("openrouter on claude-code must not be gated on opencode's auth store: its key resolves through internal/cred")
+	}
+	if opencodeCredsMissing(zen, "opencode") {
 		t.Fatal("zen must not be gated: free ids measured to run with no Zen key (2026-10-09)")
 	}
 	if err := os.WriteFile(filepath.Join(oc, "auth.json"), []byte(`{"openrouter":{"type":"api","key":"sk-or-x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if opencodeCredsMissing(openrouter) || opencodeCredsMissing(zen) {
+	if opencodeCredsMissing(openrouter, "opencode") || opencodeCredsMissing(zen, "opencode") {
 		t.Fatal("a present openrouter key ungates both providers")
 	}
 }

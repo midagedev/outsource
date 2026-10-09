@@ -236,6 +236,16 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitModelIdentity
 	}
 	o.harness = defaultHarness(p.name, o.harness)
+	// A --model form that belongs to another harness of the same provider
+	// (openrouter/<vendor>/<id> arriving on claude-code, the 0.20.0 docs'
+	// form): rewritten here, before every check that reads o.model and before
+	// the --detach re-exec, so the registry, the sentinel and the identity
+	// assertion all carry the id the round really runs. normalizeModel owns
+	// which pairs this applies to.
+	if m, note := normalizeModel(p, o.harness, o.model); note != "" {
+		o.model = m
+		fmt.Fprintln(stderr, note)
+	}
 	// Validated here, not only at the dispatch below, so a usage error is caught
 	// before the run registry records a round that was never going to launch.
 	h, ok := findHarness(o.harness)
@@ -251,7 +261,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, msg)
 		return ExitUsage
 	}
-	if msg := resumeRefusal(o.harness, o.resumeOnReset); msg != "" {
+	if msg := resumeRefusal(o.harness, p.name, o.resumeOnReset); msg != "" {
 		fmt.Fprintln(stderr, msg)
 		return ExitUsage
 	}
@@ -354,10 +364,12 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 
 	// Fail before registering only when we can positively see that openrouter
 	// is missing from opencode's auth.json — opencodeCredsMissing owns which
-	// providers this gates (zen is exempt: free ids measured to run with no
-	// Zen key, 2026-10-09). A missing file is not proof — newer opencode also
-	// keeps credentials in opencode.db, which this binary does not open.
-	if opencodeCredsMissing(p) {
+	// rounds this gates: openrouter on the opencode harness only (on
+	// claude-code the key resolves through internal/cred; zen is exempt: free
+	// ids measured to run with no Zen key, 2026-10-09). A missing file is not
+	// proof — newer opencode also keeps credentials in opencode.db, which this
+	// binary does not open.
+	if opencodeCredsMissing(p, o.harness) {
 		fmt.Fprintln(stderr, "outsource: no OpenRouter credentials in opencode's auth store; run `opencode auth login` then retry")
 		return ExitNoCredential
 	}

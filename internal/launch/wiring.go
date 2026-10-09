@@ -37,13 +37,14 @@ import (
 
 // provider is one account/endpoint the launcher can route a round to.
 //
-// Credentials for zai/xai live in internal/cred (env var first, then this
-// skill's 0600 store, then discovery of files another tool already wrote).
-// openrouter does not: opencode owns its own auth store
-// (~/.local/share/opencode/auth.json), and a cred row would be a second
-// owner of a secret this launcher never touches. agy likewise: the Google
-// Antigravity CLI is provider and harness in one, and auth lives in the
-// Google plan.
+// Credentials for zai, xai and openrouter live in internal/cred (env var
+// first, then this skill's 0600 store, then read-only discovery of files
+// another tool already wrote — for openrouter, opencode's own auth store).
+// The opencode harness still resolves openrouter's key through opencode
+// itself; the cred row is what the claude-code harness reads. zen, muse and
+// agy have none: their CLIs own their auth — opencode's own store, muse's
+// OAuth device flow, and for agy, the Google Antigravity CLI being provider
+// and harness in one, the Google plan.
 //
 // url is the provider's DEFAULT endpoint; cred.Base may point it at the same
 // account's other region (z.ai's coding plan ships on api.z.ai globally and
@@ -53,7 +54,8 @@ import (
 // zai points at https://api.z.ai/api/coding/paas/v4, not the
 // Anthropic-compatible URL, so forcing this column into `provider add` would
 // break the working zai path. opencode and agy resolve endpoints themselves,
-// so their url is empty for the same reason.
+// so a provider that runs only there has an empty url for the same reason;
+// openrouter's url is read only when it runs on claude-code.
 type provider struct {
 	name string
 	url  string
@@ -160,15 +162,49 @@ var providerTable = []provider{
 		// free, and a pay-per-token default nobody asked for is the one thing
 		// this column must not be. So the field goes back to empty and
 		// requiredModelError resumes asking the caller for an id.
-		defaultHarness: "opencode",
+		//
+		// claude-code by default, since 2026-10-09: the owner's rule is that a
+		// provider with a working Anthropic-compatible endpoint runs on the
+		// claude-code harness, and OpenRouter has one. Measured that day:
+		// POST https://openrouter.ai/api/v1/messages (Anthropic Messages
+		// format, a Bearer OpenRouter key, anthropic-version 2023-06-01) with a
+		// tools list and nvidia/nemotron-3-ultra-550b-a55b:free answered HTTP
+		// 200, stop_reason tool_use, with a tool_use block; and a real
+		// `claude -p --permission-mode bypassPermissions --output-format json`
+		// with ANTHROPIC_BASE_URL=https://openrouter.ai/api, the key as
+		// ANTHROPIC_AUTH_TOKEN, ANTHROPIC_MODEL=<id> and an isolated
+		// CLAUDE_CONFIG_DIR, asked to create a file, ran
+		// nvidia/nemotron-3-ultra-550b-a55b:free and thinkingmachines/inkling:free
+		// to rc 0, is_error false, the file written, and modelUsage keyed by
+		// exactly the requested id. (inkling:free answers a raw API call with
+		// 403 "only available on agentic harnesses"; through the CLI it works.)
+		// The CLI printed [claude-code:unrecognized_model] on stderr: it does
+		// not know these ids, which is expected. max_tokens 64000 — what this
+		// launcher sets through CLAUDE_CODE_MAX_OUTPUT_TOKENS — against
+		// poolside/laguna-xs-2.1:free, whose listed output limit is 32768,
+		// answered 200 end_turn: OpenRouter clamps rather than refuses. A free
+		// id can be rate-limited upstream (google/gemma-4-31b-it:free answered
+		// 429 "temporarily rate-limited upstream"); those 429s carry no reset
+		// time, which is why --resume-on-reset is refused for this provider
+		// (planlimit.HasResetForm).
+		//
+		// The --model form differs per harness, and both stay valid: the bare
+		// id on claude-code (nvidia/nemotron-3-ultra-550b-a55b:free), and
+		// openrouter/<vendor>/<id> on opencode. The 0.20.0 form arriving on
+		// claude-code is normalized by normalizeModel.
+		url:            "https://openrouter.ai/api",
+		defaultHarness: "claude-code",
 		// unlistedVision is true for the deferring reason rather than a
 		// claim: OpenRouter is a catalogue, the caller names the id per round,
 		// and this launcher keeps no capability table for ids it has not
 		// probed. The guard's question is only "do pixels reach the model",
-		// and on this harness the answer is measured yes — two shape probes
-		// through opencode's read tool on the slot's last occupant, both
-		// correct (a drawn "4", a drawn "T"). The harness carries pixels; which
-		// id reads them is the caller's choice, now more literally than before.
+		// and on the opencode harness the answer is measured yes — two shape
+		// probes through opencode's read tool on the slot's last occupant,
+		// both correct (a drawn "4", a drawn "T"). The harness carries pixels;
+		// which id reads them is the caller's choice, now more literally than
+		// before. That evidence is the opencode harness's only: no image has
+		// been probed through the claude-code harness's Read tool on an
+		// OpenRouter id, so on claude-code this pass is unmeasured.
 		//
 		// What is NOT safe to infer from that pass: colour. The same two
 		// rounds read a uniform #1E50DC as "#560000, dark maroon-red" and a
@@ -178,7 +214,11 @@ var providerTable = []provider{
 		// former must not be read as certifying the latter. references/
 		// opencode.md carries this where a spec author will meet it.
 		unlistedVision: true,
-		pairingNote:    "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
+		// 0: ids differ per round, and none has been measured here, so the
+		// CLI's own unknown-model ceiling applies until a per-id number exists
+		// (a modelTable row's contextWindow would override this for that id).
+		contextWindow: 0,
+		pairingNote:   "crush has not been measured against OpenRouter; claude-code and opencode are",
 	},
 	{
 		name:      "zen",
@@ -225,7 +265,13 @@ var providerTable = []provider{
 		// the claude-code harness only and zen never runs there; 0 leaves the
 		// opencode CLI's own limit untouched.
 		contextWindow: 0,
-		pairingNote:   "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for zen",
+		// Not on claude-code, by measurement (2026-10-09): POST
+		// https://opencode.ai/zen/v1/messages answered 403
+		// {"type":"FreeTierError","message":"OpenCode's free tier can only be
+		// used from within OpenCode"} for the user agents curl/8.7.1,
+		// opencode/1.18.21 and claude-cli/…, so the endpoint exists but the
+		// free tier serves no client but opencode.
+		pairingNote: "OpenCode Zen's free tier refuses every client but opencode (measured 2026-10-09: FreeTierError from /zen/v1/messages)",
 	},
 	{
 		name: "muse",
@@ -243,7 +289,7 @@ var providerTable = []provider{
 		// measured vision level in modelTable; any other muse id keeps the
 		// pass this row has always given.
 		unlistedVision: true,
-		pairingNote:    "the muse CLI owns its own OAuth credentials and resolves its endpoint itself, so there is no Anthropic-compatible URL and no cred row for muse",
+		pairingNote:    "its Anthropic-compatible endpoint answered an API key with billing_error while the muse CLI's own OAuth session ran (measured 2026-09-18)",
 	},
 	{
 		name: "agy",
@@ -583,9 +629,12 @@ type harness struct {
 
 var harnessTable = []harness{
 	{
-		name:      "claude-code",
-		bin:       "claude",
-		providers: []string{"zai", "xai"},
+		name: "claude-code",
+		bin:  "claude",
+		// Every provider with a url (an Anthropic-compatible endpoint) is
+		// here and defaults here — the pairing rule TestPairingRule holds.
+		// openrouter joined 2026-10-09 (measured; see its provider row).
+		providers: []string{"zai", "xai", "openrouter"},
 		// The harness writes into projects/**.jsonl every turn.
 		progress: func(o opts) string { return filepath.Join(o.configDir, "claude", "projects") },
 		// Which of those .jsonl files is THIS round's is reported by the round
@@ -722,6 +771,37 @@ func defaultHarness(providerName, harnessName string) string {
 		return p.defaultHarness
 	}
 	return "claude-code"
+}
+
+// normalizeModel is the one owner of a --model rewrite that belongs to a
+// (provider, harness) pair rather than to either alone. It returns the model
+// to run and, when it changed it, the one stderr line that says so.
+//
+// The only rewrite: openrouter on claude-code. The 0.20.0 docs taught
+// `--provider openrouter --model openrouter/<vendor>/<id>` with no --harness,
+// which was the opencode harness's form; since openrouter defaults to
+// claude-code that command lands there, and ANTHROPIC_MODEL=openrouter/z-ai/…
+// names no model OpenRouter knows — a --detach round would die with no
+// terminal to say why. So the qualifier is stripped when what follows it has
+// at least two segments of its own (<vendor>/<id>). A two-segment id such as
+// openrouter/auto or openrouter/free is a real OpenRouter id and stays as
+// written; on opencode the qualified form is the required one and stays too.
+// Called right after the harness is resolved, so the registry, the sentinel
+// and the identity assertion all see the normalized id.
+func normalizeModel(p provider, harnessName, model string) (string, string) {
+	if p.name != "openrouter" || harnessName != "claude-code" {
+		return model, ""
+	}
+	rest, ok := strings.CutPrefix(model, qualifierOf(p)+"/")
+	if !ok {
+		return model, ""
+	}
+	vendor, id, ok := strings.Cut(rest, "/")
+	if !ok || vendor == "" || id == "" {
+		return model, ""
+	}
+	return rest, fmt.Sprintf("outsource: --model %s is the opencode harness's form; on the claude-code harness OpenRouter takes the bare id, so this round runs --model %s",
+		model, rest)
 }
 
 // pairingRefusal is the one-line reason a (harness, provider) pair is not

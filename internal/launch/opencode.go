@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/telemetry"
 )
 
@@ -386,16 +387,12 @@ func environWithout(keys ...string) []string {
 	return out
 }
 
+// openrouterAuthPath is opencode's auth store. internal/cred owns where that
+// file is — its openrouter row reads the same file, read only, for the
+// claude-code harness — so this pre-flight asks it rather than keeping a
+// second copy of the XDG rule that could drift from the first.
 func openrouterAuthPath() string {
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(base, "opencode", "auth.json")
+	return cred.OpencodeAuthPath()
 }
 
 // openrouterCredsPositivelyAbsent is true only when auth.json exists, parses,
@@ -427,14 +424,24 @@ func openrouterCredsPositivelyAbsent() bool {
 	return strings.TrimSpace(e.Key) == ""
 }
 
-// opencodeCredsMissing is the credential preflight's seam: which providers
-// the "no credentials" refusal gates. openrouter only — zen is exempt by
-// measurement (2026-10-09): a free Zen id (opencode/step-5-preview-free)
-// answered rc=0 while opencode's auth.json held only an openrouter key, so
-// free Zen ids need no Zen login and gating them would refuse rounds that
-// run. A priced Zen id may need one; re-measure before widening this.
-func opencodeCredsMissing(p provider) bool {
-	return p.name == "openrouter" && openrouterCredsPositivelyAbsent()
+// opencodeCredsMissing is the credential preflight's seam: which rounds the
+// "no credentials in opencode's auth store" refusal gates. openrouter on the
+// opencode harness only.
+//
+// Not on claude-code: there the key resolves through internal/cred (the
+// environment, the skill's store, then this same auth store read only), and
+// the harness explains a miss itself (cred.KeyOrExplain). A user with only
+// OPENROUTER_API_KEY set and an auth.json without openrouter must not be
+// refused for a file that round never reads (2026-10-09, when openrouter
+// moved to claude-code by default).
+//
+// Not zen — exempt by measurement (2026-10-09): a free Zen id
+// (opencode/step-5-preview-free) answered rc=0 while opencode's auth.json
+// held only an openrouter key, so free Zen ids need no Zen login and gating
+// them would refuse rounds that run. A priced Zen id may need one;
+// re-measure before widening this.
+func opencodeCredsMissing(p provider, harnessName string) bool {
+	return p.name == "openrouter" && harnessName == "opencode" && openrouterCredsPositivelyAbsent()
 }
 
 func firstSessionID(logPath string) string {
