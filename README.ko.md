@@ -20,7 +20,7 @@
 | **step-5-preview-free** — OpenCode Zen, 한시 무료 | zen · `opencode` CLI | **비용도 로그인도 없는** 프로세스 계열, 컨텍스트 1M. 형태와 색 계열은 봅니다(실측: `7`과 `L`은 정답, `#1E50DC`를 `#3A5BF0`으로) | **빌린 자리**입니다. 무료 기간은 OpenCode가 끝낼 때 끝납니다(2026-10-09 공지는 일주일). 이미지를 열지도 않고 글리프 프로브에 답한 적이 한 번 있습니다 — 로그에 그 파일의 `read` 호출이 있을 때만 판정으로 칩니다 |
 | **grok-4.6** | `grok` CLI; xai · Claude Code나 crush로도 | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
 | **muse-spark-1.3-contributor** — Muse Code | muse · `muse` CLI | 별도 계정의 네 번째 프로세스 계열 — **262k 컨텍스트**에 추론 강도 노브(`--effort` → `--reasoning-effort`)가 있고, **형태와 색 계열은 봅니다**(실측: 그려 넣은 `H`를 `H`로, `#1E50DC` 단색을 "blue"로) | 이 CLI에는 훅도, 정의할 수 있는 권한 프로파일도 없어서 **가드 없는 라운드는 실제로 커밋합니다**(실측). 그래서 git 가드는 라운드 `PATH` 맨 앞의 `git` shim이고 exit 97로 거부합니다. 절대경로로 부르는 호출은 여전히 빠져나갑니다 |
-| **OpenRouter의 아무 id** — 기본값 없음, 직접 지정 | openrouter · `opencode` CLI, `--model openrouter/<vendor>/<id>` | 플랜 헤드룸이 바닥났을 때의 프로세스 계열 | 맨 `--provider openrouter`는 exit 64입니다. 무료 stealth id는 빌린 자리여서, 2026년 9월에만 두 개가 제공을 멈췄습니다. 마지막 stealth id는 **형태는 봤지만 색은 못 봤습니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서) |
+| **OpenRouter의 아무 id** — 직접 지정, 설정의 기본값, 또는 `--model free` | openrouter · 헤드리스 Claude Code(`claude -p`, 기본값, bare id `vendor/id`) 또는 `opencode` CLI(`--model openrouter/<vendor>/<id>`) | 플랜 헤드룸이 바닥났을 때의 프로세스 계열. `--model free`는 지금 카탈로그에서 무료이면서 도구 호출이 되는 id를 골라 줍니다([무료 모델](#무료-모델)) | 테이블 기본값이 없습니다. id를 지정하거나, 설정에 기본값을 두거나([내 기본값](#내-기본값)), `free`를 쓰십시오. 무료 id는 주 단위로 바뀌고, 대부분 프롬프트를 학습에 씁니다. OpenRouter는 `:free` id를 분당 20회, 하루 50회(누적 10크레딧 이상 구매한 계정은 1,000회)로 제한합니다([한도 문서](https://openrouter.ai/docs/api-reference/limits)). 이 arm의 비전은 opencode에서만 실측했습니다. stealth id는 **형태는 봤지만 색은 못 봤습니다**(파란 단색을 "짙은 적갈색"이라고) |
 
 **프로바이더 — 누구 계정이고, 어떤 조건인가**
 
@@ -31,7 +31,7 @@
 | agy | Antigravity CLI의 Google 로그인 | 불가 | 실명 계정. `~/.gemini` 설정 공유, 트랙별 격리 없음 |
 | muse | Muse Code의 OAuth 세션 — Anthropic 호환 엔드포인트에 API 키로 부르면 `billing_error` | 불가 | 실명 계정 |
 | zen | 무료 id는 필요 없음 | 불가 | **id마다 다릅니다**. step-5-preview-free는 "zero-retention"이고 학습에 쓰지 않는다고 명시합니다. 다른 무료 Zen id는 그렇지 않습니다(무료 기간 동안 데이터로 학습하는 것도 있습니다) |
-| openrouter | `opencode auth login` | 불가 — 토큰당 과금 | id마다 다릅니다. stealth 엔드포인트는 **데이터 정책을 공개하지 않으므로** 사내 코드는 올리지 마십시오 |
+| openrouter | OpenRouter 키: `OPENROUTER_API_KEY`, `bin/setup-key.sh openrouter`, 또는 `opencode auth login`이 이미 저장한 키(읽기만 하고 복사하지 않음) | 불가 — 토큰당 과금, 무료 id는 0원 | **id마다 다릅니다**. `outsource models`가 각 id의 데이터 정책을 보여 줍니다. OpenRouter가 그 id를 보내는 공급자들의 정책을 읽어 계산한 값입니다. `--model free`는 따로 허용하지 않는 한 학습도 보관도 하지 않는 id만 고릅니다 |
 
 **하네스 — 모델을 모는 CLI**
 
@@ -64,7 +64,8 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 - 로그인된 `agy` CLI(Antigravity, Google 플랜)
 - 인증된 `grok` CLI
 - 로그인된 `muse` CLI(Muse Code)
-- OpenRouter용으로 인증된 `opencode` CLI(`opencode auth login`). 기본 id가 없고, 어느 id를 쓰든 계정에 크레딧이 있어야 합니다.
+- OpenRouter 키(OpenRouter의 아무 id용. 무료 id는 0원이고, 유료 id는 계정에 크레딧이 있어야 합니다). 런처는 `OPENROUTER_API_KEY`, 자체 저장소(`bin/setup-key.sh openrouter`), `opencode auth login`이 저장한 위치 순으로 찾습니다
+- `opencode` CLI(OpenCode Zen의 무료 id용. 로그인은 필요 없습니다. OpenRouter를 opencode 하네스로 돌릴 때도 씁니다)
 
 `codex-ci` 사이드카는 별개입니다. `codex` CLI와 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) 키(`CHEAPER_INFERENCE_API_KEY`)가 필요합니다.
 
@@ -140,6 +141,44 @@ Go가 있으면 `install.sh`가 바이너리를 빌드합니다. Go가 없으면
 4. **리드답게 검수합니다** — diff를 직접 읽고, 게이트를 콜드로 재실행하고, 위임 보고서가 실제로 새는 지점들을 체크리스트로 돕니다.
 
 핵심 원칙: **위임받는 쪽은 촘촘한 스펙의 실행자입니다.** 대화 컨텍스트가 없으니 모든 위임은 홀로 서야 하고, 취향 판단은 절대 시키지 않습니다 — 수치 계약만.
+
+### 내 기본값
+
+사용자의 선택은 코드가 아니라 파일 하나에 둡니다. `$OUTSOURCE_CONFIG`, 없으면 `$XDG_CONFIG_HOME/outsource/config.json`, 그것도 없으면 `~/.config/outsource/config.json`입니다. `outsource config`로 고치거나, [패널](#패널-claude-code-mod)에서 `/rounds setup`으로 고칩니다:
+
+```bash
+B=~/.claude/skills/outsource/bin/outsource
+$B config set providers.openrouter.defaultModel z-ai/glm-5.3   # bare id
+$B config set providers.muse.enabled false                     # 이 프로바이더로는 보내지 않음
+$B config set free.allowTraining true                          # 무료 모델 절 참고
+$B config set context.autoCompactWindow 400000
+$B config list                                                 # 설정 여부와 상관없이 모든 키
+$B config path                                                 # 어느 파일을, 왜 읽는지
+```
+
+| 키 | 값 | 효과 |
+|---|---|---|
+| `providers.<p>.defaultModel` | bare id | `--model`이 없을 때 쓸 모델. 우선순위는 `--model`, 프로바이더의 모델 환경변수(zai는 `GLM_DELEGATE_MODEL`), 이 값, 테이블 기본값 순입니다 |
+| `providers.<p>.enabled` | `true` / `false` | `false`면 그 프로바이더의 런치를 전부 거부합니다(exit 64) |
+| `free.allowTraining` | `true` / `false` | `--model free`가 프롬프트를 학습에 쓰거나 보관하는 id도 고를 수 있게 합니다 |
+| `free.denyPaths` | glob 목록(`~`, `**` 사용 가능) | `--cwd`가 여기에 걸리는 라운드는 무료 id를 쓰지 않습니다 |
+| `context.autoCompactWindow` | 토큰 수, 기본 600000 | claude-code 하네스에서 자동 압축 창을 이 값과 모델 컨텍스트 창 중 작은 쪽으로 둡니다 |
+
+`set`은 런처가 거부할 값을 미리 거부하고 고칠 방법을 알려 줍니다. qualifier가 붙은 id(zen의 `opencode/x`), OpenRouter의 라우터 id, 타입이 틀린 값이 그렇습니다. 파싱되지 않는 파일이 있으면 모든 런치를 거부합니다. 읽지 못한 선택을 건너뛰고 라운드를 보내지 않기 위해서입니다. 모르는 키는 그대로 남깁니다.
+
+### 무료 모델
+
+`outsource models`는 카탈로그 프로바이더(OpenRouter와 OpenCode Zen)가 지금 내놓은 id를 보여 줍니다. 컨텍스트, 가격, 도구 호출 지원, 만료일, 그리고 id별 데이터 정책(`no-train-no-retain`, `retains`, `trains`, `unknown`)이 함께 나옵니다. `--free`를 주면 0원인 id만 남깁니다.
+
+`--model free`를 주면 런처가 라운드에 쓸 id를 고릅니다. 후보는 무료이면서 라우터가 아니고, 도구 호출이 되고, 만료되지 않았고, 컨텍스트가 128k 이상이어야 합니다. 학습을 허용하지 않았다면 `no-train-no-retain`이어야 합니다:
+
+```bash
+outsource-run --provider openrouter --model free …              # OpenRouter에서 고름
+outsource-run --provider zen --model free …                     # Zen에서 고름
+outsource models --pick free --provider openrouter              # 무엇을 왜 고를지 미리 보기
+```
+
+고른 id는 한 번 출력되고 센티널에 기록됩니다(`model_selector=free`). detach 라운드도 정확히 그 id로 돕니다. 설정의 기본값이 조건을 통과하면 그것을 먼저 고릅니다. 통과하는 후보가 없으면 필터마다 몇 개를 걸렀는지 세어서 거부합니다. 무료 id는 주 단위로 바뀌고 대부분 프롬프트를 학습에 쓰기 때문에, 정책 필터를 기본으로 켜 둡니다. 한 번의 런치에서만 풀려면 `--allow-free-training`을 주십시오. 이 두 프로바이더에서는 직접 지정한 id도 카탈로그와 대조합니다. 카탈로그에 없는 id, 라우터, 만료된 id, 도구 호출을 지원하지 않는 id는 라운드가 시작되기 전에 거부됩니다. `OUTSOURCE_CATALOG=off`를 주면 카탈로그 통신을 전부 끕니다([OpenRouter](skills/outsource/references/openrouter.md)).
 
 ## 띄워 둔 라운드 보기
 
@@ -278,6 +317,7 @@ Maka 로그에는 위조 탐지가 없어서 그 부분을 조금 더했습니�
   - 그 라운드에 메시지를 보내는 입력칸
 - `/rounds send <label> <text>`는 패널을 열지 않고 보냅니다.
 - `/rounds wake [on|off]`는 모델 깨우기를 켜고 끕니다. 기본은 켜짐이고, `/rounds wake`만 치면 현재 상태를 보여 줍니다. 꺼도 토스트는 그대로 뜹니다.
+- `/rounds setup`은 [내 기본값](#내-기본값)을 다루는 두 번째 패널을 엽니다. 프로바이더마다 켜짐/꺼짐과 기본 모델을 한 줄씩 보여 주고, 고른 프로바이더를 켜고 끄는 버튼과 기본 모델을 정하는 입력란(비우면 해제)이 있습니다. OpenRouter와 Zen에서는 지금 카탈로그에서 무료이면서 도구 호출이 되는 id를 최대 여덟 개까지 골라 쓸 수 있습니다. 읽기와 쓰기는 모두 `outsource config`를 거치므로, 런처가 거부할 값은 여기서도 같은 문구로 거부됩니다. outsource 패널은 한 번에 하나만 열리고, `/rounds setup`을 다시 치면 닫힙니다.
 - `/rounds off`는 패널 전체를 끕니다. 폴링, 밴드, 토스트, 깨우기, 패널 창이 모두 멈추고, 도구 두 개는 오류로 답합니다. `/rounds on`으로 다시 켜며, 꺼져 있던 동안의 변화로는 깨우지 않습니다. 설정은 유지되고 기본은 켜짐입니다. `/rounds wake off`는 모델 깨우기만 끄고 나머지는 그대로 둡니다.
 - 패널을 닫아 두면 프롬프트 위 한 줄에 가장 최근에 움직인 내 라운드가 뜹니다.
 - 내 라운드가 끝나거나, 실패하거나, 조용해지거나, 프로세스를 잃으면 토스트로 알립니다.
@@ -289,7 +329,7 @@ Maka 로그에는 위조 탐지가 없어서 그 부분을 조금 더했습니�
 - **무엇이 들어가나.** 런처가 쓴 값(라벨, 상태, rc, 시간, log, cwd, id)만 들어갑니다. 라운드가 직접 쓴 trail 내용은 넣지 않습니다. 끝에는 검토 명령이 한 줄에 하나씩 붙습니다: last-report, `.rc` 센티널, diff, audit, 그다음 게이트 재실행. `outsource`가 PATH에 없어서 `outsource` 명령은 설치된 바이너리의 절대 경로로 씁니다.
 - **도구.** 모델은 도구 `mcp__outsource__rounds`와 `mcp__outsource__round_send`도 받습니다(패널을 단독으로 불러왔다면 `mcp__outsource-panel__rounds`, `mcp__outsource-panel__round_send`). 이 내용과 도구의 실제 이름을 적은 시스템 프롬프트 단락도 함께 들어갑니다. 깨우기를 끄면 그 단락은 "평소처럼 wait.sh를 걸라"로 바뀝니다.
 
-데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다. "내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id>`, 패널을 `--plugin-dir`로 불러왔다면 같은 옵션도 함께). 전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다. `send`, `wake`, `on`, `off`는 하위 명령으로 먼저 읽힙니다. 라벨이 이 단어인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
+데이터는 전부 `outsource runs json`과 `outsource tail`에서 받고, mod 자신은 아무것도 해석하지 않습니다. "내 라운드"는 그 라운드를 띄운 세션 id로 판정합니다. 그래서 새로 띄운 세션이나 `/clear`를 한 세션에서는 앞서 띄운 라운드가 남의 것으로 보입니다. 내 것으로 보려면 라운드를 띄운 세션을 이어서 여십시오(`claude --resume <id>`, 패널을 `--plugin-dir`로 불러왔다면 같은 옵션도 함께). 전체화면이 아닌 터미널에서는 패널이 프롬프트 위에 인라인으로 뜨고, 내용 전체에 필요한 줄 수만큼 높이를 요청합니다. `send`, `wake`, `on`, `off`, `setup`은 하위 명령으로 먼저 읽힙니다. 라벨이 이 단어인 라운드는 `/rounds`로 패널을 연 뒤 목록에서 고르십시오.
 
 플랜 한도에 걸려 `--resume-on-reset`이 붙잡고 있는 라운드는 `⏸`와 `quota → <hh:mm>`(늦어도 깨어날 시각)로 보입니다. 이 라운드는 살아 있는 라운드로 셉니다. 돌고 있는 라운드와 함께 목록에 나오고, 기다리기 시작할 때는 깨우지 않으며, 마지막에 끝나거나 실패하거나 프로세스를 잃었을 때 깨웁니다. 한도에 걸린 채 끝난 라운드는 `⛔ resets <hh:mm>`로 보이고, 깨우는 줄은 "cut by the plan limit (429), resets hh:mm"입니다.
 
@@ -637,7 +677,7 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 `internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 셋입니다.
 
-**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 어떤 환경변수가 모델을 핀할 수 있는지, CLI가 모델 id 앞에 붙이는 **qualifier**(비어 있으면 프로바이더 이름 그대로이고, zen은 `opencode`), 아무도 실측하지 않은 id에 비전 가드가 내놓을 답, 그리고 컨텍스트 창의 기본값. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter와 zen, agy, muse)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있거나, 무료 Zen id처럼 아예 필요 없습니다.
+**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 어떤 환경변수가 모델을 핀할 수 있는지, CLI가 모델 id 앞에 붙이는 **qualifier**(비어 있으면 프로바이더 이름 그대로이고, zen은 `opencode`), 아무도 실측하지 않은 id에 비전 가드가 내놓을 답, 그리고 컨텍스트 창의 기본값. Anthropic 호환 엔드포인트가 실제로 동작하는 프로바이더(zai, xai, openrouter)는 URL을 갖고, 키를 `bin/credential.sh`로 해석하며, **기본 하네스가 claude-code**입니다. 이 규칙은 테스트가 붙잡고 있고, 다른 하네스를 기본으로 두는 프로바이더는 테이블에 그 이유를 적어야 합니다. 나머지는 자체 CLI와 인증을 가져옵니다. zen의 무료 티어는 opencode 클라이언트에만 답하고(실측: `/v1/messages`가 `FreeTierError`), muse의 엔드포인트는 API 키에 `billing_error`로 답하며, agy는 프로바이더와 하네스가 하나입니다.
 
 **모델** 행은 한 프로바이더의 한 id에 대해 실측한 사실입니다 — 비전 수준(unmeasured, blind, shape, colour-family, exact-hex), 엔드포인트가 그 id에 **다른 모델로 조용히 대답해 버리는지**(그러면 런치에서 거부), 그리고 프로바이더와 다를 때의 컨텍스트 창. 행이 없는 id는 프로바이더의 값을 따릅니다.
 
@@ -653,7 +693,8 @@ zai          claude-code    glm-5.3                      default harness; seeds 
 zai          crush          glm-5.3                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
 xai          claude-code    grok-4.6                     default harness
 xai          crush          grok-4.6                     --model form xai/<id>
-openrouter   opencode       (--model required)           default harness; --model form openrouter/<id>
+openrouter   claude-code    (--model required)           default harness
+openrouter   opencode       (--model required)           --model form openrouter/<id>
 zen          opencode       step-5-preview-free          default harness; --model form opencode/<id>
 muse         muse           muse-spark-1.3-contributor   default harness
 agy          agy            gemini-3.8-flash-high        default harness
@@ -678,10 +719,10 @@ agy          (other ids)                    guard passes   -
 거부 메시지도 같은 테이블에서 나옵니다. 그래서 "여기서는 안 된다"만이 아니라 **어디로 가야 하는지**까지 말합니다:
 
 ```
-$ outsource-run --provider openrouter --harness claude-code …
-harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
-provider openrouter runs on: opencode (opencode owns its own auth store and resolves
-endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+$ outsource-run --provider zen --harness claude-code …
+harness claude-code does not drive provider zen — claude-code drives: zai xai openrouter;
+provider zen runs on: opencode (OpenCode Zen's free tier refuses every client but opencode
+(measured 2026-10-09: FreeTierError from /zen/v1/messages))
 ```
 
 ### 바이너리 검증
