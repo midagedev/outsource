@@ -2,6 +2,91 @@
 
 ## Unreleased
 
+- **OpenRouter runs on the claude-code harness by default.** Its
+  Anthropic-compatible endpoint works (measured: tool calls through
+  `/api/v1/messages`, and a full launcher round on
+  `nvidia/nemotron-3-ultra-550b-a55b:free` — rc 0, identity matched with the
+  `:free` suffix, the git commit blocked by the hook, and the key's spend
+  unchanged), so `--provider openrouter` now takes the bare id
+  (`--model z-ai/glm-5.3`). The 0.20.0 form `openrouter/<vendor>/<id>`
+  arriving on claude-code is rewritten to the bare id with one stderr line.
+  `--harness opencode` still works with the qualified form. The rule is a
+  test now: a provider with a URL defaults to claude-code, and any other
+  default names its reason in the table (zen: its free tier answers only
+  opencode; muse: its endpoint answers an API key with `billing_error`).
+- **An OpenRouter key has three sources**, in order: `OPENROUTER_API_KEY`,
+  the skill's own store (`setup-key.sh openrouter`, verified against
+  OpenRouter's key endpoint, which spends nothing), and the key
+  `opencode auth login` already stored — read, never copied. The base-URL
+  override is `OUTSOURCE_OPENROUTER_BASE_URL`, not `OPENROUTER_BASE_URL`:
+  other tools set that one to the OpenAI-compatible root, and the claude
+  CLI would then call `…/api/v1/v1/messages`. `setup-key.sh` also stopped
+  exiting silently on a rejected key under `set -e`.
+- **`--resume-on-reset` is refused for a provider whose 429 names no reset
+  time** (openrouter, xai): every death there read `reset_at=unknown`, so
+  the flag promised a resume it could never make.
+- **`outsource config` — one file for your own choices.**
+  `$OUTSOURCE_CONFIG`, else `$XDG_CONFIG_HOME/outsource/config.json`, else
+  `~/.config/outsource/config.json`. Keys: `providers.<p>.defaultModel` (a
+  bare id), `providers.<p>.enabled`, `free.allowTraining`,
+  `free.denyPaths`. `outsource config path|list|get|set|unset` reads and
+  writes it, atomically, keeping keys it does not know. Precedence:
+  `--model`, the provider's model env var, the config default, the table
+  default. A disabled provider refuses at exit 64, and a file that does not
+  parse refuses every launch rather than route past a choice it could not
+  read. `--list-wiring` adds one `CONFIG` line per provider the file
+  changes. Tests never read a developer's real file.
+- **`outsource models` — what the catalogue providers offer right now.**
+  OpenRouter's public model list and OpenCode Zen's (through
+  `opencode models`), cached an hour, with context, price, tool support,
+  expiry and a data-policy verdict per id: `no-train-no-retain`, `retains`,
+  `trains`, or `unknown` — never a guess. On OpenRouter the verdict must
+  hold for every provider an id may be routed to: one that trains makes the
+  id `trains`, one the list does not cover makes it `unknown`. `--free` keeps
+  ids priced at exactly zero that are not routers; `--json` is the shape
+  the setup pane reads. No key is ever sent.
+- **`--model free` — the launcher picks a free model from the live
+  catalogue.** On `openrouter` and `zen`. A candidate must be free and not a
+  router, tool-capable, current (not expired, not withdrawn), at least 128k
+  of context, not measured to be answered by another model, and —
+  unless `free.allowTraining` or `--allow-free-training` says otherwise —
+  `no-train-no-retain`. Your configured default wins when it qualifies,
+  then ids with a model row, then the largest context. The parent prints
+  the pick once and hands it to a `--detach` child, which never asks the
+  catalogue again; the sentinel records `model_selector=free`. With nothing
+  left, the refusal counts what each filter dropped.
+  `outsource models --pick free` shows the same pick without launching.
+  Measured on the live catalogue: the strict pick on OpenRouter was
+  `apodex/apodex-1.1-mini:free` (2 candidates), and with training allowed
+  `thinkingmachines/inkling-small:free` (14); on Zen,
+  `step-5-preview-free`.
+- **`free.denyPaths` keeps free ids out of a tree.** A round whose `--cwd`
+  (symlinks resolved) matches a glob refuses `--model free` and any id the
+  catalogue lists as free; when the catalogue cannot say, it refuses rather
+  than guess.
+- **A named id on a catalogue provider is checked before the round.** An
+  id the catalogue does not list (after one refresh), a router, an expired
+  id, or one without tool support refuses at exit 64; a withdrawn one gets
+  a warning. When the catalogue cannot be reached the round launches with a
+  note. `OUTSOURCE_CATALOG=off` turns all catalogue traffic off.
+- **Context window and compaction from the catalogue and your config.** On
+  the claude-code harness `CLAUDE_CODE_MAX_CONTEXT_TOKENS` comes from the
+  model row, else the catalogue's listed context, else the provider's
+  fallback, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is set to the smaller of
+  that window and `context.autoCompactWindow` (default 600000) — so a
+  glm-5.3 round's compaction window drops from 1310720 to 600000. Few
+  models stay coherent near a million tokens. Values you export win.
+- **grok-run honours the config.** `providers.xai.enabled=false` refuses a
+  grok-run launch too, and a config that does not parse refuses it.
+- **`/rounds setup` in the panel.** A second pane over your own choices:
+  one line per provider with on/off and its default model, a button that
+  switches the selected provider, an input that sets or clears its
+  default, and for OpenRouter and Zen up to eight free, tool-capable ids
+  from the live catalogue. It reads and writes only through
+  `outsource config`, so the binary stays the one owner of the file and a
+  refused value shows the CLI's own line. One outsource pane is open at a
+  time.
+
 - **OpenCode Zen as provider `zen`, defaulting to its free Step 5 Preview.**
   `--provider zen` runs `step-5-preview-free` on the opencode harness: no
   login (measured: it answered with only an OpenRouter key in opencode's
