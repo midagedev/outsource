@@ -8,17 +8,44 @@ A Claude Code skill that runs **third-party model CLIs as headless implementatio
 
 It is not a wrapper. It is an operating manual with receipts: every rule in it came from a measured round, and the [comparison below](#the-models) is how the rules were found.
 
-| Backend | Runs via | Use it for | Hard limit |
-|---|---|---|---|
-| **GLM-5.3** — the default | [z.ai coding plan](https://z.ai/subscribe), driven by `bin/outsource-run.sh` on headless Claude Code (`claude -p`, default) or the `crush` CLI | every spec-able round: implementation, gate authoring, code investigation | **blind** — it cannot read images; does not flag a contract it cannot satisfy |
-| **glm-5.3-flash** — same plan, 3× the quota | the same launcher, `--model glm-5.3-flash` | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
-| **grok-4.6** | `grok` CLI | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
-| **gemini-3.8-flash-high** — Google plan | `agy` CLI (Antigravity), via `--provider agy` | spec-able rounds on a **separate quota pool**. Its predecessor 3.7 was the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly); 3.8 is not re-measured yet | exit 0 ≠ success — the launcher reads the result event's `status`; no readable plan quota; shared `~/.gemini` config, no per-track isolation |
-| **muse-spark-1.3-contributor** — Muse Code | the `muse` CLI, via `--provider muse` | a fourth process family on its own account, with a **262k context** and a reasoning-effort knob (`--effort` → `--reasoning-effort`); reads **shape and colour family** (a drawn `H` read back as `H`, a `#1E50DC` fill as "blue") | the CLI has **no hook and no definable permission profile**, so an unguarded round commits — measured. The git guard here is a `git` shim first on the round's `PATH` (refuses with exit 97), which an absolute-path call still gets past. Its Anthropic-compatible endpoint answers an API key with `billing_error`; the CLI's OAuth session is the only way in |
-| **OpenRouter** — **you name the id; there is no default** | `opencode` CLI, via `--provider openrouter --model openrouter/<vendor>/<id>` | a third process family for when both plans are out of headroom | a bare `--provider openrouter` is exit 64. Free stealth ids are borrowed, not owned: two of them stopped serving in September 2026. It reads **shape but not colour** (measured: a blue fill called "dark maroon", an orange one "off-white", both confidently), and a stealth endpoint publishes **no data policy** — so no proprietary work here |
-| **Codex on Cheaper Inference** — a sidecar, not a launcher backend | the `codex` CLI itself, redirected by `bin/codex-ci` at [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) | ad-hoc, hand-supervised rounds in Codex's own harness, paid per token instead of per subscription — `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (default `medium`) pick the arm | **outside the launcher**: no run registry, no git guard, no done-marker, no identity assertion, no quota gate |
+A round is three choices, and they are separate. The **model** does the work. The **provider** is the account it runs on: it decides quota, login, and what happens to your prompts. The **harness** is the CLI that drives the model headlessly: it decides how the git ban is enforced and what you can watch. `outsource-run --list-wiring` prints what is wired today, models included.
 
-Adding or withdrawing an arm is a row in one table, not a refactor ([How an arm is wired](#how-an-arm-is-wired)).
+**Models — what you pick for a round**
+
+| Model | Provider · harness | Use it for | Watch out |
+|---|---|---|---|
+| **GLM-5.3** — the default | zai · headless Claude Code (`claude -p`, default) or the `crush` CLI, on the [z.ai coding plan](https://z.ai/subscribe) | every spec-able round: implementation, gate authoring, code investigation | **blind** — it cannot read images; does not flag a contract it cannot satisfy |
+| **glm-5.3-flash** — same plan, 3× the quota | zai · the same two | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
+| **gemini-3.8-flash-high** — Google plan | agy · the `agy` CLI (Antigravity) | spec-able rounds on a **separate quota pool**. Its predecessor 3.7 was the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly); 3.8 is not re-measured yet | exit 0 ≠ success — the launcher reads the result event's `status` |
+| **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · the `opencode` CLI | a process family at **no cost and no login**, with a 1M context. Reads shape and colour family (`7` and `L` right; `#1E50DC` read as `#3A5BF0`) | **borrowed**: the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Once answered a glyph probe without opening the image — a verdict counts only if the log shows the `read` call |
+| **grok-4.6** | the `grok` CLI; also xai · Claude Code or crush | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
+| **muse-spark-1.3-contributor** — Muse Code | muse · the `muse` CLI | a fourth process family on its own account, with a **262k context** and a reasoning-effort knob (`--effort` → `--reasoning-effort`); reads **shape and colour family** (a drawn `H` read back as `H`, a `#1E50DC` fill as "blue") | the CLI has **no hook and no definable permission profile**, so an unguarded round commits — measured. The git guard here is a `git` shim first on the round's `PATH` (refuses with exit 97), which an absolute-path call still gets past |
+| **any OpenRouter id** — you name it; there is no default | openrouter · the `opencode` CLI, `--model openrouter/<vendor>/<id>` | a process family for when the plans are out of headroom | a bare `--provider openrouter` is exit 64. Free stealth ids are borrowed, not owned: two of them stopped serving in September 2026. The last one read **shape but not colour** (a blue fill called "dark maroon", an orange one "off-white", both confidently) |
+
+**Providers — whose account, whose terms**
+
+| Provider | Login | Plan quota readable | Your prompts |
+|---|---|---|---|
+| zai | z.ai coding-plan key (`bin/credential.sh`) | yes (`bin/quota.sh`) | a named account with stated terms |
+| xai | x.ai key (`bin/credential.sh`) | no | a named account |
+| agy | the Antigravity CLI's Google login | no | a named account; shared `~/.gemini` config, no per-track isolation |
+| muse | Muse Code's OAuth session — its Anthropic-compatible endpoint answers an API key with `billing_error` | no | a named account |
+| zen | none for a free id | no | **per id**: step-5-preview-free is "zero-retention" and not used for training; other free Zen ids are not (one trains on your data during its free period) |
+| openrouter | `opencode auth login` | no — pay per token | per id; a stealth endpoint publishes **no data policy** — so no proprietary work there |
+
+**Harnesses — the CLI that drives it**
+
+| Harness | Git ban | Live trail | `--effort` | Inbox · resume after a 429 | Identity check |
+|---|---|---|---|---|---|
+| claude-code | `PreToolUse` hook (`bin/git-guard.sh`) | session transcript | yes | yes · yes | the transcript's model field |
+| crush | the same hook | `data/logs/crush.log` | no | no · no | none — crush logs no model |
+| opencode | permission deny in its isolated config | `--log` (JSONL) | no | no · no | `opencode export` |
+| agy | deny rules in the shared `~/.gemini` settings | `--log` (stream JSON) | no | no · no | the conversation trajectory db |
+| muse | `git` shim first on `PATH` | `--log` (JSONL) | yes | no · no | `muse` export |
+
+**Codex on Cheaper Inference** is a sidecar, not a launcher arm: the `codex` CLI itself, redirected by `bin/codex-ci` at [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT), for ad-hoc, hand-supervised rounds in Codex's own harness, paid per token instead of per subscription. `CI_MODEL` (default `gpt-5.6-sol`; `gpt-6-astra` costs 7×, `gpt-5.6-luna` ~1/12) and `CI_EFFORT` (default `medium`) pick the arm. It is **outside the launcher**: no run registry, no git guard, no done-marker, no identity assertion, no quota gate.
+
+Adding or withdrawing an arm is a row in one of three tables, not a refactor ([How an arm is wired](#how-an-arm-is-wired)).
 
 A [status line](#status-line) and a [panel](#the-panel-a-claude-code-mod) make delegation legible while it happens — what stops this session, what stops the next round, and what is running right now:
 
@@ -534,7 +561,7 @@ Every row is a mechanism with an exit code, not advice in a document.
 
 | Weakness found | What now stops it |
 |---|---|
-| GLM cannot see images, but a spec might hand it a screenshot | **Vision guard, exit 65** — driven by the provider row's vision column, which is per *model* (the zai default is blind, `glm-5.3-flash` is not), never a provider-name test at the call site. `--no-vision-check` overrides. |
+| GLM cannot see images, but a spec might hand it a screenshot | **Vision guard, exit 65** — driven by the model table's measured vision level, with the provider's answer for unmeasured ids as the fallback (the zai default is blind, `glm-5.3-flash` is not), never a provider-name test at the call site. `--no-vision-check` overrides. |
 | z.ai silently answers an unqualified `claude-*` request as its plan default | **Model-identity assertion, exit 70** — read from the per-turn `message.model` in the session transcript. *Not* from `modelUsage`, which was measured to echo the **requested** id and so can never prove a match. No transcript means "unverifiable", which also fails. |
 | A cheap arm doesn't stop at an unsatisfiable contract | **A lead checklist item, before launch.** The delegate-side rule for this already existed in the preamble and did **not** fire, so it moved to the lead rather than becoming more prose. |
 | Without the preamble, disclosure vanishes | **`references/spec-preamble-core.md`** — the short substitute carrying back exactly the half that vanished, and nothing else. |
@@ -594,25 +621,44 @@ How the pieces fit, for readers who change or audit them.
 
 ### How an arm is wired
 
-`internal/launch/wiring.go` is the single owner of "what can run where", and it is two tables.
+`internal/launch/wiring.go` is the single owner of "what can run where", and it is three tables.
 
-A **provider** is an account and an endpoint: base URL, default model, default harness, which of its models see pixels, which environment variable may pin a model, and which ids the endpoint answers with a *different* model. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter via opencode, agy) carries an empty URL and no credential row — its CLI already logged the user in.
+A **provider** is an account and an endpoint: base URL, default model, default harness, which environment variable may pin a model, the **qualifier** a CLI writes before the model id (empty means the provider's own name; zen's is `opencode`), what the vision guard answers for an id nobody measured, and the context-window fallback. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter and zen via opencode, agy, muse) carries an empty URL and no credential row — its CLI already logged the user in, or, for a free Zen id, needs no login at all.
+
+A **model** row is what was measured about one id on one provider: its vision level (unmeasured, blind, shape, colour-family, exact-hex), whether the endpoint silently answers it with a *different* id (refused at launch), and a context window when it differs from the provider's. An id with no row falls back to the provider.
 
 A **harness** is how a model is driven headlessly: the binary that must be on PATH, the providers it drives, where the round leaves a live trail, the dispatch, and the shape `--model` must take there.
 
-Everything downstream derives from those two — the `--harness` validation, the `--detach` PATH lookup, the progress directory `runs` watches, the dispatch, the pairing refusal, and the `--help` line. A consistency test refuses a half-wired row: a default harness that does not drive its own provider, a harness with no dispatch or no PATH binary, a `--model` form hint with no rule behind it.
+Everything downstream derives from those three — the `--harness` validation, the `--detach` PATH lookup, the progress directory `runs` watches, the dispatch, the pairing refusal, the vision guard, the mapped-model refusal, and the `--help` line. Consistency tests refuse a half-wired row: a default harness that does not drive its own provider, a harness with no dispatch or no PATH binary, a `--model` form hint with no rule behind it, two providers on one harness sharing a qualifier, a model row for an unknown provider, a provider default with no model row.
 
-`outsource-run --list-wiring` prints what the two tables currently route:
+`outsource-run --list-wiring` prints what the tables currently route:
 
 ```
-PROVIDER     HARNESS        DEFAULT MODEL            NOTES
-zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
-zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
-xai          claude-code    grok-4.6                 default harness
-xai          crush          grok-4.6                 --model form provider/id
-openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
-muse         muse           muse-spark-1.3-contributor default harness
-agy          agy            gemini-3.8-flash-high    default harness
+PROVIDER     HARNESS        DEFAULT MODEL                NOTES
+zai          claude-code    glm-5.3                      default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                     default harness
+xai          crush          grok-4.6                     --model form xai/<id>
+openrouter   opencode       (--model required)           default harness; --model form openrouter/<id>
+zen          opencode       step-5-preview-free          default harness; --model form opencode/<id>
+muse         muse           muse-spark-1.3-contributor   default harness
+agy          agy            gemini-3.8-flash-high        default harness
+
+MODELS (measured per id; ids not listed fall back to the provider)
+PROVIDER     MODEL                          VISION         CONTEXT    NOTES
+zai          glm-5.3                        blind          1310720    default
+zai          glm-5.3-flash                  colour-family  1310720
+zai          glm-5.2                        unmeasured     1310720    refused at launch: answered by glm-5.3
+zai          (other ids)                    guard refuses  1310720
+xai          grok-4.6                       unmeasured     -          default
+xai          (other ids)                    guard passes   -
+openrouter   (other ids)                    guard passes   -
+zen          step-5-preview-free            colour-family  -          default
+zen          (other ids)                    guard passes   -
+muse         muse-spark-1.3-contributor     colour-family  -          default
+muse         (other ids)                    guard passes   -
+agy          gemini-3.8-flash-high          unmeasured     -          default
+agy          (other ids)                    guard passes   -
 ```
 
 The refusal messages come from the same tables, so they say where the round *should* go rather than only where it cannot:
