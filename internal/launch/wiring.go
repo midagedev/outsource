@@ -97,7 +97,8 @@ type provider struct {
 	// contextWindow is the real input ceiling, in tokens, for the
 	// claude-code harness only. It is the FALLBACK for every id of this
 	// provider: a modelTable row's non-zero contextWindow overrides it for
-	// that id (contextWindowFor is the single owner of that rule). ZERO means
+	// that id, and a catalogue provider's listed Context sits between the
+	// two (roundContextWindow is the single owner of that rule). ZERO means
 	// "not measured here" and nothing is set, leaving the CLI's own behaviour
 	// untouched.
 	//
@@ -342,6 +343,44 @@ func qualifierOf(p provider) string {
 	return p.name
 }
 
+// bareID is the one owner of "strip the harness's qualifier": the id as the
+// provider's catalogue and modelTable know it. On a harness with no modelForm
+// rule (claude-code) the model already is the bare id — OpenRouter's own
+// openrouter/auto stays openrouter/auto there, it is not a qualified "auto".
+// Where modelForm qualifies (crush, opencode) the provider's qualifier is
+// stripped once: openrouter/z-ai/glm-5.3 → z-ai/glm-5.3, opencode/x → x.
+func bareID(p provider, harnessName, model string) string {
+	if !qualifyingHarness[harnessName] {
+		return model
+	}
+	return strings.TrimPrefix(model, qualifierOf(p)+"/")
+}
+
+// harnessFormID is bareID's inverse: a bare catalogue id in the form the
+// harness takes it — bare on claude-code, <qualifier>/<id> where the harness's
+// modelForm requires the qualifier.
+func harnessFormID(p provider, harnessName, bare string) string {
+	if !qualifyingHarness[harnessName] {
+		return bare
+	}
+	return qualifierOf(p) + "/" + bare
+}
+
+// qualifyingHarness is the harnesses whose modelForm rule wants the
+// provider's qualifier before the id: bareID's and harnessFormID's one
+// question. Derived from harnessTable in init rather than read from it: the
+// claude-code harness's run path reaches bareID (contextEnv), so a direct
+// read would make harnessTable's initializer depend on itself.
+var qualifyingHarness = map[string]bool{}
+
+func init() {
+	for _, h := range harnessTable {
+		if h.modelForm != nil {
+			qualifyingHarness[h.name] = true
+		}
+	}
+}
+
 // providerNameList is the routable provider names, in table order. Every
 // human-facing list of providers derives from it, so a new row cannot be
 // routable and undocumented at the same time.
@@ -394,10 +433,11 @@ type model struct {
 
 // modelTable is the model axis of the wiring: facts that belong to one
 // (provider, id) pair rather than to an account or a CLI. The derived guards
-// below (modelVision, mappedModelError, contextWindowFor) are its only
-// readers, and no call site tests a provider name. openrouter has no rows
-// here on purpose — it is a catalogue, the caller names the id per round, and
-// its provider row's unlistedVision carries the deferral.
+// below (modelVision, mappedModelError, roundContextWindow), `outsource
+// models`' MEASURED column and the free-model resolver's ranking (free.go)
+// are its readers, and no call site tests a provider name. openrouter has no
+// rows here on purpose — it is a catalogue, the caller names the id per
+// round, and its provider row's unlistedVision carries the deferral.
 var modelTable = []model{
 	{
 		provider: "zai",
@@ -507,19 +547,67 @@ func modelVision(p provider, model string) bool {
 	return p.unlistedVision
 }
 
-// contextWindowFor is the claude-code harness's input ceiling for one id: the
-// model row's window when it declares one, else the provider's fallback. An
-// unlisted id (zai's glm-4.6) gets the provider column exactly as before the
-// model axis existed.
+// contextWindowFor is the claude-code harness's input ceiling for one id as
+// the tables alone give it: the model row's window when it declares one, else
+// the provider's fallback. An unlisted id (zai's glm-4.6) gets the provider
+// column exactly as before the model axis existed. --list-wiring prints it; a
+// round adds the catalogue's figure through roundContextWindow.
 func contextWindowFor(p provider, model string) int {
-	bare := strings.TrimPrefix(model, qualifierOf(p)+"/")
+	return roundContextWindow(p, model, 0)
+}
+
+// roundContextWindow is the one owner of a claude-code round's window
+// precedence: the model row's window when it declares one (a measurement
+// here beats a listing there), else the catalogue's Context for the id
+// (catalogueContext, 0 when the round has none — not a catalogue provider,
+// the catalogue was off or unavailable, or the id was not listed), else the
+// provider's fallback. 0 means nothing is set and the CLI keeps its own
+// behaviour.
+func roundContextWindow(p provider, model string, catalogueContext int) int {
+	bare := bareID(p, "claude-code", model)
 	if bare == "" {
 		bare = p.defaultModel
 	}
 	if m, ok := findModel(p.name, bare); ok && m.contextWindow > 0 {
 		return m.contextWindow
 	}
+	if catalogueContext > 0 {
+		return catalogueContext
+	}
 	return p.contextWindow
+}
+
+// contextEnv is the one owner of the two context numbers a claude-code round's
+// CLI is given, as the env entries to append. getenv is the caller's
+// environment (os.Getenv in the harness).
+//
+//   - CLAUDE_CODE_MAX_CONTEXT_TOKENS = roundContextWindow, unless the caller
+//     pinned it (a pin always wins) or the window is 0.
+//   - CLAUDE_CODE_AUTO_COMPACT_WINDOW = compactCap (the user config's
+//     context.autoCompactWindow, internal/config) when it is below the
+//     window, unless the caller pinned it. The window compared is the one
+//     the CLI will hold: the caller's pin when it is a positive whole number,
+//     else the computed one; a pin that is not a number leaves the window
+//     unknown and nothing is set. Measured 2026-10-09: `claude -p` honours
+//     the variable in headless mode, independently of the window. Where the
+//     CLI's own trigger falls relative to the value is not measured (a probe
+//     set 30000 and compacted at 69922 prompt tokens), so this is the value
+//     the launcher sets, never a promise of when a round compacts.
+func contextEnv(p provider, model string, catalogueContext, compactCap int, getenv func(string) string) []string {
+	var env []string
+	window := roundContextWindow(p, model, catalogueContext)
+	if pin := getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS"); pin != "" {
+		window = 0
+		if n, err := strconv.Atoi(pin); err == nil && n > 0 {
+			window = n
+		}
+	} else if window > 0 {
+		env = append(env, fmt.Sprintf("CLAUDE_CODE_MAX_CONTEXT_TOKENS=%d", window))
+	}
+	if window > 0 && compactCap > 0 && compactCap < window && getenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW") == "" {
+		env = append(env, fmt.Sprintf("CLAUDE_CODE_AUTO_COMPACT_WINDOW=%d", compactCap))
+	}
+	return env
 }
 
 // mappedModelError refuses, at launch, a model id measured to be silently
@@ -532,12 +620,24 @@ func mappedModelError(p provider, model string) (string, bool) {
 		return "", true
 	}
 	bare := strings.TrimPrefix(model, qualifierOf(p)+"/")
-	m, mapped := findModel(p.name, bare)
-	if !mapped || m.answeredBy == "" || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
+	answeredBy := answeredByOf(p, bare)
+	if answeredBy == "" {
 		return "", true
 	}
 	return fmt.Sprintf("--model %s is silently answered by %s on the %s endpoint (measured: the response model field differs from the request). The round could never run the model you asked for — request %s explicitly, or set OUTSOURCE_ALLOW_MAPPED_MODEL=1 to re-measure the mapping.",
-		model, m.answeredBy, p.name, m.answeredBy), false
+		model, answeredBy, p.name, answeredBy), false
+}
+
+// answeredByOf is the mapped-model rule for one BARE id: the model the
+// endpoint answers it with, or "" when it answers as asked (or when
+// OUTSOURCE_ALLOW_MAPPED_MODEL=1 lifts the rule). mappedModelError refuses a
+// named id with it; the free resolver excludes a candidate with it.
+func answeredByOf(p provider, bare string) string {
+	m, mapped := findModel(p.name, bare)
+	if !mapped || m.answeredBy == "" || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
+		return ""
+	}
+	return m.answeredBy
 }
 
 // requiredModelError refuses a provider with no routable default when --model
@@ -853,9 +953,11 @@ func ProviderQualifiers() map[string]string {
 //
 // The user's config file (internal/config) is appended as one CONFIG line per
 // provider it changes, so the follow-up question — "and what did I change?" —
-// is answered in the same read. No CONFIG line when the file is absent or
-// changes nothing: a bare matrix means the table is the whole truth. A file
-// that does not parse gets one line saying so, since every launch refuses.
+// is answered in the same read, plus one line for the auto-compact cap
+// whenever the file sets it (the cap has no table column to differ from). No
+// CONFIG line when the file is absent or changes nothing: a bare matrix means
+// the table is the whole truth. A file that does not parse gets one line
+// saying so, since every launch refuses.
 func wiringMatrix() string {
 	out := renderWiring(providerTable, modelTable)
 	cfg, err := config.Load()
@@ -871,6 +973,11 @@ func wiringMatrix() string {
 		if m, set := cfg.DefaultModel(p.name); set && m != p.defaultModel {
 			out += fmt.Sprintf("CONFIG %s: %s default model %s (table: %s)\n", cfg.Path, p.name, m, orDefault(p.defaultModel, "none"))
 		}
+	}
+	// The claude-code harness's auto-compact cap (contextEnv), whenever the
+	// file sets it — the shipped default named beside it.
+	if v, set := cfg.AutoCompactWindow(); set {
+		out += fmt.Sprintf("CONFIG %s: auto-compact window %d (default: %d)\n", cfg.Path, v, config.DefaultAutoCompactWindow)
 	}
 	return out
 }

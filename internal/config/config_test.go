@@ -463,13 +463,20 @@ func TestGetListUnset(t *testing.T) {
 		}
 	}
 
+	// 2026-10-09 (round free): the format gained context.autoCompactWindow,
+	// and `list` prints every known key — so the listing ends with its line
+	// and --json carries 11 values: the stub table's 4 providers × 2 fields,
+	// 2 free fields, 1 context field. Contract unchanged: every known key,
+	// unset ones as (unset) / null. FAIL-first: dropping contextFields from
+	// allKeys makes this listing lack the line and the count read 10.
 	out, _ := mustRC(t, ExitOK, "list")
 	wantList := "# " + path + "\n" +
 		"providers.zai.defaultModel = (unset)\nproviders.zai.enabled = (unset)\n" +
 		"providers.openrouter.defaultModel = (unset)\nproviders.openrouter.enabled = (unset)\n" +
 		"providers.zen.defaultModel = (unset)\nproviders.zen.enabled = (unset)\n" +
 		"providers.muse.defaultModel = (unset)\nproviders.muse.enabled = false\n" +
-		"free.allowTraining = (unset)\n" + `free.denyPaths = ["~/work/**","/srv/<&>"]` + "\n"
+		"free.allowTraining = (unset)\n" + `free.denyPaths = ["~/work/**","/srv/<&>"]` + "\n" +
+		"context.autoCompactWindow = (unset)\n"
 	if out != wantList {
 		t.Fatalf("list:\n%s\nwant:\n%s", out, wantList)
 	}
@@ -483,7 +490,7 @@ func TestGetListUnset(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("list --json is not JSON: %v\n%s", err, out)
 	}
-	if doc.Path != path || len(doc.Values) != 10 || doc.Values["providers.muse.enabled"] != false {
+	if doc.Path != path || len(doc.Values) != 11 || doc.Values["providers.muse.enabled"] != false {
 		t.Fatalf("list --json: %+v", doc)
 	}
 	if v, ok := doc.Values["providers.zai.enabled"]; !ok || v != nil {
@@ -517,4 +524,106 @@ func TestMissingInjectionIsReported(t *testing.T) {
 	}
 	// free.* needs no table.
 	mustRC(t, ExitOK, "set", "free.allowTraining", "true")
+}
+
+// context.autoCompactWindow: a positive whole number of tokens, absent = the
+// shipped default. Every other shape is a load error like any bad type, and
+// set refuses the same shapes before it writes. FAIL-first: with the
+// autoCompactWindow case removed from checkField, `0`, `-1` and `"600k"` load
+// without error and AutoCompactWindow answers 0.
+func TestAutoCompactWindow(t *testing.T) {
+	stubTable(t)
+	dir := t.TempDir()
+	c, err := loadFile(filepath.Join(dir, "missing.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, set := c.AutoCompactWindow(); v != DefaultAutoCompactWindow || set || DefaultAutoCompactWindow != 600000 {
+		t.Fatalf("absent: AutoCompactWindow = %d,%v, want %d (the shipped 600000),false", v, set, DefaultAutoCompactWindow)
+	}
+	good := filepath.Join(dir, "good.json")
+	os.WriteFile(good, []byte(`{"context": {"autoCompactWindow": 200000}}`), 0o644)
+	if c, err = loadFile(good); err != nil {
+		t.Fatal(err)
+	}
+	if v, set := c.AutoCompactWindow(); v != 200000 || !set {
+		t.Fatalf("AutoCompactWindow = %d,%v, want 200000,true", v, set)
+	}
+	for _, body := range []string{
+		`{"context": {"autoCompactWindow": 0}}`,
+		`{"context": {"autoCompactWindow": -1}}`,
+		`{"context": {"autoCompactWindow": "600k"}}`,
+		`{"context": {"autoCompactWindow": "600000"}}`,
+		`{"context": {"autoCompactWindow": 600000.5}}`,
+		`{"context": {"autoCompactWindow": 6e5}}`,
+		`{"context": {"autoCompactWindow": null}}`,
+	} {
+		path := filepath.Join(dir, "bad.json")
+		os.WriteFile(path, []byte(body), 0o644)
+		_, err := loadFile(path)
+		if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "context.autoCompactWindow must be a positive whole number of tokens") {
+			t.Fatalf("load %s: err = %v, want one naming %s and the key's rule", body, err, path)
+		}
+	}
+	path := filepath.Join(dir, "bad.json")
+	os.WriteFile(path, []byte(`{"context": []}`), 0o644)
+	if _, err := loadFile(path); err == nil || !strings.Contains(err.Error(), "context must be an object") {
+		t.Fatalf(`{"context": []}: err = %v`, err)
+	}
+
+	// The CLI: set refuses the same shapes and writes nothing, then the good
+	// value round-trips through get, list and unset, and lands after free.
+	cfgPath := configAt(t, filepath.Join(t.TempDir(), "config.json"))
+	for _, v := range []string{"0", "-1", "600k", "0600000", "1.5", "1e6", ""} {
+		_, errb := mustRC(t, ExitUsage, "set", "context.autoCompactWindow", v)
+		if !strings.Contains(errb, "context.autoCompactWindow takes a positive whole number of tokens") {
+			t.Fatalf("set %q: stderr %q", v, errb)
+		}
+	}
+	if _, err := os.Stat(cfgPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a refused set created the config file")
+	}
+	mustRC(t, ExitOK, "set", "free.allowTraining", "true")
+	out, _ := mustRC(t, ExitOK, "set", "context.autoCompactWindow", "400000")
+	if want := "context.autoCompactWindow = 400000 (" + cfgPath + ")\n"; out != want {
+		t.Fatalf("set: %q, want %q", out, want)
+	}
+	if got, want := read(t, cfgPath), "{\n  \"free\": {\n    \"allowTraining\": true\n  },\n  \"context\": {\n    \"autoCompactWindow\": 400000\n  }\n}\n"; got != want {
+		t.Fatalf("file:\n%s\nwant:\n%s", got, want)
+	}
+	for _, c := range []struct{ args, want string }{
+		{"get context.autoCompactWindow", "400000\n"},
+		{"get context.autoCompactWindow --json", "400000\n"},
+	} {
+		if out, _ := mustRC(t, ExitOK, strings.Fields(c.args)...); out != c.want {
+			t.Fatalf("config %s = %q, want %q", c.args, out, c.want)
+		}
+	}
+	if out, _ := mustRC(t, ExitOK, "list"); !strings.Contains(out, "\ncontext.autoCompactWindow = 400000\n") {
+		t.Fatalf("list does not show the cap:\n%s", out)
+	}
+	mustRC(t, ExitOK, "unset", "context.autoCompactWindow")
+	if out, _ := mustRC(t, ExitOK, "get", "context.autoCompactWindow"); out != "(unset)\n" {
+		t.Fatalf("after unset: %q", out)
+	}
+	if strings.Contains(read(t, cfgPath), "context") {
+		t.Fatalf("an emptied context object must go with its last key:\n%s", read(t, cfgPath))
+	}
+	// An unknown field under context is kept and listed as unknown, like
+	// every other section's.
+	os.WriteFile(cfgPath, []byte(`{"context": {"later": 1}}`), 0o644)
+	if out, _ := mustRC(t, ExitOK, "list"); !strings.Contains(out, "context.later = unknown (kept)\n") {
+		t.Fatalf("list does not keep context.later:\n%s", out)
+	}
+	// The usage names the key and the default the launcher applies.
+	_, errb := mustRC(t, ExitUsage, "set", "context.other", "1")
+	if !strings.Contains(errb, "context.autoCompactWindow") {
+		t.Fatalf("the key shapes must name context.autoCompactWindow: %s", errb)
+	}
+	if out, _ := mustRC(t, ExitOK, "help"); !strings.Contains(out, "(unset: 600000)") {
+		t.Fatalf("usage must name the default:\n%s", out)
+	}
+	// context.* needs no provider table, like free.*.
+	KnownProviders, QualifierFor = nil, nil
+	mustRC(t, ExitOK, "set", "context.autoCompactWindow", "200000")
 }

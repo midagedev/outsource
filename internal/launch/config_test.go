@@ -419,3 +419,94 @@ func TestOpenrouterQualifiedFormHasOneAnswer(t *testing.T) {
 		}
 	}
 }
+
+// grok-run drives the xai account through the grok CLI, so the user's
+// providers.xai.enabled=false refuses it too — exit 64, the same message
+// shape as outsource-run's, before anything is registered or written. An
+// absent key or true runs as before. FAIL-first: without the Enabled check
+// in GrokMain the disabled launch runs the fake grok (rc 0) and registers a
+// round.
+func TestUserConfigDisabledXaiRefusesGrokRun(t *testing.T) {
+	if _, ok := findProvider(grokProvider); !ok {
+		t.Fatalf("grok-run bills to %q, which has no providerTable row", grokProvider)
+	}
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.md")
+	if err := os.WriteFile(spec, []byte("do the thing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "bin")
+	os.MkdirAll(bin, 0o755)
+	if err := os.WriteFile(filepath.Join(bin, "grok"), []byte("#!/bin/sh\nprintf '{\"type\":\"text\",\"data\":\"ok\"}\\n'\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", rigPath(bin))
+	t.Setenv("GROK_RUN_STARTUP_GRACE", "2")
+	runsDir := filepath.Join(dir, "runs")
+	t.Setenv("OUTSOURCE_RUNS_DIR", runsDir)
+	log := filepath.Join(dir, "run.ndjson")
+	run := func() (int, string) {
+		var errb bytes.Buffer
+		rc := GrokMain([]string{"--foreground", "--cwd", dir, "--spec", spec, "--log", log, "--label", "grok-cfg"}, io.Discard, &errb)
+		return rc, errb.String()
+	}
+	registered := func() int {
+		ents, _ := os.ReadDir(runsDir)
+		return len(ents)
+	}
+
+	path := userConfig(t, `{"providers": {"xai": {"enabled": false}}}`)
+	rc, stderr := run()
+	want := "grok-run: provider xai is disabled in " + path + " (providers.xai.enabled=false) — enable it with: outsource config set providers.xai.enabled true\n"
+	if rc != ExitUsage || stderr != want {
+		t.Fatalf("disabled xai: rc=%d stderr=%q, want %d %q", rc, stderr, ExitUsage, want)
+	}
+	if n := registered(); n != 0 {
+		t.Fatalf("a disabled provider registered %d round(s)", n)
+	}
+	if _, err := os.Stat(log + ".rc"); err == nil {
+		t.Fatal("a refused grok-run wrote a sentinel")
+	}
+	// A config that does not parse refuses too, as outsource-run does.
+	userConfig(t, `{"providers": `)
+	if rc, stderr := run(); rc != ExitUsage || !strings.Contains(stderr, "grok-run: refusing to launch — ") {
+		t.Fatalf("unparseable config: rc=%d stderr=%s", rc, stderr)
+	}
+
+	for _, body := range []string{`{}`, `{"providers": {"xai": {"enabled": true}, "zai": {"enabled": false}}}`} {
+		userConfig(t, body)
+		if rc, stderr := run(); rc != 0 {
+			t.Fatalf("config %s: rc=%d, want 0; stderr=%s", body, rc, stderr)
+		}
+	}
+	if n := registered(); n != 2 {
+		t.Fatalf("the two enabled launches registered %d round(s), want 2", n)
+	}
+}
+
+// --list-wiring names the auto-compact cap whenever the file sets it (C4),
+// the shipped default beside it, and says nothing when the file does not.
+// FAIL-first: without the AutoCompactWindow line in wiringMatrix the CONFIG
+// line is missing.
+func TestListWiringNamesTheCompactCap(t *testing.T) {
+	bare := renderWiring(providerTable, modelTable)
+	wiring := func() string {
+		var out bytes.Buffer
+		if rc := OutsourceMain([]string{"--list-wiring"}, &out, io.Discard); rc != 0 {
+			t.Fatalf("--list-wiring rc=%d", rc)
+		}
+		return strings.TrimPrefix(out.String(), bare)
+	}
+	userConfig(t, `{"free": {"allowTraining": true}}`)
+	if got := wiring(); got != "" {
+		t.Fatalf("a config without the cap printed:\n%s", got)
+	}
+	path := userConfig(t, `{"context": {"autoCompactWindow": 600000}}`)
+	if got, want := wiring(), "CONFIG "+path+": auto-compact window 600000 (default: 600000)\n"; got != want {
+		t.Fatalf("a file that sets the default: CONFIG line %q, want %q", got, want)
+	}
+	path = userConfig(t, `{"context": {"autoCompactWindow": 400000}}`)
+	if got, want := wiring(), "CONFIG "+path+": auto-compact window 400000 (default: 600000)\n"; got != want {
+		t.Fatalf("CONFIG line %q, want %q", got, want)
+	}
+}

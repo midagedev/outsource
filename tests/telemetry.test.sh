@@ -10,6 +10,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 BIN="$(pwd)/skills/outsource/bin/outsource"
 [ -x "$BIN" ] || { echo "telemetry: no binary at $BIN — run ./build.sh" >&2; exit 2; }
 
+# The scrub every launching suite starts with (hermetic-env.sh). Without it
+# the outsource-run call below reads the developer's real user config (one
+# that disables zai refuses the call before the done-marker check), and
+# under run-all.sh's poisoned OUTSOURCE_ROUND=1 — or inside a round — it
+# stops at the nesting refusal instead of the failure this file plants. The
+# scrub also switches the catalogue off, so no launch here reaches the
+# network.
+# shellcheck source=hermetic-env.sh
+. tests/hermetic-env.sh
+hermetic_scrub_env
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/state"

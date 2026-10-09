@@ -109,6 +109,18 @@ type opts struct {
 	// resumeOnReset: a round cut by its plan limit (HTTP 429) waits for the
 	// reset and resumes the same session, at most twice (quota_resume.go).
 	resumeOnReset bool
+	// allowFreeTraining is --allow-free-training: --model free may pick an id
+	// whose data policy is trains, retains or unknown, as the user config's
+	// free.allowTraining does (free.go).
+	allowFreeTraining bool
+	// selector is "free" when --model free chose o.model — the sentinel's
+	// model_selector= — and "" otherwise.
+	selector string
+	// catalogueContext is the catalogue's listed context for the id this round
+	// runs, 0 when there is none (free.go); compactCap is the user config's
+	// context.autoCompactWindow. Both feed contextEnv on the claude-code
+	// harness.
+	catalogueContext, compactCap int
 }
 
 // effortLevels is what `claude --effort` accepts (its --help, 2026-09-15).
@@ -128,6 +140,9 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		harness:      os.Getenv("OUTSOURCE_HARNESS"),
 		providerName: envOr("OUTSOURCE_PROVIDER", "zai"),
 	}
+	// modelIdx is where the last --model value sits in args, so the --detach
+	// parent can hand its child the id --model free picked (detachArgs).
+	modelIdx := -1
 	for i := 0; i < len(args); i++ {
 		need := func() (string, bool) {
 			if i+1 >= len(args) {
@@ -149,6 +164,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.session, ok = need()
 		case "--model":
 			o.model, ok = need()
+			modelIdx = i
 		case "--harness":
 			o.harness, ok = need()
 		case "--provider":
@@ -173,6 +189,24 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.allowNoTools, ok = true, true
 		case "--resume-on-reset":
 			o.resumeOnReset, ok = true, true
+		case "--allow-free-training":
+			o.allowFreeTraining, ok = true, true
+		case catalogueHandoffFlag:
+			// The --detach parent's catalogue answer (free.go). Only its own
+			// child takes it: anywhere else it would let a caller hand a launch
+			// a context, or skip its pre-flights, by typing a flag.
+			if os.Getenv(detachedEnvKey) != "1" {
+				fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
+				return ExitUsage
+			}
+			var v string
+			if v, ok = need(); ok {
+				var err error
+				if o.selector, o.catalogueContext, err = parseHandoff(v); err != nil {
+					fmt.Fprintf(stderr, "outsource: %v\n", err)
+					return ExitUsage
+				}
+			}
 		case "--detach":
 			o.detach, ok = true, true
 		case "--foreground":
@@ -186,7 +220,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		case "-h", "--help":
 			// The harness and provider lists are derived, so a new arm cannot
 			// be routable and undocumented at the same time.
-			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--resume-on-reset] [--detach] [--foreground] [--list-wiring]\n",
+			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M|free] [--allow-free-training] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--resume-on-reset] [--detach] [--foreground] [--list-wiring]\n",
 				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
 			return 0
 		default:
@@ -234,11 +268,13 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	if on, set := userCfg.Enabled(p.name); set && !on {
-		fmt.Fprintf(stderr, "outsource: provider %s is disabled in %s (providers.%s.enabled=false) — enable it with: outsource config set providers.%s.enabled true\n",
-			p.name, userCfg.Path, p.name, p.name)
+		fmt.Fprintln(stderr, providerDisabledRefusal("outsource", p.name, userCfg.Path))
 		telemetry.Note("why", "provider disabled in the user config")
 		return ExitUsage
 	}
+	// The claude-code harness's auto-compact cap (contextEnv): the file's
+	// context.autoCompactWindow, else the shipped default.
+	o.compactCap, _ = userCfg.AutoCompactWindow()
 	// A config default replaces the row's default on this LOCAL copy, so every
 	// later reader — a harness's own default qualification, requiredModelError,
 	// the vision guard, the registry and the sentinel — sees it unchanged.
@@ -308,6 +344,34 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	maxSecondsPerAttemptNote(o, stderr)
+	// --model free (free.go), resolved here: the harness is known, so the pick
+	// is written in its form, and every later reader of o.model — the
+	// required-model check, the vision guard, the model-form rule, the
+	// registry, the sentinel and the --detach re-exec — sees the concrete id.
+	// A --detach child never resolves: its parent did, and handed the id and
+	// the catalogue's context over (catalogueHandoffFlag).
+	detachedChild := os.Getenv(detachedEnvKey) == "1"
+	switch {
+	case o.model == freeSelector && o.session != "":
+		// Resolving again can land on another id than the session ran on:
+		// the catalogue moves between the two launches.
+		fmt.Fprintln(stderr, "outsource: --session resumes a session with the model it ran, and --model free would pick again — pass that id instead (the earlier round's sentinel has it as model_requested=)")
+		telemetry.Note("why", "--model free with --session")
+		return ExitUsage
+	case detachedChild && o.model == freeSelector:
+		fmt.Fprintf(stderr, "outsource: this --detach child got --model free without its parent's pick (%s); only the launching process resolves --model free — relaunch it\n", catalogueHandoffFlag)
+		return ExitUsage
+	case !detachedChild && o.model == freeSelector:
+		pick, refusal := resolveFree(freeRequest{p: p, harness: o.harness, cwd: o.cwd, cfg: userCfg,
+			allowTraining: o.allowFreeTraining, now: time.Now()})
+		if refusal != "" {
+			fmt.Fprintln(stderr, refusal)
+			telemetry.Note("why", "--model free: nothing to pick")
+			return ExitUsage
+		}
+		o.model, o.selector, o.catalogueContext = pick.model, freeSelector, pick.entry.Context
+		fmt.Fprintln(stderr, pick.line(time.Now()))
+	}
 	// A provider whose only routed model was withdrawn has no default to fall
 	// back on, and the empty string would become a malformed id inside the
 	// harness — under --detach, where nothing can print.
@@ -427,6 +491,29 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// A named id on a catalogue provider, checked against the catalogue's
+	// current offer (preflightNamed) — after the form rule, so a wrong-form id
+	// is told about its form, and before the --detach re-exec, past which
+	// there is no caller left to tell. The listing's context is kept for the
+	// harness (contextEnv); the child gets it through the handoff and never
+	// loads the catalogue itself.
+	if !detachedChild && o.selector == "" && isCatalogue(p.name) {
+		if model := orDefault(o.model, p.defaultModel); model != "" {
+			chk := preflightNamed(p, o.harness, model, o.cwd, userCfg, time.Now())
+			for _, n := range chk.notes {
+				fmt.Fprintln(stderr, n)
+			}
+			if chk.refusal != "" {
+				fmt.Fprintln(stderr, chk.refusal)
+				telemetry.Note("why", "named model refused by the catalogue pre-flight")
+				return ExitUsage
+			}
+			if chk.found {
+				o.catalogueContext = chk.entry.Context
+			}
+		}
+	}
+
 	// A nearly spent plan window is said out loud before the round starts —
 	// here, before the --detach re-exec, because the detached child has no
 	// terminal to say it on. Never a refusal: --require-quota is that.
@@ -441,11 +528,23 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		if label == "" {
 			label = defaultLabel(o.spec)
 		}
-		return reexecDetached("outsource-run", args, label, o.log, stdout, stderr)
+		return detachExec("outsource-run", detachArgs(args, modelIdx, o), label, o.log, stdout, stderr)
 	}
 
 	r := &round{o: o, p: p, stdout: stdout, stderr: stderr, specBody: string(specBody)}
 	return r.run()
+}
+
+// detachExec is the --detach re-exec, a variable so a test can read the argv
+// the child would get without starting one.
+var detachExec = reexecDetached
+
+// providerDisabledRefusal is the one wording of "the user disabled this
+// provider", for every launcher that reads the user config (outsource-run,
+// grok-run): the file, the key, and the command that undoes it.
+func providerDisabledRefusal(tool, name, path string) string {
+	return fmt.Sprintf("%s: provider %s is disabled in %s (providers.%s.enabled=false) — enable it with: outsource config set providers.%s.enabled true",
+		tool, name, path, name, name)
 }
 
 // round carries the state the harness paths share, so the sentinel and the
@@ -779,6 +878,11 @@ func (r *round) sentinelBody(rc int, markerLines string, now time.Time) string {
 	fmt.Fprintf(&b, "finished=%s\n", now.Format("2006-01-02T15:04:05Z"))
 	fmt.Fprintf(&b, "harness=%s\nprovider=%s\n", r.o.harness, r.p.name)
 	fmt.Fprintf(&b, "model_requested=%s\nmodel_actual=%s\nsession=%s\n", r.o.model, r.modelActual, r.sid)
+	// Absent unless --model free chose model_requested: the caller asked for
+	// "any free id", and a reader must be able to tell that from a named one.
+	if r.o.selector != "" {
+		fmt.Fprintf(&b, "model_selector=%s\n", r.o.selector)
+	}
 	if r.o.effort != "" {
 		fmt.Fprintf(&b, "effort=%s\n", r.o.effort)
 	}

@@ -21,8 +21,10 @@ import (
 // modelsEnv points `outsource models` at an httptest OpenRouter and a fake
 // opencode, both fed with internal/catalog/testdata — no test here touches the
 // network or runs opencode. It sets XDG_CACHE_HOME to a temp dir FIRST, so a
-// developer's real catalogue cache can never decide a test's outcome (this
-// package's TestMain has no floor for it).
+// test's cache is its own (TestMain's private one is shared by the package).
+// The fixture replaces the seam (loadCatalog) whole, with catalog.Load over
+// the fakes: TestMain's OUTSOURCE_CATALOG=off floor belongs to the seam's
+// default, which a fixture stands in for.
 type modelsEnv struct {
 	modelsStatus int
 	listStatus   int
@@ -93,7 +95,7 @@ func (m *modelsEnv) install(t *testing.T) {
 	orig := loadCatalog
 	loadCatalog = func(ctx context.Context, o catalog.Options) ([]catalog.Entry, catalog.Meta, error) {
 		o.OpenRouterBase, o.Opencode = srv.URL, runner
-		return orig(ctx, o)
+		return catalog.Load(ctx, o)
 	}
 	t.Cleanup(func() { loadCatalog = orig })
 }

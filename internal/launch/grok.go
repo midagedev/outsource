@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/midagedev/outsource/internal/config"
 	"github.com/midagedev/outsource/internal/report"
 	"github.com/midagedev/outsource/internal/runs"
 	"github.com/midagedev/outsource/internal/telemetry"
@@ -59,6 +60,10 @@ type grokOpts struct {
 	research, detach, foreground                   bool
 	extra                                          []string
 }
+
+// grokProvider is the providerTable row grok-run's rounds bill to: the xai
+// account, driven through the grok CLI rather than a wired harness.
+const grokProvider = "xai"
 
 // detachedEnvKey is set only on the --detach re-exec child's cmd.Env, so a
 // child whose stdin is nil (not a TTY) does not refuse itself. The name is
@@ -143,6 +148,24 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "grok-run: unreadable spec: %s\n", o.spec)
 		return ExitBadPath
+	}
+
+	// The user's own choices (internal/config), as OutsourceMain reads them: a
+	// file that does not parse refuses, and a provider the user disabled is
+	// refused before anything is registered. grok-run drives the xai account
+	// through the grok CLI, so providers.xai.enabled=false covers it too —
+	// before this, the flag stopped `outsource-run --provider xai` and not
+	// this launcher. The --detach child re-runs this and reads the same file.
+	userCfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "grok-run: refusing to launch — %v (`outsource config path` names the file; fix it or move it aside)\n", err)
+		telemetry.Note("why", "user config does not parse")
+		return ExitUsage
+	}
+	if on, set := userCfg.Enabled(grokProvider); set && !on {
+		fmt.Fprintln(stderr, providerDisabledRefusal("grok-run", grokProvider, userCfg.Path))
+		telemetry.Note("why", "provider disabled in the user config")
+		return ExitUsage
 	}
 
 	// --done-marker is a contract the spec must be able to satisfy. Nothing
@@ -261,7 +284,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 		var b strings.Builder
 		fmt.Fprintf(&b, "rc=%d\n", rc)
 		fmt.Fprintf(&b, "finished=%s\n", time.Now().UTC().Format("2006-01-02T15:04:05Z"))
-		b.WriteString("harness=grok-cli\nprovider=xai\n")
+		fmt.Fprintf(&b, "harness=grok-cli\nprovider=%s\n", grokProvider)
 		fmt.Fprintf(&b, "model_requested=%s\nsession=%s\n", o.model, sid)
 		if o.marker != "" {
 			fmt.Fprintf(&b, "done_marker=%s\ndone_marker_scope=report\n", verdict)
@@ -287,7 +310,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	// out. So the shell's grok rounds were invisible in exactly the place this
 	// launcher's header says it was written to make them visible. Verified before
 	// changing it: `runs line --owner X` returns nothing for an unowned record.
-	runID := registerRun(o.label, "xai", "grok-cli", o.model, o.cwd, promptFile, o.log, "", "", "")
+	runID := registerRun(o.label, grokProvider, "grok-cli", o.model, o.cwd, promptFile, o.log, "", "", "")
 
 	logf, err := os.Create(o.log)
 	if err != nil {

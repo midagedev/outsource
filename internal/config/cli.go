@@ -15,47 +15,61 @@ import (
 	"strings"
 )
 
-// key is one known dotted key: a provider field (provider set) or a free
-// field (provider empty).
+// The top-level sections a known key lives in.
+const (
+	sectionProviders = "providers"
+	sectionFree      = "free"
+	sectionContext   = "context"
+)
+
+// key is one known dotted key: a provider field (section providers, provider
+// set) or a free or context field (provider empty).
 type key struct {
+	section  string
 	provider string
 	field    string
 }
 
 func (k key) String() string {
-	if k.provider == "" {
-		return "free." + k.field
+	if k.section == sectionProviders {
+		return "providers." + k.provider + "." + k.field
 	}
-	return "providers." + k.provider + "." + k.field
+	return k.section + "." + k.field
 }
 
 // keyShapes is what every bad-key refusal prints.
-const keyShapes = "providers.<provider>.defaultModel | providers.<provider>.enabled | free.allowTraining | free.denyPaths"
+const keyShapes = "providers.<provider>.defaultModel | providers.<provider>.enabled | free.allowTraining | free.denyPaths | context.autoCompactWindow"
 
-// parseKey accepts the four key shapes of the format. Whether a provider name
+// parseKey accepts the five key shapes of the format. Whether a provider name
 // is one the launcher routes is a separate question (knownProvider), because
 // that refusal lists the known names instead of the shapes.
 func parseKey(s string) (key, bool) {
 	parts := strings.Split(s, ".")
 	switch {
-	case len(parts) == 3 && parts[0] == "providers" && parts[1] != "" && contains(providerFields, parts[2]):
-		return key{provider: parts[1], field: parts[2]}, true
-	case len(parts) == 2 && parts[0] == "free" && contains(freeFields, parts[1]):
-		return key{field: parts[1]}, true
+	case len(parts) == 3 && parts[0] == sectionProviders && parts[1] != "" && contains(providerFields, parts[2]):
+		return key{section: sectionProviders, provider: parts[1], field: parts[2]}, true
+	case len(parts) == 2 && parts[0] == sectionFree && contains(freeFields, parts[1]):
+		return key{section: sectionFree, field: parts[1]}, true
+	case len(parts) == 2 && parts[0] == sectionContext && contains(contextFields, parts[1]):
+		return key{section: sectionContext, field: parts[1]}, true
 	}
 	return key{}, false
 }
 
-const usage = `usage: outsource config <command>
+// usage is built once from the key shapes and the cap's default, so neither
+// can drift from the code that enforces it.
+var usage = fmt.Sprintf(`usage: outsource config <command>
   path [--json]           the config file, what chose it, whether it exists
   list [--json]           every known key with its value, then unknown keys (kept)
   get <key> [--json]      one key's value, or (unset)
   set <key> <value>       enabled / allowTraining: true|false; denyPaths: a JSON
-                          array of globs; defaultModel: one bare model id
+                          array of globs; defaultModel: one bare model id;
+                          autoCompactWindow: a positive whole number of tokens
+                          (unset: %d)
   unset <key>             remove a key
-keys: ` + keyShapes + `
+keys: %s
 file: $OUTSOURCE_CONFIG, else $XDG_CONFIG_HOME/outsource/config.json, else ~/.config/outsource/config.json
-`
+`, DefaultAutoCompactWindow, keyShapes)
 
 // Main dispatches `outsource config <command>`. Exit codes: 0 ok, 64 usage, 1
 // an I/O failure or a file that does not parse.
@@ -146,7 +160,7 @@ func resolveKey(s string, stderr io.Writer) (key, bool) {
 		fmt.Fprintf(stderr, "outsource config: unknown key %q — valid keys: %s\n", s, keyShapes)
 		return key{}, false
 	}
-	if k.provider == "" {
+	if k.section != sectionProviders {
 		return k, true
 	}
 	names, ok := providerNames(stderr)
@@ -192,21 +206,28 @@ func (c *Config) value(k key) any {
 		if v, ok := c.DenyPaths(); ok {
 			return v
 		}
+	case "autoCompactWindow":
+		if v, ok := c.AutoCompactWindow(); ok {
+			return v
+		}
 	}
 	return nil
 }
 
 // allKeys is every known key: each provider's fields in table order, then the
-// free fields.
+// free fields, then the context fields.
 func allKeys(names []string) []key {
 	var out []key
 	for _, n := range names {
 		for _, f := range providerFields {
-			out = append(out, key{provider: n, field: f})
+			out = append(out, key{section: sectionProviders, provider: n, field: f})
 		}
 	}
 	for _, f := range freeFields {
-		out = append(out, key{field: f})
+		out = append(out, key{section: sectionFree, field: f})
+	}
+	for _, f := range contextFields {
+		out = append(out, key{section: sectionContext, field: f})
 	}
 	return out
 }
@@ -297,6 +318,9 @@ func parseValue(k key, s string) (json.RawMessage, string) {
 			return nil, fmt.Sprintf("%s: %s", k, msg)
 		}
 		raw = encode(s)
+	case "autoCompactWindow":
+		// Stored as the number the user typed; checkField below is the rule.
+		raw = json.RawMessage(strings.TrimSpace(s))
 	}
 	if msg := checkField(k.field, raw); msg != "" {
 		return nil, fmt.Sprintf("%s takes %s, got: %s", k, msg, s)

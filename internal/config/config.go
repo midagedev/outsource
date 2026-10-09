@@ -5,10 +5,10 @@
 // outsource is shipped to other people, so a user's choices must not live in
 // the shipped code. Until this package the only per-user knobs were
 // environment variables (GLM_DELEGATE_MODEL) and a prose overlay; this is the
-// first structured owner. A later round adds a setup pane that writes this
-// file through the same CLI (`outsource config`), and a free-model resolver
-// that reads the `free.*` keys — so the format below is a public contract, not
-// a private detail.
+// first structured owner. A setup pane writes this file through the same CLI
+// (`outsource config`), and the launcher's free-model resolver (`--model
+// free`, internal/launch/free.go) reads the `free.*` keys — so the format below
+// is a public contract, not a private detail.
 //
 // Version 1:
 //
@@ -20,17 +20,31 @@
 //	  "free": {
 //	    "allowTraining": false,
 //	    "denyPaths": ["~/work/**"]
+//	  },
+//	  "context": {
+//	    "autoCompactWindow": 600000
 //	  }
 //	}
 //
 // The keys:
 //
 //   - providers.<name>.defaultModel — a BARE model id, no provider qualifier;
-//     the launcher qualifies it where a harness needs that form.
+//     the launcher qualifies it where a harness needs that form. On a
+//     catalogue provider it is also what `--model free` picks first when it
+//     qualifies.
 //   - providers.<name>.enabled — true or false; absent means enabled.
-//   - free.allowTraining (true or false, absent = false) and free.denyPaths (an
-//     array of glob strings, `~` allowed) — stored and validated here and read
-//     by NOTHING yet: the free-model resolver is a later round.
+//   - free.allowTraining (true or false, absent = false) — when true, `--model
+//     free` may pick an id whose data policy is trains, retains or unknown;
+//     when false only no-train-no-retain ids qualify.
+//   - free.denyPaths (an array of glob strings, `~` allowed, `**` any depth) —
+//     a round whose --cwd matches one is refused `--model free`, any named id
+//     the catalogue lists as free, and any named id on a catalogue provider
+//     while the catalogue cannot answer (it cannot tell whether that id is
+//     free).
+//   - context.autoCompactWindow — a positive whole number of tokens, absent =
+//     DefaultAutoCompactWindow. The launcher sets the claude-code harness's
+//     CLAUDE_CODE_AUTO_COMPACT_WINDOW to it when it is below the round's
+//     context window.
 //
 // Unknown keys anywhere are kept on write and listed as unknown by the CLI;
 // the launcher ignores them. A missing file is an empty config, not an error.
@@ -51,6 +65,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -103,7 +118,16 @@ func ResolvePath() (path, source string) {
 var (
 	providerFields = []string{"defaultModel", "enabled"}
 	freeFields     = []string{"allowTraining", "denyPaths"}
+	contextFields  = []string{"autoCompactWindow"}
 )
+
+// DefaultAutoCompactWindow is context.autoCompactWindow when the file does not
+// set it. Few models stay coherent near a million tokens of context, and the
+// project owner's rule (2026-10-09) caps the auto-compact value at 600000
+// whatever the window — so the shipped default caps what the launcher hands
+// the claude-code harness as CLAUDE_CODE_AUTO_COMPACT_WINDOW; a window already
+// below it gets nothing new.
+const DefaultAutoCompactWindow = 600000
 
 // Config is one loaded config file. Every value is kept as the raw JSON the
 // file carried, so a write never drops or rewrites a key this version does
@@ -115,7 +139,8 @@ type Config struct {
 
 	providers map[string]map[string]json.RawMessage // name → field → raw value
 	free      map[string]json.RawMessage
-	extra     map[string]json.RawMessage // top-level keys other than providers and free
+	context   map[string]json.RawMessage
+	extra     map[string]json.RawMessage // top-level keys other than providers, free and context
 }
 
 func emptyConfig(path string) *Config {
@@ -123,6 +148,7 @@ func emptyConfig(path string) *Config {
 		Path:      path,
 		providers: map[string]map[string]json.RawMessage{},
 		free:      map[string]json.RawMessage{},
+		context:   map[string]json.RawMessage{},
 		extra:     map[string]json.RawMessage{},
 	}
 }
@@ -186,6 +212,17 @@ func loadFile(path string) (*Config, error) {
 				}
 			}
 			c.free = fields
+		case "context":
+			fields, err := object(v)
+			if err != nil {
+				return nil, bad("context", "an object")
+			}
+			for f, fv := range fields {
+				if msg := checkField(f, fv); msg != "" {
+					return nil, bad("context."+f, msg)
+				}
+			}
+			c.context = fields
 		default:
 			c.extra[k] = v
 		}
@@ -225,8 +262,30 @@ func checkField(field string, raw json.RawMessage) string {
 		if _, msg := denyPathsValue(raw); msg != "" {
 			return msg
 		}
+	case "autoCompactWindow":
+		if _, ok := positiveInt(raw); !ok {
+			return "a positive whole number of tokens, e.g. 600000"
+		}
 	}
 	return ""
+}
+
+// positiveInt reads a JSON number written as digits only — 600000, not
+// 6e5, 600000.0 or "600k" — and greater than zero. Digits only because the
+// value is a token count: a fraction is meaningless, and an exponent form
+// would be the one spelling a reader of the file could misread. A leading
+// zero is refused too: 0600000 is not JSON, and `config set` would otherwise
+// hand the writer a file it cannot render.
+func positiveInt(raw json.RawMessage) (int, bool) {
+	t := string(bytes.TrimSpace(raw))
+	if t == "" || t[0] == '0' || strings.Trim(t, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(t)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // boolValue reads a JSON boolean. json.Unmarshal accepts null into a bool as
@@ -296,8 +355,8 @@ func (c *Config) DefaultModel(provider string) (model string, present bool) {
 	return model, true
 }
 
-// AllowTraining answers free.allowTraining (absent = false). Nothing reads it
-// yet; the free-model resolver is a later round.
+// AllowTraining answers free.allowTraining (absent = false). The launcher's
+// free-model resolver reads it.
 func (c *Config) AllowTraining() (value, present bool) {
 	raw, ok := c.free["allowTraining"]
 	if !ok {
@@ -307,13 +366,25 @@ func (c *Config) AllowTraining() (value, present bool) {
 	return v, true
 }
 
-// DenyPaths answers free.denyPaths. Nothing reads it yet.
+// DenyPaths answers free.denyPaths, the globs as written (`~` unexpanded).
+// The launcher's free-model resolver and its named-id pre-flight read it.
 func (c *Config) DenyPaths() (paths []string, present bool) {
 	raw, ok := c.free["denyPaths"]
 	if !ok {
 		return nil, false
 	}
 	v, _ := denyPathsValue(raw)
+	return v, true
+}
+
+// AutoCompactWindow answers context.autoCompactWindow: the file's value, or
+// DefaultAutoCompactWindow when the file does not set it (present false).
+func (c *Config) AutoCompactWindow() (value int, present bool) {
+	raw, ok := c.context["autoCompactWindow"]
+	if !ok {
+		return DefaultAutoCompactWindow, false
+	}
+	v, _ := positiveInt(raw) // load refused any other shape
 	return v, true
 }
 
@@ -346,6 +417,11 @@ func (c *Config) UnknownKeys(knownProviders []string) []string {
 			out = append(out, "free."+f)
 		}
 	}
+	for f := range c.context {
+		if !contains(contextFields, f) {
+			out = append(out, "context."+f)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -359,10 +435,18 @@ func contains(list []string, s string) bool {
 	return false
 }
 
+// section is the flat field map a free.* or context.* key lives in.
+func (c *Config) section(k key) map[string]json.RawMessage {
+	if k.section == sectionContext {
+		return c.context
+	}
+	return c.free
+}
+
 // set stores one known key's raw value; the caller validated it.
 func (c *Config) set(k key, raw json.RawMessage) {
-	if k.provider == "" {
-		c.free[k.field] = raw
+	if k.section != sectionProviders {
+		c.section(k)[k.field] = raw
 		return
 	}
 	if c.providers[k.provider] == nil {
@@ -375,9 +459,10 @@ func (c *Config) set(k key, raw json.RawMessage) {
 // providers.<name> object left empty goes with it, so unsetting everything
 // converges on {} instead of accreting empty objects.
 func (c *Config) unset(k key) bool {
-	if k.provider == "" {
-		_, had := c.free[k.field]
-		delete(c.free, k.field)
+	if k.section != sectionProviders {
+		m := c.section(k)
+		_, had := m[k.field]
+		delete(m, k.field)
 		return had
 	}
 	fields := c.providers[k.provider]
@@ -390,10 +475,11 @@ func (c *Config) unset(k key) bool {
 }
 
 // render lays the config out in a stable order: providers (names sorted, the
-// known fields first, then unknown ones sorted), free (likewise), then unknown
-// top-level keys sorted; an empty object is left out. Raw values are embedded
-// as the file had them and json.Indent only re-flows whitespace, so an unknown
-// value keeps its own key order and every token byte.
+// known fields first, then unknown ones sorted), free (likewise), context
+// (likewise), then unknown top-level keys sorted; an empty object is left
+// out. Raw values are embedded as the file had them and json.Indent only
+// re-flows whitespace, so an unknown value keeps its own key order and every
+// token byte.
 func (c *Config) render() ([]byte, error) {
 	var b bytes.Buffer
 	writeObject(&b, func(member func(string, []byte)) {
@@ -412,6 +498,11 @@ func (c *Config) render() ([]byte, error) {
 			var fb bytes.Buffer
 			writeFields(&fb, c.free, freeFields)
 			member("free", fb.Bytes())
+		}
+		if len(c.context) > 0 {
+			var cb bytes.Buffer
+			writeFields(&cb, c.context, contextFields)
+			member("context", cb.Bytes())
 		}
 		for _, k := range sortedNames(c.extra) {
 			member(k, c.extra[k])

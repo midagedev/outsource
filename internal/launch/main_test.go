@@ -2,6 +2,7 @@ package launch
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/midagedev/outsource/internal/catalog"
 	"github.com/midagedev/outsource/internal/config"
 )
 
@@ -90,6 +92,24 @@ func TestMain(m *testing.M) {
 	// it; FAIL-first: without this line, a temp HOME whose config disables zai
 	// turns zai launch tests red.
 	os.Setenv("OUTSOURCE_CONFIG", filepath.Join(dir, "absent-config", "config.json"))
+	// The catalogue (free.go) is the one launch path that reaches the network
+	// on its own: every openrouter or zen launch now asks it about the model.
+	// Three floors, the same class as the three above. A private
+	// XDG_CACHE_HOME, so a developer's cached catalogue never decides a test.
+	// OUTSOURCE_CATALOG=off, so a launch test that installs no fixture takes
+	// the switch's documented path (a named id launches with a note; --model
+	// free refuses) — the shell suites get the same through hermetic-env.sh.
+	// And the network loader behind the seam's default is a fence: a test that
+	// lifts the switch without installing a fixture (useCatalog) panics
+	// instead of fetching. TestCatalogueIsolationFloors pins all three.
+	os.Setenv("XDG_CACHE_HOME", filepath.Join(dir, "cache"))
+	os.Setenv(catalogueSwitchEnv, "off")
+	catalogNetwork = catalogueFence
+	// A round's harness child carries the launcher's own context variables
+	// (contextEnv), and a pin of either changes what contextEnv sets — the
+	// same reason OUTSOURCE_ROUND is unset above.
+	os.Unsetenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+	os.Unsetenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
 	// No harness CLI is reachable from a launch test (pinHarnessFreePath).
 	if msg := pinHarnessFreePath(); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
@@ -99,6 +119,13 @@ func TestMain(m *testing.M) {
 	rc := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(rc)
+}
+
+// catalogueFence stands where catalog.Load would be reached from the seam's
+// default. Reaching it means a test is about to fetch a real catalogue: it
+// fails the binary, naming the fix.
+func catalogueFence(context.Context, catalog.Options) ([]catalog.Entry, catalog.Meta, error) {
+	panic("launch tests: a test reached the real catalogue loader (catalog.Load: OpenRouter's API, the opencode CLI) — install a fixture with useCatalog, or leave " + catalogueSwitchEnv + "=off as TestMain sets it")
 }
 
 // reexecRefused runs this test binary the way a launcher path under test does

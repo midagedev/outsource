@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/midagedev/outsource/internal/catalog"
+	"github.com/midagedev/outsource/internal/config"
 	"github.com/midagedev/outsource/internal/human"
 )
 
@@ -18,11 +20,12 @@ import (
 // vision, the provider row's default model and default harness — and the
 // catalog package must not import launch.
 
-// loadCatalog is ModelsMain's call into the catalog package, a variable so a
-// test points it at an httptest server and a fake opencode.
-var loadCatalog = catalog.Load
+// ModelsMain reads the catalogues through loadCatalog (free.go), the seam the
+// launcher's own catalogue reads share — so OUTSOURCE_CATALOG=off reaches
+// this command too, and a test points it at an httptest server and a fake
+// opencode.
 
-const modelsUsage = "usage: outsource models [--provider openrouter|zen] [--free] [--tools] [--policy] [--refresh] [--json]"
+const modelsUsage = "usage: outsource models [--provider openrouter|zen] [--free] [--tools] [--policy] [--refresh] [--json]\n       outsource models --pick free [--provider openrouter|zen] [--cwd D] [--allow-free-training] [--refresh]"
 
 // modelsHelp describes each flag by what ModelsMain and catalog.Load do with
 // it; keep it in step with both.
@@ -40,7 +43,19 @@ ${XDG_CACHE_HOME:-~/.cache}/outsource/catalog.
                 still falls back to the cached catalogue)
   --json        print JSON instead of the table
 
-Exit 0 when at least one catalogue loaded, 1 when none did, 64 on usage.`
+  --pick free   print what a launch's --model free would run on each
+                catalogue (or only --provider P's), on that provider's
+                default harness — the launcher's own resolver, with every
+                filter's count and the candidates in rank order
+  --cwd D       with --pick: the round's cwd, checked against the user
+                config's free.denyPaths (default: this directory)
+  --allow-free-training
+                with --pick: as the launch flag, let an id whose data
+                policy is not no-train-no-retain qualify
+
+Exit 0 when at least one catalogue loaded, 1 when none did, 64 on usage.
+With --pick: 0 when at least one provider has a pick, 64 when none does.
+OUTSOURCE_CATALOG=off makes no catalogue request: exit 1 (64 with --pick).`
 
 // ModelsMain prints the catalogue table (or --json) for the catalogue
 // providers. One provider failing does not fail the command: its footer line
@@ -48,8 +63,24 @@ Exit 0 when at least one catalogue loaded, 1 when none did, 64 on usage.`
 func ModelsMain(args []string, stdout, stderr io.Writer) int {
 	var provs []string
 	var free, tools, policy, refresh, asJSON bool
+	var pick, cwd string
+	var allowTraining bool
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--pick", "--cwd":
+			if i+1 >= len(args) {
+				fmt.Fprintf(stderr, "models: %s needs a value\n%s\n", args[i], modelsUsage)
+				return ExitUsage
+			}
+			i++
+			if args[i-1] == "--cwd" {
+				cwd = args[i]
+			} else if pick = args[i]; pick != freeSelector {
+				fmt.Fprintf(stderr, "models: --pick takes %s, got: %s\n%s\n", freeSelector, pick, modelsUsage)
+				return ExitUsage
+			}
+		case "--allow-free-training":
+			allowTraining = true
 		case "--provider":
 			if i+1 >= len(args) {
 				fmt.Fprintf(stderr, "models: --provider needs a value\n%s\n", modelsUsage)
@@ -80,6 +111,18 @@ func ModelsMain(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	if pick == "" && (cwd != "" || allowTraining) {
+		fmt.Fprintf(stderr, "models: --cwd and --allow-free-training go with --pick free\n%s\n", modelsUsage)
+		return ExitUsage
+	}
+	if pick != "" {
+		if free || tools || policy || asJSON {
+			fmt.Fprintf(stderr, "models: --pick takes only --provider, --cwd, --allow-free-training and --refresh\n%s\n", modelsUsage)
+			return ExitUsage
+		}
+		return modelsPick(provs, cwd, allowTraining, refresh, stdout, stderr)
+	}
+
 	keep := func(e catalog.Entry) bool {
 		if free && !e.FreeNonRouter() {
 			return false
@@ -97,8 +140,9 @@ func ModelsMain(args []string, stdout, stderr io.Writer) int {
 	}
 	entries, meta, err := loadCatalog(context.Background(), opts)
 	if meta.Providers == nil {
-		// Load refused the options themselves; the checks above should
-		// have caught every such case first.
+		// OUTSOURCE_CATALOG=off (the seam's own refusal, which says so), or
+		// Load refused the options themselves — the checks above should have
+		// caught every such case first.
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return 1
 	}
@@ -132,6 +176,51 @@ func ModelsMain(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stderr, "models: no catalogue could be loaded")
 	return 1
+}
+
+// modelsPick is `outsource models --pick free`: resolveFree, the launcher's
+// own resolver, run per catalogue on the provider's default harness, with the
+// user config the launcher would read. The pick and its counts go to stdout,
+// a refusal to stderr exactly as the launch would print it.
+func modelsPick(provs []string, cwd string, allowTraining, refresh bool, stdout, stderr io.Writer) int {
+	cfg, err := config.Load()
+	if err != nil {
+		// The launch refuses on this too (OutsourceMain), with exit 64.
+		fmt.Fprintf(stderr, "models: %v\n", err)
+		return ExitUsage
+	}
+	if cwd == "" {
+		if cwd, err = os.Getwd(); err != nil {
+			fmt.Fprintf(stderr, "models: --cwd not given and the current directory is unreadable: %v\n", err)
+			return ExitUsage
+		}
+	}
+	if len(provs) == 0 {
+		provs = catalog.Providers()
+	}
+	picked := false
+	now := time.Now()
+	for _, name := range provs {
+		p, _ := findProvider(name)
+		got, refusal := resolveFree(freeRequest{p: p, harness: defaultHarness(name, ""), cwd: cwd, cfg: cfg,
+			allowTraining: allowTraining, refresh: refresh, now: now})
+		if refusal != "" {
+			fmt.Fprintf(stderr, "%s: %s\n", name, refusal)
+			continue
+		}
+		picked = true
+		ids := make([]string, 0, len(got.candidates))
+		for _, e := range got.candidates {
+			ids = append(ids, e.ID)
+		}
+		fmt.Fprintf(stdout, "%s: %s\n", name, strings.TrimPrefix(got.line(now), "outsource: "))
+		fmt.Fprintf(stdout, "%s: %s\n", name, got.counts.String(got.strict))
+		fmt.Fprintf(stdout, "%s: candidates in rank order: %s\n", name, strings.Join(ids, ", "))
+	}
+	if !picked {
+		return ExitUsage
+	}
+	return 0
 }
 
 func isCatalogue(name string) bool {
@@ -204,7 +293,7 @@ func modelNotes(e catalog.Entry) string {
 	if p, ok := findProvider(e.Provider); ok && p.defaultModel != "" && p.defaultModel == e.ID {
 		notes = append(notes, "default")
 	}
-	if e.Status != "" && e.Status != "active" {
+	if !e.Active() {
 		notes = append(notes, "status "+e.Status)
 	}
 	return strings.Join(notes, "; ")

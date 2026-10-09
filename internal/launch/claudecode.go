@@ -161,12 +161,11 @@ func (r *round) runClaudeCode() int {
 	// The same shape of defect on the input side, and a harder failure. The CLI
 	// applies an unknown-model context ceiling and ENFORCES it: a round whose
 	// prompt crossed it died with "Prompt is too long" before a request was
-	// made. The wiring tables own the real number — the model row's window,
-	// else the provider's fallback (contextWindowFor); zero means unmeasured,
+	// made. The wiring owns the real number — the model row's window, else the
+	// catalogue's listed context for the id, else the provider's fallback —
+	// and the auto-compact cap beside it (contextEnv); zero means unmeasured,
 	// and then nothing is set and the CLI keeps its own behaviour.
-	if w := contextWindowFor(r.p, r.o.model); w > 0 && os.Getenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS") == "" {
-		env = append(env, fmt.Sprintf("CLAUDE_CODE_MAX_CONTEXT_TOKENS=%d", w))
-	}
+	env = append(env, contextEnv(r.p, r.o.model, r.o.catalogueContext, r.o.compactCap, os.Getenv)...)
 	cmd.Env = nestedEnv(env)
 	// Its own process group, so the watchdog can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

@@ -37,6 +37,15 @@
 #   CLAUDE_CODE_MAX_CONTEXT_TOKENS same shape at glm.sh:125; measured: an
 #                              inherited value other than 1310720 fails
 #                              glm-interactive.test.sh:135
+#   CLAUDE_CODE_AUTO_COMPACT_WINDOW the launcher sets it on every claude-code
+#                              round whose window exceeds the user config's
+#                              cap (contextEnv, internal/launch/wiring.go) —
+#                              every zai round at the default cap — so a
+#                              round's shell carries
+#                              it, and a caller's value is a pin the launcher
+#                              keeps. No suite result is measured against it
+#                              yet (added 2026-10-09); internal/launch's
+#                              TestMain unsets it for the same reason
 #   OUTSOURCE_SKILL_DIR        the bin/outsource dispatcher exports it when it
 #                              execs a binary from its download cache, so a
 #                              round launched through a cached binary carries
@@ -54,6 +63,16 @@
 #                              zai, internal/launch went red until TestMain
 #                              pinned this name. Unlike the names above it is
 #                              not only unset — see hermetic_scrub_env
+#   OUTSOURCE_CATALOG          the launcher's catalogue switch (internal/launch
+#                              free.go): every openrouter or zen launch asks
+#                              the live catalogue about its model, and
+#                              --model free picks from it, so a suite that
+#                              launched one would answer to the network of
+#                              the day. No suite launches one yet (added with
+#                              the switch, 2026-10-09); internal/launch's
+#                              TestMain pins the same value for the Go tests.
+#                              Like OUTSOURCE_CONFIG it is not only unset —
+#                              see hermetic_scrub_env
 hermetic_env_names=(
   OUTSOURCE_ROUND
   OUTSOURCE_DETACHED
@@ -64,8 +83,10 @@ hermetic_env_names=(
   CLAUDE_CONFIG_DIR
   CLAUDE_CODE_MAX_OUTPUT_TOKENS
   CLAUDE_CODE_MAX_CONTEXT_TOKENS
+  CLAUDE_CODE_AUTO_COMPACT_WINDOW
   OUTSOURCE_SKILL_DIR
   OUTSOURCE_CONFIG
+  OUTSOURCE_CATALOG
 )
 
 # hermetic_scrub_env unsets every name on the list. Call it at the top of a
@@ -84,12 +105,21 @@ hermetic_env_names=(
 # which as a path names a missing file — the empty config — so the poison
 # would gate nothing. A suite that never calls this scrub still reads the
 # real default-path config, and only sourcing this file closes that.
+#
+# OUTSOURCE_CATALOG is then exported as off: no suite reaches the network
+# through the catalogue, whatever the caller's shell had. A named openrouter
+# or zen id then launches with the launcher's "pre-flight skipped" note and
+# the tables' window, and --model free refuses. A suite that tests the
+# catalogue itself sets its own value after this call. Not in
+# hermetic_poison_names either: the poison is the literal 1, which is not
+# off, so it would leave the catalogue on and gate nothing.
 hermetic_scrub_env() {
   local n tmp="${TMPDIR:-/tmp}"
   for n in "${hermetic_env_names[@]}"; do
     unset "$n"
   done
   export OUTSOURCE_CONFIG="${tmp%/}/outsource-hermetic-$$/config-absent.json"
+  export OUTSOURCE_CATALOG=off
 }
 
 # The subset run-all.sh poisons in the lead's shell so that shell sees the

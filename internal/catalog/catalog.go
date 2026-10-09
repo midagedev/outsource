@@ -108,6 +108,10 @@ type Entry struct {
 // Free alone would let an automatic pick land on it.
 func (e Entry) FreeNonRouter() bool { return e.Free && !e.Router }
 
+// Active is true when the catalogue states no status (OpenRouter) or zen's
+// "active"; any other word (zen's deprecated, beta) marks the id withdrawn.
+func (e Entry) Active() bool { return e.Status == "" || e.Status == "active" }
+
 // Options steers Load. The zero value loads every catalogue, uses fresh
 // caches, and resolves no policy.
 type Options struct {
