@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -32,11 +33,58 @@ type Provider struct {
 	EnvVar    string // the environment variable that beats everything
 	BaseEnv   string // the base-URL override variable
 	ZaiFamily bool   // participates in the z.ai discovery chain and host choice
+	// OpencodeAuthID, when set, is the entry in opencode's auth store
+	// (OpencodeAuthPath) that holds this provider's key: a read-only
+	// discovery source after the 0600 store, the same kind of discovery the
+	// z.ai chain does for other tools' files. That file is opencode's; this
+	// package never writes it and never copies the key out of it.
+	OpencodeAuthID string
 }
 
 var providers = map[string]Provider{
 	"zai": {Name: "zai", EnvVar: "ZAI_API_KEY", BaseEnv: "ZAI_BASE_URL", ZaiFamily: true},
 	"xai": {Name: "xai", EnvVar: "XAI_API_KEY", BaseEnv: "XAI_BASE_URL"},
+	// OpenRouter runs on the claude-code harness since 2026-10-09 (its
+	// Anthropic-compatible endpoint answered tool calls; see the openrouter
+	// row in internal/launch/wiring.go), and that harness resolves its key
+	// here. A user who ran `opencode auth login` already has one, in
+	// opencode's auth store, under "openrouter".
+	//
+	// The base override is OUTSOURCE_OPENROUTER_BASE_URL, not OPENROUTER_BASE_URL:
+	// other tools set that one to the OpenAI-compatible root (…/api/v1), and the
+	// claude CLI appends /v1/messages to its base, so honouring it would send
+	// rounds to …/api/v1/v1/messages.
+	"openrouter": {Name: "openrouter", EnvVar: "OPENROUTER_API_KEY", BaseEnv: "OUTSOURCE_OPENROUTER_BASE_URL", OpencodeAuthID: "openrouter"},
+}
+
+// knownProviders is the provider names, sorted, for every message that lists
+// them. Derived from the map, so a new row cannot be resolvable and missing
+// from the refusal that names what is known (the hand-written list of zai and
+// xai went stale exactly that way when openrouter was added).
+func knownProviders() []string {
+	out := make([]string, 0, len(providers))
+	for name := range providers {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// OpencodeAuthPath is the single owner of where opencode keeps its auth
+// store: $XDG_DATA_HOME/opencode/auth.json, by default
+// ~/.local/share/opencode/auth.json. "" when no home directory can be found —
+// every reader treats that as "cannot tell" and fails open. The launcher's
+// opencode credential pre-flight reads the same file through this function.
+func OpencodeAuthPath() string {
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		base = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(base, "opencode", "auth.json")
 }
 
 // zaiHosts are the hosts a z.ai coding plan is served from. The coding plan is
@@ -50,6 +98,7 @@ type paths struct {
 	crushConfig    string
 	claudeSettings string
 	chelperConfig  string
+	opencodeAuth   string
 }
 
 func resolvePaths() paths {
@@ -70,6 +119,7 @@ func resolvePaths() paths {
 		crushConfig:    filepath.Join(configHome, "crush", "crush.json"),
 		claudeSettings: filepath.Join(claudeDir, "settings.json"),
 		chelperConfig:  filepath.Join(home, ".chelper", "config.yaml"),
+		opencodeAuth:   OpencodeAuthPath(),
 	}
 }
 
@@ -181,6 +231,12 @@ func sources(p Provider) []source {
 		note: pp.store + " (written by bin/setup-key.sh)",
 		read: func(pp paths) string { return storeValue(pp.store, p.EnvVar) },
 	})
+	if p.OpencodeAuthID != "" && pp.opencodeAuth != "" {
+		out = append(out, source{
+			note: pp.opencodeAuth + " (" + p.OpencodeAuthID + ".key, written by `opencode auth login`; read only)",
+			read: func(pp paths) string { return opencodeAuthKey(pp.opencodeAuth, p.OpencodeAuthID) },
+		})
+	}
 	if !p.ZaiFamily {
 		return out
 	}
@@ -232,6 +288,34 @@ func crushKey(path string) string {
 	return d.Providers["zai"].APIKey
 }
 
+// opencodeAuthKey reads one provider's key out of opencode's auth store. Only
+// that provider's entry is decoded, so an entry of another shape (an oauth
+// login) cannot make the whole file unreadable. A missing or unparseable
+// file, a missing entry and a whitespace-only key all read as "": no key
+// here, so resolution goes on and reports what it tried. (Whitespace-only is
+// also what the launcher's positively-absent check counts as no key.)
+func opencodeAuthKey(path, id string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var d map[string]json.RawMessage
+	if json.Unmarshal(b, &d) != nil {
+		return ""
+	}
+	raw, ok := d[id]
+	if !ok {
+		return ""
+	}
+	var e struct {
+		Key string `json:"key"`
+	}
+	if json.Unmarshal(raw, &e) != nil {
+		return ""
+	}
+	return strings.TrimSpace(e.Key)
+}
+
 func claudeZaiToken(path string) string {
 	env := settingsEnv(path)
 	if env == nil {
@@ -255,7 +339,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	name := args[0]
 	p, ok := providers[name]
 	if !ok {
-		fmt.Fprintf(stderr, "credential: unknown provider '%s' (known: zai xai)\n", name)
+		fmt.Fprintf(stderr, "credential: unknown provider '%s' (known: %s)\n", name, strings.Join(knownProviders(), " "))
 		return ExitUsage
 	}
 	mode := ""
@@ -347,7 +431,7 @@ func setupKeyPath() string {
 func KeyOrExplain(provider string, stderr io.Writer) (string, bool) {
 	p, ok := providers[provider]
 	if !ok {
-		fmt.Fprintf(stderr, "credential: unknown provider '%s' (known: zai xai)\n", provider)
+		fmt.Fprintf(stderr, "credential: unknown provider '%s' (known: %s)\n", provider, strings.Join(knownProviders(), " "))
 		return "", false
 	}
 	pp := resolvePaths()
