@@ -154,7 +154,12 @@ echo "wget $*" >>"$WGET_LOG"
 [ -n "${FAIL_WGET:-}" ] && exit 4
 out=""
 while [ $# -gt 0 ]; do
-  case $1 in --*) ;; *O*) out=$2 ;; esac   # -O and combined -qO, as invoked
+  # -O and combined -qO, as invoked. Only a flag (leading -) may match, and its
+  # value is consumed with it: the bare *O* this used to be also matched the
+  # output PATH whenever mktemp's random suffix held a capital O (measured
+  # 2026-10-09: tmp.dAtGlSN4vO, tmp.gJ8kSmjdHO), read the URL as the output
+  # file, and failed the wget case about one run in seven.
+  case $1 in --*) ;; -*O*) out=$2; shift ;; esac
   shift
 done
 [ -n "$out" ] && cat "$WGET_ASSET" >"$out"
