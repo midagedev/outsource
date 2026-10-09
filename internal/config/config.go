@@ -542,10 +542,15 @@ func (c *Config) write() error {
 //   - not <qualifier>/<id>: the harness qualifies the id itself, so a stored
 //     opencode/step-5-preview-free on zen would reach the opencode CLI as
 //     opencode/opencode/step-5-preview-free.
-//   - on openrouter, that same rule refuses OpenRouter's own router ids
-//     (openrouter/auto, openrouter/free), and the message says why: a router
-//     picks a different model per request, so the launcher's model-identity
-//     check cannot pin it, and a default it cannot verify is not a default.
+//     On openrouter the bare ids are <vendor>/<id> and openrouter is itself a
+//     vendor, so the qualified form is openrouter/<vendor>/<id>: a further
+//     slash, not the prefix alone — the rule internal/launch's normalizeModel
+//     applies to --model (TestOpenrouterQualifiedFormHasOneAnswer holds the
+//     two to one answer).
+//   - on openrouter, OpenRouter's own router ids (openrouter/auto,
+//     openrouter/free) are refused, and the message says why: a router picks
+//     a different model per request, so the launcher's model-identity check
+//     cannot pin it, and a default it cannot verify is not a default.
 func CheckDefaultModel(provider, qualifier, model string) string {
 	if model == "" {
 		return fmt.Sprintf("a default model must not be empty — remove it with: outsource config unset providers.%s.defaultModel", provider)
@@ -556,8 +561,8 @@ func CheckDefaultModel(provider, qualifier, model string) string {
 	if provider == "openrouter" && (model == "openrouter/auto" || model == "openrouter/free") {
 		return fmt.Sprintf("%s is one of OpenRouter's own router ids: a router picks a different model per request, so the launcher's model-identity check cannot pin it and it cannot be a default — name one concrete model id", model)
 	}
-	if qualifier != "" && strings.HasPrefix(model, qualifier+"/") {
-		return fmt.Sprintf("a default model is stored bare and the launcher adds the %s/ qualifier itself, so %q would reach the harness as %s/%s — store %q", qualifier, model, qualifier, model, strings.TrimPrefix(model, qualifier+"/"))
+	if rest, ok := strings.CutPrefix(model, qualifier+"/"); qualifier != "" && ok && (provider != "openrouter" || strings.Contains(rest, "/")) {
+		return fmt.Sprintf("a default model is stored bare and the launcher adds the %s/ qualifier itself, so %q would reach the harness as %s/%s — store %q", qualifier, model, qualifier, model, rest)
 	}
 	return ""
 }

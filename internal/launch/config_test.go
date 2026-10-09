@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/midagedev/outsource/internal/config"
 )
 
 // The user config (internal/config) as the launcher reads it. TestMain points
@@ -261,10 +263,12 @@ func TestUserConfigQualifiedDefaultRefusedByTheLauncher(t *testing.T) {
 	if n := registered(); n != 0 {
 		t.Fatalf("refused defaults registered %d round(s)", n)
 	}
-	// Boundary: the bare ids pass.
+	// Boundary: the bare ids pass — including an id in OpenRouter's own
+	// openrouter/ namespace that is not a router.
 	for _, c := range []struct{ provider, model string }{
 		{"zen", "step-5-preview-free"},
 		{"openrouter", "nvidia/nemotron-3-ultra-550b-a55b:free"},
+		{"openrouter", "openrouter/probe-stealth-alpha"},
 	} {
 		userConfig(t, `{"providers": {"`+c.provider+`": {"defaultModel": "`+c.model+`"}}}`)
 		if rc, stderr := launch("--provider", c.provider, "--harness", "opencode"); rc != ExitHarnessMissing {
@@ -383,5 +387,35 @@ func TestConfigInjectionExportsAreTheTable(t *testing.T) {
 	}
 	if q["zen"] != "opencode" {
 		t.Fatalf("zen's qualifier = %q, want opencode", q["zen"])
+	}
+}
+
+// Two owners read "is this OpenRouter model id written in the opencode
+// harness's qualified form": normalizeModel, which rewrites a --model on the
+// claude-code harness, and config.CheckDefaultModel, which refuses a stored
+// default. OpenRouter's bare ids are <vendor>/<id>, and openrouter is also a
+// vendor (openrouter/auto, and stealth ids before they get a real vendor), so
+// the openrouter/ prefix alone does not mark the qualified form — a further
+// slash does. This holds the two to one answer per id: the rewrite happens
+// exactly when the stored default is refused for carrying the qualifier.
+// FAIL-first (2026-10-09): CheckDefaultModel refused every openrouter/ prefix,
+// so openrouter/probe-stealth-alpha was refused as qualified while
+// normalizeModel kept it as the bare id it is.
+func TestOpenrouterQualifiedFormHasOneAnswer(t *testing.T) {
+	p, _ := findProvider("openrouter")
+	for _, model := range []string{
+		"openrouter/z-ai/glm-5.3",
+		"openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+		"openrouter/probe-stealth-alpha",
+		"nvidia/nemotron-3-ultra-550b-a55b:free",
+		"z-ai/glm-5.3",
+	} {
+		_, note := normalizeModel(p, "claude-code", model)
+		rewritten := note != ""
+		msg := config.CheckDefaultModel(p.name, qualifierOf(p), model)
+		refusedAsQualified := strings.Contains(msg, "qualifier")
+		if rewritten != refusedAsQualified {
+			t.Errorf("%s: normalizeModel rewrites=%v but CheckDefaultModel refuses as qualified=%v (%q)", model, rewritten, refusedAsQualified, msg)
+		}
 	}
 }
