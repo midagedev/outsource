@@ -20,7 +20,7 @@ A round is three choices, and they are separate. The **model** does the work. Th
 | **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · the `opencode` CLI | a process family at **no cost and no login**, with a 1M context. Reads shape and colour family (`7` and `L` right; `#1E50DC` read as `#3A5BF0`) | **borrowed**: the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Once answered a glyph probe without opening the image — a verdict counts only if the log shows the `read` call |
 | **grok-4.6** | the `grok` CLI; also xai · Claude Code or crush | vision verdicts, image/video generation, web research | notices a hazard and implements it anyway unless the spec forbids it |
 | **muse-spark-1.3-contributor** — Muse Code | muse · the `muse` CLI | a fourth process family on its own account, with a **262k context** and a reasoning-effort knob (`--effort` → `--reasoning-effort`); reads **shape and colour family** (a drawn `H` read back as `H`, a `#1E50DC` fill as "blue") | the CLI has **no hook and no definable permission profile**, so an unguarded round commits — measured. The git guard here is a `git` shim first on the round's `PATH` (refuses with exit 97), which an absolute-path call still gets past |
-| **any OpenRouter id** — you name it; there is no default | openrouter · the `opencode` CLI, `--model openrouter/<vendor>/<id>` | a process family for when the plans are out of headroom | a bare `--provider openrouter` is exit 64. Free stealth ids are borrowed, not owned: two of them stopped serving in September 2026. The last one read **shape but not colour** (a blue fill called "dark maroon", an orange one "off-white", both confidently) |
+| **any OpenRouter id** — you name it, set a default, or let `--model free` pick | openrouter · headless Claude Code (`claude -p`, default; the bare id, `vendor/id`), or the `opencode` CLI (`--model openrouter/<vendor>/<id>`) | a process family for when the plans are out of headroom. `--model free` picks a free, tool-capable id from the live catalogue ([Free models](#free-models)) | no default id: name one, set one ([Your own defaults](#your-own-defaults)), or use `free`. Free ids come and go week to week, and most of them train on your prompts. OpenRouter limits `:free` ids to 20 requests a minute and 50 a day, or 1,000 a day once the account has bought 10 credits ([its limits page](https://openrouter.ai/docs/api-reference/limits)). Vision on this arm is measured only on opencode: a stealth id read **shape but not colour** (a blue fill called "dark maroon") |
 
 **Providers — whose account, whose terms**
 
@@ -31,7 +31,7 @@ A round is three choices, and they are separate. The **model** does the work. Th
 | agy | the Antigravity CLI's Google login | no | a named account; shared `~/.gemini` config, no per-track isolation |
 | muse | Muse Code's OAuth session — its Anthropic-compatible endpoint answers an API key with `billing_error` | no | a named account |
 | zen | none for a free id | no | **per id**: step-5-preview-free is "zero-retention" and not used for training; other free Zen ids are not (one trains on your data during its free period) |
-| openrouter | `opencode auth login` | no — pay per token | per id; a stealth endpoint publishes **no data policy** — so no proprietary work there |
+| openrouter | an OpenRouter key: `OPENROUTER_API_KEY`, `bin/setup-key.sh openrouter`, or the one `opencode auth login` already stored (read, never copied) | no — pay per token; free ids cost nothing | **per id**: `outsource models` shows each id's data policy, read from the policies of the providers OpenRouter routes it to. `--model free` takes only ids that neither train on nor retain your prompts unless you allow it |
 
 **Harnesses — the CLI that drives it**
 
@@ -64,7 +64,8 @@ z.ai 29%/6d4h │ grok 98%/2h19m │ 🛠2 ▶api zai·crush 12m  ▶tests zai·
 - a signed-in `agy` CLI (Antigravity, Google plan);
 - an authenticated `grok` CLI;
 - a signed-in `muse` CLI (Muse Code);
-- an authenticated `opencode` CLI (`opencode auth login`) for OpenRouter. There is no default id, and every id needs credits on the account.
+- an OpenRouter key, for any OpenRouter id (free ids cost nothing; priced ids need credits on the account). The launcher finds it in `OPENROUTER_API_KEY`, in its own store (`bin/setup-key.sh openrouter`), or where `opencode auth login` put it;
+- the `opencode` CLI, for OpenCode Zen's free ids (no login needed) or to run OpenRouter on the opencode harness.
 
 The `codex-ci` sidecar is separate: it needs the `codex` CLI and a [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT) key in `CHEAPER_INFERENCE_API_KEY`.
 
@@ -140,6 +141,44 @@ Say **"run this via glm"** — or grok, or agy — in any Claude Code session, o
 4. **reviews the result like a lead**: reads the diff itself, re-runs the gates cold, walks a checklist of the places delegated reports actually leak.
 
 The core principle: **the delegate is an executor of tight specs.** It has zero conversation context, so every delegation stands alone — and it is never asked for taste judgments, only numeric contracts.
+
+### Your own defaults
+
+Your choices live in one file, not in the code: `$OUTSOURCE_CONFIG`, else `$XDG_CONFIG_HOME/outsource/config.json`, else `~/.config/outsource/config.json`. Edit it with `outsource config`, or with `/rounds setup` in the [panel](#the-panel-a-claude-code-mod):
+
+```bash
+B=~/.claude/skills/outsource/bin/outsource
+$B config set providers.openrouter.defaultModel z-ai/glm-5.3   # a bare id
+$B config set providers.muse.enabled false                     # never route there
+$B config set free.allowTraining true                          # see Free models
+$B config set context.autoCompactWindow 400000
+$B config list                                                 # every key, set or not
+$B config path                                                 # which file, and why
+```
+
+| Key | Value | Effect |
+|---|---|---|
+| `providers.<p>.defaultModel` | a bare id | the model when `--model` is absent. Precedence: `--model`, then the provider's model env var (`GLM_DELEGATE_MODEL` for zai), then this, then the table |
+| `providers.<p>.enabled` | `true` / `false` | `false` refuses every launch on that provider (exit 64) |
+| `free.allowTraining` | `true` / `false` | lets `--model free` pick ids that train on or keep your prompts |
+| `free.denyPaths` | a list of globs (`~`, `**`) | a round whose `--cwd` is under one never runs a free id |
+| `context.autoCompactWindow` | tokens, default 600000 | on the claude-code harness, the auto-compact window is the smaller of this and the model's context window |
+
+`set` refuses a value the launcher would refuse — a qualified id (`opencode/x` for zen), an OpenRouter router id, a wrong type — and names the fix. A file that does not parse refuses every launch rather than route past a choice it could not read. Keys it does not know are kept.
+
+### Free models
+
+`outsource models` lists what the catalogue providers (OpenRouter and OpenCode Zen) offer right now, with context, price, tool support, expiry, and a data policy per id: `no-train-no-retain`, `retains`, `trains` or `unknown`. `--free` keeps the ids that cost nothing.
+
+`--model free` lets the launcher pick one for the round. A candidate must be free and not a router, tool-capable, current, at least 128k of context, and — unless you allow training — `no-train-no-retain`:
+
+```bash
+outsource-run --provider openrouter --model free …              # picks on OpenRouter
+outsource-run --provider zen --model free …                     # picks on Zen
+outsource models --pick free --provider openrouter              # what it would pick, and why
+```
+
+The pick is printed once and recorded in the sentinel (`model_selector=free`); a detached round runs exactly that id. Your configured default wins when it qualifies. When nothing qualifies, the refusal counts what each filter dropped. Free ids churn weekly and most of them train on your prompts, which is why the policy gate is on by default; `--allow-free-training` lifts it for one launch. A named id on these two providers is checked against the catalogue too: one it does not list, a router, an expired id or one without tool support refuses before the round starts. `OUTSOURCE_CATALOG=off` turns all catalogue traffic off ([OpenRouter](skills/outsource/references/openrouter.md)).
 
 ## Seeing the rounds you launched
 
@@ -264,6 +303,7 @@ A report says what a round claims, and the diff says what it left behind. Neithe
   - an input that posts to its inbox.
 - `/rounds send <label> <text>` sends without opening the pane.
 - `/rounds wake [on|off]` toggles the model wake (default on; a bare `/rounds wake` prints the state; off leaves the toasts).
+- `/rounds setup` opens a second pane over [your own defaults](#your-own-defaults): one line per provider with on/off and its default model, a button that switches the selected provider on or off, an input that sets its default (empty clears it), and for OpenRouter and Zen a list of up to eight free, tool-capable ids from the live catalogue. It reads and writes only through `outsource config`, so a value the launcher would refuse is refused here with the same line. One outsource pane is open at a time; `/rounds setup` again closes it.
 - `/rounds off` turns the whole panel off — no polling, band, toasts, wake or pane, and the two tools answer an error — until `/rounds on`, which resumes without waking for anything that changed meanwhile; the setting persists, default on. `/rounds wake off` silences only the model wake and leaves the rest running.
 - While the pane is closed, a one-line band above the prompt follows your most recently active round.
 - Toasts announce an own round that finished, failed, went silent or lost its process.
@@ -275,7 +315,7 @@ The panel also talks to the lead **model**, not only to you. When one of this se
 - **What it says.** Only launcher-written fields (label, state, rc, timings, log, cwd, id), never the round's own trail output. It closes with the review routine, one command per line — last-report, the `.rc` sentinel, the diff, audit — and then a line to re-run the gates. The `outsource` commands are spelled with the installed binary's absolute path, because `outsource` is not on PATH.
 - **Tools.** The model also gets `mcp__outsource__rounds` and `mcp__outsource__round_send` (`mcp__outsource-panel__rounds` and `mcp__outsource-panel__round_send` when the panel is loaded on its own), and a system-prompt section that states all of this and names the tools as they are registered. With the wake off, the section says "arm wait.sh as usual".
 
-All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id>`, plus the same `--plugin-dir` if that is how you load the panel) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs. A round labelled `send`, `wake`, `on` or `off` is reachable through the pane's round Select — those words are subcommands first.
+All data comes from `outsource runs json` and `outsource tail`, so the mod parses nothing itself. "Own" is the session id that launched the round. A brand-new session, or one after `/clear`, sees earlier rounds as foreign. Resume the launching session (`claude --resume <id>`, plus the same `--plugin-dir` if that is how you load the panel) to keep them yours. A terminal outside fullscreen seats the pane inline above the prompt, and the pane asks for the rows its whole tree needs. A round labelled `send`, `wake`, `on`, `off` or `setup` is reachable through the pane's round Select — those words are subcommands first.
 
 A round that its plan limit cut, which `--resume-on-reset` is holding, shows as `⏸` with `quota → <hh:mm>`, the latest it wakes. It counts as live: it is listed with the running rounds, does not wake you when it starts waiting, and wakes you when it finally finishes, fails or is orphaned. A round that ended cut by the limit shows as `⛔ resets <hh:mm>`, and its wake line reads "cut by the plan limit (429), resets hh:mm".
 
@@ -623,7 +663,7 @@ How the pieces fit, for readers who change or audit them.
 
 `internal/launch/wiring.go` is the single owner of "what can run where", and it is three tables.
 
-A **provider** is an account and an endpoint: base URL, default model, default harness, which environment variable may pin a model, the **qualifier** a CLI writes before the model id (empty means the provider's own name; zen's is `opencode`), what the vision guard answers for an id nobody measured, and the context-window fallback. A provider that talks Anthropic-compat (zai, xai) carries a URL and resolves its key through `bin/credential.sh`. One that brings its own CLI and auth store (openrouter and zen via opencode, agy, muse) carries an empty URL and no credential row — its CLI already logged the user in, or, for a free Zen id, needs no login at all.
+A **provider** is an account and an endpoint: base URL, default model, default harness, which environment variable may pin a model, the **qualifier** a CLI writes before the model id (empty means the provider's own name; zen's is `opencode`), what the vision guard answers for an id nobody measured, and the context-window fallback. A provider with a working Anthropic-compatible endpoint (zai, xai, openrouter) carries a URL, resolves its key through `bin/credential.sh`, and **defaults to the claude-code harness** — a test holds that rule, and a provider that defaults elsewhere must name its reason in the table. The others bring their own CLI and auth: zen's free tier answers only the opencode client (measured: `FreeTierError` from its `/v1/messages`), muse's endpoint answers an API key with `billing_error`, and agy is provider and harness in one.
 
 A **model** row is what was measured about one id on one provider: its vision level (unmeasured, blind, shape, colour-family, exact-hex), whether the endpoint silently answers it with a *different* id (refused at launch), and a context window when it differs from the provider's. An id with no row falls back to the provider.
 
@@ -639,7 +679,8 @@ zai          claude-code    glm-5.3                      default harness; seeds 
 zai          crush          glm-5.3                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
 xai          claude-code    grok-4.6                     default harness
 xai          crush          grok-4.6                     --model form xai/<id>
-openrouter   opencode       (--model required)           default harness; --model form openrouter/<id>
+openrouter   claude-code    (--model required)           default harness
+openrouter   opencode       (--model required)           --model form openrouter/<id>
 zen          opencode       step-5-preview-free          default harness; --model form opencode/<id>
 muse         muse           muse-spark-1.3-contributor   default harness
 agy          agy            gemini-3.8-flash-high        default harness
@@ -664,10 +705,10 @@ agy          (other ids)                    guard passes   -
 The refusal messages come from the same tables, so they say where the round *should* go rather than only where it cannot:
 
 ```
-$ outsource-run --provider openrouter --harness claude-code …
-harness claude-code does not drive provider openrouter — claude-code drives: zai xai;
-provider openrouter runs on: opencode (opencode owns its own auth store and resolves
-endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter)
+$ outsource-run --provider zen --harness claude-code …
+harness claude-code does not drive provider zen — claude-code drives: zai xai openrouter;
+provider zen runs on: opencode (OpenCode Zen's free tier refuses every client but opencode
+(measured 2026-10-09: FreeTierError from /zen/v1/messages))
 ```
 
 ### Verifying the binaries
