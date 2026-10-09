@@ -8,17 +8,44 @@
 
 래퍼가 아닙니다. **영수증이 붙은 운영 매뉴얼**입니다 — 여기 있는 규칙은 전부 실측된 라운드에서 나왔고, [아래 비교](#모델-비교)가 그 규칙을 찾아낸 방법입니다.
 
-| 백엔드 | 구동 | 쓰는 자리 | 하드 제약 |
-|---|---|---|---|
-| **GLM-5.3** — 기본값 | [z.ai 코딩플랜](https://z.ai/subscribe)을 `bin/outsource-run.sh`가 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI로 구동 | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
-| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | 같은 런처, `--model glm-5.3-flash` | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차) | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
-| **grok-4.6** | `grok` CLI | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
-| **gemini-3.8-flash-high** — Google 플랜 | `agy` CLI (Antigravity), `--provider agy` | **별도 쿼터 풀**의 스펙 라운드. 직전 기본값 3.7은 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC` PNG의 hex를 정확히 명명)이었습니다. 3.8은 아직 재측정 전입니다 | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음; 읽을 플랜 쿼터 없음; `~/.gemini` 설정 공유, 트랙별 격리 없음 |
-| **muse-spark-1.3-contributor** — Muse Code | `muse` CLI, `--provider muse` | 별도 계정의 네 번째 프로세스 계열 — **262k 컨텍스트**에 추론 강도 노브(`--effort` → `--reasoning-effort`)가 있고, **형태와 색 계열은 봅니다**(실측: 그려 넣은 `H`를 `H`로, `#1E50DC` 단색을 "blue"로) | 이 CLI에는 훅도, 정의할 수 있는 권한 프로파일도 없어서 **가드 없는 라운드는 실제로 커밋합니다**(실측). 그래서 git 가드는 라운드 `PATH` 맨 앞의 `git` shim이고 exit 97로 거부합니다. 절대경로로 부르는 호출은 여전히 빠져나갑니다. Anthropic 호환 엔드포인트에 API 키로 부르면 `billing_error`가 오고, CLI의 OAuth 세션으로만 들어갈 수 있습니다 |
-| **OpenRouter** — **기본값 없음, id를 직접 지정** | `opencode` CLI, `--provider openrouter --model openrouter/<vendor>/<id>` | 두 플랜 모두 헤드룸이 없을 때의 세 번째 프로세스 계열 | 맨 `--provider openrouter`는 exit 64입니다. 무료 stealth id는 빌린 자리여서, 2026년 9월에만 두 개가 제공을 멈췄습니다. **형태는 보지만 색은 못 봅니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서). stealth 엔드포인트는 **데이터 정책을 공개하지 않으므로** 사내 코드는 이 arm에 올리지 마십시오 |
-| **Codex on Cheaper Inference** — 런처 백엔드가 아닌 사이드카 | `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회 | Codex 자체 하네스로 돌리는 임시·수동 감독 라운드. 구독이 아니라 토큰당 과금 — `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 선택 | **런처 밖**: 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트 없음 |
+라운드 하나는 세 가지 선택으로 이뤄지고, 셋은 서로 별개입니다. **모델**이 일을 합니다. **프로바이더**는 그 모델이 도는 계정입니다 — 쿼터와 로그인, 그리고 프롬프트가 어떻게 다뤄지는지가 여기서 정해집니다. **하네스**는 모델을 헤드리스로 모는 CLI입니다 — git 금지를 어떻게 강제하는지, 무엇을 지켜볼 수 있는지가 여기서 정해집니다. 지금 무엇이 배선돼 있는지는 모델까지 포함해 `outsource-run --list-wiring`이 찍어 줍니다.
 
-백엔드를 늘리고 줄이는 일은 리팩터가 아니라 표 한 줄입니다([arm은 어떻게 배선되나](#arm은-어떻게-배선되나)).
+**모델 — 라운드마다 고르는 것**
+
+| 모델 | 프로바이더 · 하네스 | 쓰는 자리 | 주의 |
+|---|---|---|---|
+| **GLM-5.3** — 기본값 | zai · 헤드리스 Claude Code(`claude -p`, 기본) 또는 `crush` CLI, [z.ai 코딩플랜](https://z.ai/subscribe) | 스펙으로 쓸 수 있는 모든 라운드: 구현, 게이트 저작, 코드 조사 | **이미지를 못 봄**; 만족 불가능한 계약을 신고하지 않음 |
+| **glm-5.3-flash** — 같은 플랜, 쿼터 3× | zai · 같은 두 하네스 | 기계적 수정과 대량 팬아웃(5.3 쿼터가 병목일 때), 그리고 캡처 자기검증 — **픽셀을 봅니다**(단색 `#1E50DC`를 `#2244DD`로, 채널당 ~5% 오차) | 벤치한 모든 과제에서 5.3보다 느림 — 이 모델의 가치는 속도가 아니라 쿼터와 눈 |
+| **gemini-3.8-flash-high** — Google 플랜 | agy · `agy` CLI (Antigravity) | **별도 쿼터 풀**의 스펙 라운드. 직전 기본값 3.7은 벤치 최속(3과제 중 2개에서 2~3×)이자 **실측 비전 최강**(단색 `#1E50DC` PNG의 hex를 정확히 명명)이었습니다. 3.8은 아직 재측정 전입니다 | exit 0 ≠ 성공 — 런처가 result 이벤트의 `status`를 읽음 |
+| **step-5-preview-free** — OpenCode Zen, 한시 무료 | zen · `opencode` CLI | **비용도 로그인도 없는** 프로세스 계열, 컨텍스트 1M. 형태와 색 계열은 봅니다(실측: `7`과 `L`은 정답, `#1E50DC`를 `#3A5BF0`으로) | **빌린 자리**입니다. 무료 기간은 OpenCode가 끝낼 때 끝납니다(2026-10-09 공지는 일주일). 이미지를 열지도 않고 글리프 프로브에 답한 적이 한 번 있습니다 — 로그에 그 파일의 `read` 호출이 있을 때만 판정으로 칩니다 |
+| **grok-4.6** | `grok` CLI; xai · Claude Code나 crush로도 | 비전 판정, 이미지/비디오 생성, 웹 리서치 | 위험을 알아채고도 스펙이 금지하지 않으면 그대로 구현 |
+| **muse-spark-1.3-contributor** — Muse Code | muse · `muse` CLI | 별도 계정의 네 번째 프로세스 계열 — **262k 컨텍스트**에 추론 강도 노브(`--effort` → `--reasoning-effort`)가 있고, **형태와 색 계열은 봅니다**(실측: 그려 넣은 `H`를 `H`로, `#1E50DC` 단색을 "blue"로) | 이 CLI에는 훅도, 정의할 수 있는 권한 프로파일도 없어서 **가드 없는 라운드는 실제로 커밋합니다**(실측). 그래서 git 가드는 라운드 `PATH` 맨 앞의 `git` shim이고 exit 97로 거부합니다. 절대경로로 부르는 호출은 여전히 빠져나갑니다 |
+| **OpenRouter의 아무 id** — 기본값 없음, 직접 지정 | openrouter · `opencode` CLI, `--model openrouter/<vendor>/<id>` | 플랜 헤드룸이 바닥났을 때의 프로세스 계열 | 맨 `--provider openrouter`는 exit 64입니다. 무료 stealth id는 빌린 자리여서, 2026년 9월에만 두 개가 제공을 멈췄습니다. 마지막 stealth id는 **형태는 봤지만 색은 못 봤습니다**(실측: 파란 단색을 "짙은 적갈색", 주황 단색을 "우윳빛"이라고, 두 번 다 확신에 차서) |
+
+**프로바이더 — 누구 계정이고, 어떤 조건인가**
+
+| 프로바이더 | 로그인 | 플랜 쿼터 조회 | 프롬프트 취급 |
+|---|---|---|---|
+| zai | z.ai 코딩플랜 키(`bin/credential.sh`) | 가능(`bin/quota.sh`) | 조건이 명시된 실명 계정 |
+| xai | x.ai 키(`bin/credential.sh`) | 불가 | 실명 계정 |
+| agy | Antigravity CLI의 Google 로그인 | 불가 | 실명 계정. `~/.gemini` 설정 공유, 트랙별 격리 없음 |
+| muse | Muse Code의 OAuth 세션 — Anthropic 호환 엔드포인트에 API 키로 부르면 `billing_error` | 불가 | 실명 계정 |
+| zen | 무료 id는 필요 없음 | 불가 | **id마다 다릅니다**. step-5-preview-free는 "zero-retention"이고 학습에 쓰지 않는다고 명시합니다. 다른 무료 Zen id는 그렇지 않습니다(무료 기간 동안 데이터로 학습하는 것도 있습니다) |
+| openrouter | `opencode auth login` | 불가 — 토큰당 과금 | id마다 다릅니다. stealth 엔드포인트는 **데이터 정책을 공개하지 않으므로** 사내 코드는 올리지 마십시오 |
+
+**하네스 — 모델을 모는 CLI**
+
+| 하네스 | git 금지 | 라이브 trail | `--effort` | inbox · 429 후 재개 | 정체성 확인 |
+|---|---|---|---|---|---|
+| claude-code | `PreToolUse` 훅(`bin/git-guard.sh`) | 세션 transcript | 예 | 예 · 예 | transcript의 model 필드 |
+| crush | 같은 훅 | `data/logs/crush.log` | 아니오 | 아니오 · 아니오 | 없음 — crush 로그에 모델이 없음 |
+| opencode | 격리된 config의 permission deny | `--log`(JSONL) | 아니오 | 아니오 · 아니오 | `opencode export` |
+| agy | 공유 `~/.gemini` 설정의 deny 규칙 | `--log`(stream JSON) | 아니오 | 아니오 · 아니오 | 대화 trajectory db |
+| muse | `PATH` 맨 앞의 `git` shim | `--log`(JSONL) | 예 | 아니오 · 아니오 | `muse` export |
+
+**Codex on Cheaper Inference**는 런처 arm이 아닌 사이드카입니다. `codex` CLI 자체를 `bin/codex-ci`가 [Cheaper Inference](https://cheaperinference.com/?ref=_PwfpWXaxT)로 우회시키는 것으로, Codex 자체 하네스에서 임시·수동 감독 라운드를 구독이 아니라 토큰당 과금으로 돌립니다. `CI_MODEL`(기본 `gpt-5.6-sol`; `gpt-6-astra`는 7배, `gpt-5.6-luna`는 ~1/12)과 `CI_EFFORT`(기본 `medium`)로 고릅니다. **런처 밖**이라 런 레지스트리·git 가드·done-marker·아이덴티티 단언·쿼터 게이트가 없습니다.
+
+arm을 늘리고 줄이는 일은 리팩터가 아니라 세 테이블 중 하나의 한 줄입니다([arm은 어떻게 배선되나](#arm은-어떻게-배선되나)).
 
 위임이 벌어지는 동안 그것을 읽을 수 있게 하는 [스테이터스라인](#스테이터스라인)과 [패널](#패널-claude-code-mod)이 함께 들어 있습니다 — 이 세션을 멈추는 것, 다음 라운드를 멈추는 것, 지금 돌고 있는 것:
 
@@ -548,7 +575,7 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 | 발견된 약점 | 지금 무엇이 막는가 |
 |---|---|
-| GLM은 이미지를 못 보는데 스펙이 스크린샷을 건넬 수 있음 | **비전 가드, exit 65** — 프로바이더 행의 비전 칼럼이 판단하고, 그 판단은 **모델 단위**입니다(zai 기본값은 못 보고 `glm-5.3-flash`는 봅니다). 호출 지점의 이름 비교가 아닙니다. `--no-vision-check`로 무시 가능. |
+| GLM은 이미지를 못 보는데 스펙이 스크린샷을 건넬 수 있음 | **비전 가드, exit 65** — 모델 테이블에 실측된 비전 수준이 판단하고, 실측 없는 id는 프로바이더의 답을 따릅니다(zai 기본값은 못 보고 `glm-5.3-flash`는 봅니다). 호출 지점의 이름 비교가 아닙니다. `--no-vision-check`로 무시 가능. |
 | z.ai가 모델명 없는 `claude-*` 요청에 플랜 기본값으로 조용히 답함 | **모델 정체성 단언, exit 70** — 세션 트랜스크립트의 턴별 `message.model`에서 읽습니다. `modelUsage`가 **아닙니다**. 그건 실측 결과 **요청한 id를 되비추기만** 해서 일치를 증명할 수 없습니다. 트랜스크립트가 없으면 "검증 불가"이고 그것도 실패입니다. |
 | 싼 팔이 만족 불가능한 계약 앞에서 멈추지 않음 | **발사 전 리드 체크리스트 항목.** 이에 해당하는 위임자 측 규칙은 preamble에 **이미 있었고 발동하지 않았습니다.** 그래서 문장을 더 쓰는 대신 검사를 리드 쪽으로 옮겼습니다. |
 | preamble이 없으면 공개가 사라짐 | **`references/spec-preamble-core.md`** — 사라진 그 절반만 정확히 되가져오는 짧은 대체본. |
@@ -608,25 +635,44 @@ FAIL-first는 preamble 없이도 살아남습니다. **태스크 스펙**이 요
 
 ### arm은 어떻게 배선되나
 
-`internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 둘입니다.
+`internal/launch/wiring.go`가 "무엇이 어디서 도는가"의 단일 소유자이고, 그 내용은 테이블 셋입니다.
 
-**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 그 프로바이더의 어느 모델이 픽셀을 보는지, 어떤 환경변수가 모델을 핀할 수 있는지, 그리고 엔드포인트가 **다른 모델로 조용히 대답해 버리는** id가 무엇인지. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter, agy)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있으니까요.
+**프로바이더**는 계정과 엔드포인트입니다 — base URL, 기본 모델, 기본 하네스, 어떤 환경변수가 모델을 핀할 수 있는지, CLI가 모델 id 앞에 붙이는 **qualifier**(비어 있으면 프로바이더 이름 그대로이고, zen은 `opencode`), 아무도 실측하지 않은 id에 비전 가드가 내놓을 답, 그리고 컨텍스트 창의 기본값. Anthropic 호환 프로바이더(zai, xai)는 URL을 갖고 키를 `bin/credential.sh`로 해석합니다. 자체 CLI와 인증 저장소를 가져오는 쪽(opencode의 openrouter와 zen, agy, muse)은 URL이 비고 cred 행도 없습니다 — 로그인은 그 CLI가 이미 갖고 있거나, 무료 Zen id처럼 아예 필요 없습니다.
+
+**모델** 행은 한 프로바이더의 한 id에 대해 실측한 사실입니다 — 비전 수준(unmeasured, blind, shape, colour-family, exact-hex), 엔드포인트가 그 id에 **다른 모델로 조용히 대답해 버리는지**(그러면 런치에서 거부), 그리고 프로바이더와 다를 때의 컨텍스트 창. 행이 없는 id는 프로바이더의 값을 따릅니다.
 
 **하네스**는 그 모델을 헤드리스로 어떻게 몰 것인가입니다 — PATH에 있어야 할 바이너리, 구동하는 프로바이더 목록, 라운드가 살아있는 흔적을 남기는 위치, 디스패치, 그리고 거기서 `--model`이 가져야 할 형태.
 
-그 아래는 전부 이 둘에서 파생됩니다 — `--harness` 검증, `--detach`의 PATH 조회, `runs`가 들여다보는 progress 디렉터리, 디스패치, 페어링 거부, `--help` 문구까지. 반쯤 배선된 줄은 일관성 테스트가 막습니다 — 자기 프로바이더를 구동하지 않는 기본 하네스, 디스패치나 PATH 바이너리가 빈 하네스, 규칙 없이 힌트만 있는 `--model` 형태.
+그 아래는 전부 이 셋에서 파생됩니다 — `--harness` 검증, `--detach`의 PATH 조회, `runs`가 들여다보는 progress 디렉터리, 디스패치, 페어링 거부, 비전 가드, 매핑된 모델의 거부, `--help` 문구까지. 반쯤 배선된 줄은 일관성 테스트가 막습니다 — 자기 프로바이더를 구동하지 않는 기본 하네스, 디스패치나 PATH 바이너리가 빈 하네스, 규칙 없이 힌트만 있는 `--model` 형태, 한 하네스에서 qualifier가 겹치는 두 프로바이더, 없는 프로바이더를 가리키는 모델 행, 모델 행이 없는 프로바이더 기본값.
 
-`outsource-run --list-wiring`이 지금 두 테이블이 무엇을 어디로 보내는지 그대로 찍어 줍니다:
+`outsource-run --list-wiring`이 지금 테이블들이 무엇을 어디로 보내는지 그대로 찍어 줍니다:
 
 ```
-PROVIDER     HARNESS        DEFAULT MODEL            NOTES
-zai          claude-code    glm-5.3                  default harness; seeds from $GLM_DELEGATE_MODEL
-zai          crush          glm-5.3                  --model form provider/id; seeds from $GLM_DELEGATE_MODEL
-xai          claude-code    grok-4.6                 default harness
-xai          crush          grok-4.6                 --model form provider/id
-openrouter   opencode       (--model required)       default harness; --model form openrouter/<id>
-muse         muse           muse-spark-1.3-contributor default harness
-agy          agy            gemini-3.8-flash-high    default harness
+PROVIDER     HARNESS        DEFAULT MODEL                NOTES
+zai          claude-code    glm-5.3                      default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.3                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
+xai          claude-code    grok-4.6                     default harness
+xai          crush          grok-4.6                     --model form xai/<id>
+openrouter   opencode       (--model required)           default harness; --model form openrouter/<id>
+zen          opencode       step-5-preview-free          default harness; --model form opencode/<id>
+muse         muse           muse-spark-1.3-contributor   default harness
+agy          agy            gemini-3.8-flash-high        default harness
+
+MODELS (measured per id; ids not listed fall back to the provider)
+PROVIDER     MODEL                          VISION         CONTEXT    NOTES
+zai          glm-5.3                        blind          1310720    default
+zai          glm-5.3-flash                  colour-family  1310720
+zai          glm-5.2                        unmeasured     1310720    refused at launch: answered by glm-5.3
+zai          (other ids)                    guard refuses  1310720
+xai          grok-4.6                       unmeasured     -          default
+xai          (other ids)                    guard passes   -
+openrouter   (other ids)                    guard passes   -
+zen          step-5-preview-free            colour-family  -          default
+zen          (other ids)                    guard passes   -
+muse         muse-spark-1.3-contributor     colour-family  -          default
+muse         (other ids)                    guard passes   -
+agy          gemini-3.8-flash-high          unmeasured     -          default
+agy          (other ids)                    guard passes   -
 ```
 
 거부 메시지도 같은 테이블에서 나옵니다. 그래서 "여기서는 안 된다"만이 아니라 **어디로 가야 하는지**까지 말합니다:
