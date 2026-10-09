@@ -150,8 +150,9 @@ with a summarized spec is usually better).
 Flags: `--harness claude-code|crush` (default claude-code, or
 `OUTSOURCE_HARNESS`); `--model` — bare id on claude-code (`glm-5.3`),
 `provider/id` on crush (`zai/glm-5.3`), or `GLM_DELEGATE_MODEL`;
-`--config-dir` — one per parallel track; `--provider zai|xai` (default zai,
-or `OUTSOURCE_PROVIDER`) selects the provider-table row; `--require-quota N`
+`--config-dir` — one per parallel track; `--provider zai|xai|openrouter`
+(default zai, or `OUTSOURCE_PROVIDER`) selects the provider-table row —
+openrouter runs here too, with its bare `vendor/id` (`references/openrouter.md`); `--require-quota N`
 refuses to launch below an N% floor on the plan's tightest window (exit 66);
 `--no-vision-check` overrides the image-spec refusal (exit 65);
 `--allow-agent` (crush only) re-enables sub-agent tools and **weakens the
@@ -492,4 +493,4 @@ model-switching page describe the same setup from the vendor's side. Checked
 | Default the aliases to `GLM-5.3-Flash` | **`glm-5.3`**, deliberately. Flash's measured value is quota and eyes, not strength (model table at the top); `GLM_MODEL=glm-5.3-flash` when you want it |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | **Taken.** A session answered by z.ai has no business reporting to Anthropic. The one item from that page this script adopts |
 | `API_TIMEOUT_MS=3000000` | **Not taken.** Nothing in this repo's history is a client timeout, and the variable appears nowhere in it. A 50-minute ceiling turns a hung request into a 50-minute hang; a human is present here and `--max-seconds` covers the headless side. Adopt it if a round is ever measured dying on one |
-| `glm-5.3-flash[1m]` plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` for 1M context | **The suffix is unreachable and the variable is the wrong one — but the 1M is real.** Measured 2026-09-20: `glm-5.3-flash[1m]` and `glm-5.3[1m]` are both refused `[1211][Unknown Model]`, on `api.z.ai/api/anthropic` *and* on the coding-plan `api/coding/paas/v4`, while bare `glm-5.3-flash` answers on both. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` moved nothing. The window is `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and plain `glm-5.3` takes the full 1M without any suffix — see below |
+| `glm-5.3-flash[1m]` plus `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` for 1M context | **The suffix is unreachable and the variable is the wrong one — but the 1M is real.** Measured 2026-09-20: `glm-5.3-flash[1m]` and `glm-5.3[1m]` are both refused `[1211][Unknown Model]`, on `api.z.ai/api/anthropic` *and* on the coding-plan `api/coding/paas/v4`, while bare `glm-5.3-flash` answers on both. `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000` did not raise the window. (It does move compaction the other way: measured 2026-10-09 with the window at 1000000 and this variable at 30000, a headless round auto-compacted at 69922 prompt tokens — so since 0.21.0 the launcher sets it to the smaller of the window and `context.autoCompactWindow`, default 600000.) The window is `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and plain `glm-5.3` takes the full 1M without any suffix — see below |

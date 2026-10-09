@@ -120,8 +120,10 @@ export CLAUDE_CODE_SUBAGENT_MODEL="$model"
 # consumed"), so a larger window costs requests, not budget.
 #
 # Not to be confused with CLAUDE_CODE_AUTO_COMPACT_WINDOW, which z.ai's own
-# page recommends for this: measured, it moved nothing. The window is this
-# variable.
+# page recommends for this: measured 2026-09-20, setting it to 1000000 did not
+# raise the window. The window is this variable. (That one only moves when
+# compaction fires: 2026-10-09, at 30000 under a 1000000 window, a headless
+# round compacted at 69922 prompt tokens.)
 if [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]; then
   export CLAUDE_CODE_MAX_CONTEXT_TOKENS="${GLM_CONTEXT_TOKENS:-1310720}"
 fi

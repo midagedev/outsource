@@ -1,15 +1,18 @@
 # The opencode harness — OpenRouter and OpenCode Zen
 
 The model is the point; **the harness is just how it is driven headlessly**.
-The `opencode` CLI drives two providers here, and both default to it, so
-`--harness opencode` can be omitted. Division of labor is unchanged: the
-lead writes specs, reviews diffs, runs gates, commits; the delegate burns
-the tokens.
+The `opencode` CLI drives two providers here. Zen defaults to it (Zen's free
+tier answers no other client), so `--harness opencode` can be omitted there.
+OpenRouter defaults to the claude-code harness since 0.21.0 — its
+Anthropic-compatible endpoint works, and a provider that has one runs on
+claude-code (`references/openrouter.md`) — so on OpenRouter this harness is
+opt-in: `--harness opencode`. Division of labor is unchanged: the lead writes
+specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
 
-| Provider | `--model` form | Default | Login |
+| Provider | `--model` form here | Default | Login |
 |---|---|---|---|
 | `zen` — OpenCode Zen | `opencode/<id>` | `step-5-preview-free` | none for a free id |
-| `openrouter` | `openrouter/<vendor>/<id>` | **none — `--model` is required** | an OpenRouter key in opencode's auth store (`opencode auth login`) |
+| `openrouter` with `--harness opencode` | `openrouter/<vendor>/<id>` | **none** — name an id, set one in the config, or `--model free` | an OpenRouter key in opencode's auth store (`opencode auth login`) |
 
 The `--model` form is `<qualifier>/<id>`, where the qualifier is the id
 opencode's own CLI uses for the provider — the string `opencode models`
@@ -66,12 +69,17 @@ the price), nemotron ("Trial use only — do not submit personal or
 confidential data"). Read the id's own line on
 https://opencode.ai/docs/zen/ before naming another one.
 
-## openrouter — you name the id
+## openrouter on this harness
 
-> **There is no default model on this row — `--model` is required.** The form
-> is `--model openrouter/<vendor>/<id>`; OpenRouter ids are `vendor/model`, so
-> the flag value carries two slashes. A bare `--provider openrouter` refuses at
-> exit 64 with `provider openrouter has no default model`.
+The provider itself — key, catalogue, free picks, data policy, rate limits —
+is `references/openrouter.md`. What follows is what the opencode harness
+adds, and the history measured on it.
+
+> **There is no default model on this row.** On this harness the form is
+> `--model openrouter/<vendor>/<id>`; OpenRouter ids are `vendor/model`, so
+> the flag value carries two slashes. With no `--model` and no default in the
+> user config, `--provider openrouter` refuses at exit 64 with
+> `provider openrouter has no default model`.
 >
 > **The stealth slot has now emptied twice, and that is the fact to carry.**
 > `stealth/ox-alpha` held it until 2026-09-10 and was unveiled as
@@ -89,9 +97,10 @@ https://opencode.ai/docs/zen/ before naming another one.
 > `internal/launch/wiring.go` and drop `openrouter` from `emptyByDesign` in
 > `wiring_test.go`, in the same commit.
 
-opencode manages its own credentials (`opencode auth login`). This
-launcher does not write a key, does not add an `internal/cred` row, and
-does not set an API URL — opencode resolves OpenRouter (and Zen) itself.
+On this harness opencode resolves its own credentials (`opencode auth
+login`) and endpoints: the launcher sets no API URL and passes no key. The
+launcher's `internal/cred` row for openrouter is what the claude-code harness
+reads; it may read the key opencode stored, but never writes opencode's file.
 
 **Identity caveat:** an OpenRouter id can be re-pointed by the catalogue
 without notice (that is how the stealth slot worked, and how it ended).
@@ -100,8 +109,10 @@ the round with exit 70 on a mismatch, even when the run itself succeeded.
 
 **Privacy caveat, and it is the price of "free".** The stealth endpoint
 published **no data policy at all** — `/api/v1/models/stealth/union-alpha/
-endpoints` returned `"data_policy": null` (checked 2026-09-17), and the lab
-behind it was not named. A stealth id is by construction an id whose terms you
+endpoints` returned `"data_policy": null` (checked 2026-09-17; by 2026-10-09
+the endpoints answer carried no policy field at all, and `outsource models`
+reads policy from OpenRouter's provider list instead), and the lab behind it
+was not named. A stealth id is by construction an id whose terms you
 cannot read. You therefore cannot establish what happens to a
 round's prompt, and a delegated round's prompt is your spec plus every file
 the delegate reads. Treat this arm as disclosure to an undisclosed party:
@@ -157,16 +168,17 @@ cat ~/.claude/skills/outsource/references/spec-preamble.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/oc-cfg-<track> --log $SP/oc-<track>.log \
   --done-marker DONE-<TRACK>
-# OpenRouter: --provider openrouter --model openrouter/<vendor>/<id>
+# OpenRouter here: --provider openrouter --harness opencode --model openrouter/<vendor>/<id>
 ```
 
 `--detach` re-execs into its own session (same as grok-run / the zai
 harnesses — it happens before harness dispatch). A non-TTY foreground
 launch is refused at exit 64; use `--detach` or `--foreground`.
 
-`--harness opencode` is the default for both providers and can be omitted,
-and so can `--model` on a row that has a default (zen does; openrouter does
-not). When you pass one, it is `<qualifier>/<id>` — `opencode/<id>` on zen,
+`--harness opencode` is zen's default and can be omitted there; OpenRouter
+needs it spelled out. `--model` can be omitted on a row that has a default
+(zen does; openrouter has one only when the user config sets it). When you
+pass one, it is `<qualifier>/<id>` — `opencode/<id>` on zen,
 `openrouter/<vendor>/<id>` on openrouter, where the id itself contains a
 slash, so a naive one-slash split is wrong. The form is checked before the
 `--detach` re-exec, so a malformed value refuses on your terminal (exit 64,
@@ -248,8 +260,9 @@ Read the round's report with `bin/last-report.sh <log>`.
   resolved) — a round that ran somewhere else fails the same way.
   Timed-out rounds skip the assertion (truncated log, same reason as
   claude-code).
-- Auth preflight (openrouter only — zen's free ids measured to run with no
-  Zen key) is best-effort: if `~/.local/share/opencode/auth.json`
+- Auth preflight (openrouter on this harness only — zen's free ids measured
+  to run with no Zen key, and on claude-code the key resolves through
+  `internal/cred`) is best-effort: if `~/.local/share/opencode/auth.json`
   (or `$XDG_DATA_HOME/opencode/auth.json`) exists, parses, and has no
   usable `openrouter` key, the launcher refuses before registering a
   round and points at `opencode auth login`. Absence of the file is
@@ -289,7 +302,7 @@ Same family as the zai launcher:
 | 70 | model-identity mismatch or unverifiable, or the session's directory was not `--cwd` |
 | 72 | clean harness exit, `--done-marker` absent from the final report |
 | 73 | claude-code harness only — transcript held zero `tool_use` blocks (`--allow-no-tools` allows it); not reachable on this harness |
-| 1 | OpenRouter credentials positively absent from auth.json (openrouter only) |
+| 1 | OpenRouter credentials positively absent from auth.json (openrouter on this harness only) |
 | 124 | `--max-seconds` ceiling; process group killed |
 
 `<log>.rc` carries `harness=opencode`, `provider=openrouter|zen`,

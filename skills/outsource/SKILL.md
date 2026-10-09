@@ -6,8 +6,9 @@ description: >
   sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
   headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
   gemini-3.8-flash-high (agy CLI, Google plan), muse-spark-1.3-contributor
-  (Muse Code CLI), and through the opencode CLI either OpenCode Zen's free
-  step-5-preview-free or any OpenRouter id you name — while the lead Claude
+  (Muse Code CLI), OpenCode Zen's free step-5-preview-free (opencode CLI),
+  and any OpenRouter id — named, configured, or picked free from the live
+  catalogue with `--model free` — while the lead Claude
   session stays orchestration-only. Use when the user asks to run work via
   grok / glm / crush / opencode / openrouter / zen / agy / muse, to save
   tokens, or invokes /outsource.
@@ -48,7 +49,7 @@ included; the three tables in `internal/launch/wiring.go` are the source.
 | **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · opencode (`references/opencode.md`) | a process family at no cost and with no login: 1M context | **borrowed** — the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Sees shape and colour family (`#1E50DC` read as `#3A5BF0`), and once answered a glyph probe without opening the image |
 | **grok-4.6** | the `grok` CLI, headless (`references/grok.md`); also xai · claude-code or crush | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
 | **muse-spark-1.3-contributor** — Muse Code | muse · muse (`references/muse.md`) | a fourth process family on a separate account: 262k context, `--effort` maps to `--reasoning-effort`, and it reads shape and colour family (a drawn `H`; `#1E50DC` as "blue") | the CLI has no hook and no definable permission profile — an unguarded round **commits** (measured), so the git guard is a `git` shim first on the round's `PATH`, refusing with exit 97 |
-| **any OpenRouter id** — no default; you name it | openrouter · opencode, `--model openrouter/<vendor>/<id>` (`references/opencode.md`) | a process family when the plans are out of headroom; you own the choice of id | **the stealth slot has emptied twice** — `ox-alpha` on 2026-09-10, `union-alpha` on 2026-09-18 (measured: `rc=1`, the endpoint's own 404 naming its priced successor). A bare `--provider openrouter` is exit 64. The last stealth id **saw shape, not colour** — a blue fill read as "dark maroon", an orange one as "off-white", both with high stated confidence |
+| **any OpenRouter id** — named, a config default, or `--model free` | openrouter · claude-code (default; bare `vendor/id`) or opencode (`openrouter/<vendor>/<id>`) (`references/openrouter.md`) | a process family when the plans are out of headroom. `--model free` picks a free, tool-capable id from the live catalogue, by default only one that neither trains on nor retains prompts | no table default: with no `--model` and no config default it is exit 64. Free ids churn weekly and most of them train on prompts; `:free` ids are limited to 20 requests a minute. Vision measured only on opencode (a stealth id **saw shape, not colour**) |
 
 **Providers — whose account, whose terms**
 
@@ -59,7 +60,7 @@ included; the three tables in `internal/launch/wiring.go` are the source.
 | agy | the Antigravity CLI's Google login | no | a named account | agy |
 | muse | Muse Code's OAuth session (its Anthropic-compatible endpoint answers an API key with `billing_error`) | no | a named account | muse |
 | zen | none for a free id | no | **per id** — step-5-preview-free: "zero-retention", no training. Other free Zen ids differ (one trains on your data in its free period) | opencode |
-| openrouter | `opencode auth login` | no — pay per token | per id; a stealth id publishes no data policy at all — keep proprietary work off it | opencode |
+| openrouter | an OpenRouter key: `OPENROUTER_API_KEY`, `bin/setup-key.sh openrouter`, or the one `opencode auth login` stored (read only) | no — pay per token; free ids cost nothing | **per id** — `outsource models` shows each id's policy from OpenRouter's provider list; `free.denyPaths` keeps free ids out of named directories | claude-code (default), opencode |
 
 **Harnesses — the CLI that drives it**
 
@@ -88,8 +89,9 @@ Selection rules:
   (image/video) or a web tool the GLM harness lacks; agy for a separate
   quota pool, the fastest benched completion, or the sharpest measured
   vision. zen's free id is a further process family while its window lasts;
-  OpenRouter is for when you name an id and own the choice — since
-  2026-09-18 that row has no default to fall back on.
+  OpenRouter is for when you name an id and own the choice, or let
+  `--model free` pick from the live catalogue under the data-policy gate —
+  the row itself has no default (a user may set one in the config).
   "It feels exploratory" is not a reason — narrow the cause first, then
   delegate (see *When NOT to outsource*).
 - Anything that must **look at pixels** → agy (gemini-3.8-flash-high — the
@@ -103,7 +105,8 @@ Selection rules:
   default-ask and is rejected headless). On zen, a verdict counts only if the
   round's log shows the `read` call on that file — step-5-preview-free once
   answered without opening the image. On openrouter the model is whichever id
-  you named, so the guard defers and the choice is yours.
+  you named, so the guard defers and the choice is yours — and no image has
+  been probed through the claude-code harness on an OpenRouter id.
 - The backends parallelize: disjoint file whitelists, one worktree and one
   config/session scope per track. Spreading tracks across providers —
   and, for GLM, across its two harnesses — multiplies headroom. agy is the
@@ -117,10 +120,22 @@ Selection rules:
   checklist apply whichever one runs. GLM-5.3 ships with two
   (`--harness claude-code|crush`); pin the model explicitly, because z.ai
   maps an unqualified `claude-*` request onto its plan default (measured:
-  glm-4.7). openrouter and zen default to harness `opencode` and are refused
-  on the other two (no Anthropic-compatible URL, no cred row). On a
+  glm-4.7). A provider with a working Anthropic-compatible endpoint (zai,
+  xai, openrouter) defaults to claude-code; zen runs only on opencode (its
+  free tier answers no other client), muse and agy on their own CLIs. On a
   qualifying harness the `--model` form is `<qualifier>/<id>`: `zai/<id>` on
-  crush, `openrouter/<vendor>/<id>` or `opencode/<id>` on opencode.
+  crush, `openrouter/<vendor>/<id>` or `opencode/<id>` on opencode; the
+  0.20.0 form `openrouter/<vendor>/<id>` arriving on claude-code is rewritten
+  to the bare id with one stderr line.
+- **The user's own choices live in one file**, `outsource config`
+  (`$OUTSOURCE_CONFIG`, else `~/.config/outsource/config.json`): a default
+  model per provider (bare id), a provider switched off, the free-model
+  data gate (`free.allowTraining`, `free.denyPaths`), and the auto-compact
+  cap (`context.autoCompactWindow`, default 600000). Precedence: `--model`,
+  the provider's model env, the config default, the table default. A
+  disabled provider refuses at exit 64; a file that does not parse refuses
+  every launch. `outsource models` lists what the catalogue providers offer
+  now, with price, tools, context and data policy.
 - Site-local defaults (which backend is *your* default, model overrides)
   belong in the user overlay (`references/local-overlay.md`); repo-specific
   gates and coordinates in the project overlay (`<repo>/.outsource/overlay.md`).
@@ -203,11 +218,14 @@ in flight*).
   warning, model-identity assertion, `<log>.rc` sentinel), `bin/git-guard.sh`
   PreToolUse hook (works on both harnesses), z.ai model-mapping trap,
   measured behavior profile.
-- OpenCode Zen and OpenRouter: `references/opencode.md` —
+- OpenRouter: `references/openrouter.md` — `bin/outsource-run.sh
+  --provider openrouter --model <vendor>/<id>` on the claude-code harness
+  (default), `--model free` for a catalogue pick, the key's three sources,
+  the data-policy gate, rate limits, and the measured end-to-end round.
+- OpenCode Zen, and OpenRouter on opencode: `references/opencode.md` —
   `bin/outsource-run.sh --provider zen` (default `step-5-preview-free`, no
-  login) or `--provider openrouter --model openrouter/<vendor>/<id>`
-  (`--model` required — that row has no default since 2026-09-18); harness
-  `opencode` is the default for both. Isolated `OPENCODE_CONFIG_DIR`,
+  login; opencode is its only harness) or `--provider openrouter --harness
+  opencode --model openrouter/<vendor>/<id>`. Isolated `OPENCODE_CONFIG_DIR`,
   git-write permission deny, `SESSION <id>` resume via `-s`, model identity
   via `opencode export` checked against the provider's qualifier.
 - Codex on Cheaper Inference: `references/codex.md` — `bin/codex-ci`, the
