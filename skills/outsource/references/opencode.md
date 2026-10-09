@@ -1,9 +1,72 @@
-# OpenRouter, on the opencode harness
+# The opencode harness — OpenRouter and OpenCode Zen
 
 The model is the point; **the harness is just how it is driven headlessly**.
-`bin/outsource-run.sh --provider openrouter` picks this row and defaults
-the harness to `opencode`. Division of labor is unchanged: the lead writes
-specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
+The `opencode` CLI drives two providers here, and both default to it, so
+`--harness opencode` can be omitted. Division of labor is unchanged: the
+lead writes specs, reviews diffs, runs gates, commits; the delegate burns
+the tokens.
+
+| Provider | `--model` form | Default | Login |
+|---|---|---|---|
+| `zen` — OpenCode Zen | `opencode/<id>` | `step-5-preview-free` | none for a free id |
+| `openrouter` | `openrouter/<vendor>/<id>` | **none — `--model` is required** | an OpenRouter key in opencode's auth store (`opencode auth login`) |
+
+The `--model` form is `<qualifier>/<id>`, where the qualifier is the id
+opencode's own CLI uses for the provider — the string `opencode models`
+prints, so you can copy it from there. For OpenRouter it is the provider's
+name; for Zen it is `opencode`, which is also the harness's name. That is
+why the launcher calls the provider `zen`: a provider and a harness are
+different things. `outsource-run --list-wiring` prints the form per row.
+
+## zen — OpenCode Zen's free ids
+
+`--provider zen` is OpenCode's own hosted provider. A bare
+`--provider zen` runs `step-5-preview-free`.
+
+What was measured on 2026-10-09 (opencode CLI 1.18.21):
+
+- **Listed and free.** `opencode models --refresh` lists
+  `opencode/step-5-preview-free`; `--verbose` shows cost 0 in and out, a
+  1000000-token context, 65536 output tokens, and declared input text,
+  image and video.
+- **No login.** It answered while opencode's auth store held only an
+  OpenRouter key, so the launcher's credential preflight stays
+  OpenRouter-only.
+- **Through the launcher, end to end:** `rc=0`, `model_verdict=ok` from
+  `opencode export` (assistant `providerID: "opencode"`, `modelID:
+  "step-5-preview-free"`), the done-marker found, the file the spec asked
+  for written inside `--cwd`, and `git add && git commit` refused by the
+  generated permission config with HEAD unmoved.
+- **It sees shape and colour family, not exact colour.** Through the
+  `read` tool: a drawn `7` → `7`, a drawn `L` → `L`; a `#1E50DC` fill →
+  `#3A5BF0`, "Royal blue" (4–11% per channel). Two hazards, both measured:
+  - one probe answered `S`, with high confidence, **without calling `read`
+    at all** — no `tool_use` in its log. A pixel verdict from this arm
+    counts only if the log shows the `read` call on that file;
+  - one colour probe computed the hex with a bash/PIL script instead of
+    looking. Exact, but it was not vision.
+- **Two opencode runs started in the same second can collide.** One of a
+  pair died with `database is locked`: opencode's own database is shared
+  by every round, whatever the provider. Measured once. Until that is
+  fixed, do not start two opencode rounds at the same moment.
+
+**The free window is borrowed time.** Zen's docs say "free on OpenCode for a
+limited time" and give no end date; OpenCode's announcement of 2026-10-09
+said one week. When it ends, empty `defaultModel` on the zen row in
+`internal/launch/wiring.go` and add `zen` to `emptyByDesign` in
+`wiring_test.go`, in the same commit — the openrouter row below has done
+this twice.
+
+**Privacy is per id, not per provider.** Zen's docs say of this id: "Its
+provider follows a zero-retention policy and does not use your data for
+model training." Other free ids on the same provider say otherwise:
+big-pickle ("During its free period, collected data may be used to improve
+the model"), the muse-spark contributor-free ids (training permission is
+the price), nemotron ("Trial use only — do not submit personal or
+confidential data"). Read the id's own line on
+https://opencode.ai/docs/zen/ before naming another one.
+
+## openrouter — you name the id
 
 > **There is no default model on this row — `--model` is required.** The form
 > is `--model openrouter/<vendor>/<id>`; OpenRouter ids are `vendor/model`, so
@@ -28,7 +91,7 @@ specs, reviews diffs, runs gates, commits; the delegate burns the tokens.
 
 opencode manages its own credentials (`opencode auth login`). This
 launcher does not write a key, does not add an `internal/cred` row, and
-does not set an API URL — opencode resolves OpenRouter itself.
+does not set an API URL — opencode resolves OpenRouter (and Zen) itself.
 
 **Identity caveat:** an OpenRouter id can be re-pointed by the catalogue
 without notice (that is how the stealth slot worked, and how it ended).
@@ -46,15 +109,12 @@ fine for open source and throwaway work, not for proprietary code, secrets,
 or anything under an NDA. The zai and agy arms are on named accounts with
 stated terms; use them when that matters.
 
-The shared implementer preamble (`references/spec-preamble.md`) is
-backend-agnostic; there is no opencode-specific preamble. Assemble the
-shared file in front of every task spec.
-
 **Vision:** the harness path carries pixels — measured 2026-08-23 on ox-alpha
 (a spec naming an absolute path to a solid-red PNG answered `Red` through
-opencode's `read` tool) and again 2026-09-17 on union-alpha. The provider's
-vision column **defers** rather than deciding, because the launcher cannot
-speak for an arbitrary catalogue id: image-naming specs pass the guard here and
+opencode's `read` tool) and again 2026-09-17 on union-alpha. For an id with
+no model row the openrouter row's vision answer (`unlistedVision`) **defers**
+rather than deciding, because the launcher cannot speak for an arbitrary
+catalogue id: image-naming specs pass the guard here and
 the caller owns the choice of a model that can actually see. Do not read that
 pass as this skill certifying the id.
 
@@ -82,36 +142,43 @@ pass as this skill certifying the id.
 
 ## Invocation
 
+The shared implementer preamble (`references/spec-preamble.md`) is
+backend-agnostic; there is no opencode-specific preamble. Assemble the
+shared file in front of every task spec.
+
 ```bash
 SP=<scratch-dir>
 cat ~/.claude/skills/outsource/references/spec-preamble.md \
     $SP/task.md > $SP/spec.md
 
 ~/.claude/skills/outsource/bin/outsource-run.sh --detach \
-  --provider openrouter \
+  --provider zen \
   --cwd /absolute/path/to/worktree --spec $SP/spec.md \
   --label <what-this-track-is-for> \
   --config-dir $SP/oc-cfg-<track> --log $SP/oc-<track>.log \
   --done-marker DONE-<TRACK>
+# OpenRouter: --provider openrouter --model openrouter/<vendor>/<id>
 ```
 
 `--detach` re-execs into its own session (same as grok-run / the zai
 harnesses — it happens before harness dispatch). A non-TTY foreground
 launch is refused at exit 64; use `--detach` or `--foreground`.
 
-`--harness opencode` is the default for this provider and can be omitted, and
-so can `--model` while the row has a default (see the note at the top). When
-you do pass one, the id itself contains a slash (`vendor/model`), so the
-qualified form has two — a naive one-slash split is wrong. The form is checked
-before the `--detach` re-exec, so a malformed value refuses on your terminal
-instead of dying silently in the detached child.
+`--harness opencode` is the default for both providers and can be omitted,
+and so can `--model` on a row that has a default (zen does; openrouter does
+not). When you pass one, it is `<qualifier>/<id>` — `opencode/<id>` on zen,
+`openrouter/<vendor>/<id>` on openrouter, where the id itself contains a
+slash, so a naive one-slash split is wrong. The form is checked before the
+`--detach` re-exec, so a malformed value refuses on your terminal (exit 64,
+naming the provider and the prefix it wants) instead of dying silently in the
+detached child.
 
 `--label` is the track's purpose, and it is worth typing every time. The
 last stdout line is `SESSION <id>` — pass it back with `--session <id>`
 for a follow-up in the same context (`-s` on `opencode run`).
 
 `--require-quota` is not available: quota.sh reads plan windows for the
-subscription backends (zai, grok), and this provider has none. The
+subscription backends (zai, grok), and neither provider here has one. The
 launcher prints the existing generic refusal and exits 66.
 
 Flags the other harnesses also take work the same way: `--max-seconds N`
@@ -172,14 +239,17 @@ Read the round's report with `bin/last-report.sh <log>`.
   `opencode run -s <id>`.
 - **Model identity** is `opencode export <sessionID>`:
   `messages[].info` where `role=="assistant"` carries `modelID`
-  (the requested id) and `providerID` (`openrouter`). Every assistant
-  message must match the requested id minus the `openrouter/` prefix.
+  (the requested id) and `providerID` (the provider's qualifier:
+  `openrouter`, or `opencode` for zen). Every assistant message must match
+  that qualifier and the requested id minus its `<qualifier>/` prefix — a
+  zen round answered under `openrouter`, or the reverse, is a mismatch.
   Mismatch, no assistant message, or unparseable export → exit 70.
   The same export's `info.directory` must equal `--cwd` (symlinks
   resolved) — a round that ran somewhere else fails the same way.
   Timed-out rounds skip the assertion (truncated log, same reason as
   claude-code).
-- Auth preflight is best-effort: if `~/.local/share/opencode/auth.json`
+- Auth preflight (openrouter only — zen's free ids measured to run with no
+  Zen key) is best-effort: if `~/.local/share/opencode/auth.json`
   (or `$XDG_DATA_HOME/opencode/auth.json`) exists, parses, and has no
   usable `openrouter` key, the launcher refuses before registering a
   round and points at `opencode auth login`. Absence of the file is
@@ -212,17 +282,17 @@ Same family as the zai launcher:
 | rc | meaning |
 |---:|---|
 | 0 | harness exited cleanly **and** identity matched **and** the done-marker was found in the final report (when one was requested) |
-| 64 | usage (unknown flag, missing `--cwd`/`--spec`, `--model` not in `openrouter/<id>` form, pairing refused, done-marker not in the spec — plus **`--model` absent** once the row's default lapses) |
-| 65 | vision guard: spec names an image and the model cannot see pixels (does not fire here — this provider's vision column defers to the caller) |
+| 64 | usage (unknown flag, missing `--cwd`/`--spec`, `--model` not in the provider's `<qualifier>/<id>` form, pairing refused, done-marker not in the spec — plus **`--model` absent** once the row's default lapses) |
+| 65 | vision guard: spec names an image and the model cannot see pixels (does not fire for an unmeasured id here — both providers defer to the caller; zen's step-5-preview-free is measured colour-family, so it passes too) |
 | 66 | `--require-quota` is not available for this provider |
 | 69 | `opencode` CLI not on PATH |
 | 70 | model-identity mismatch or unverifiable, or the session's directory was not `--cwd` |
 | 72 | clean harness exit, `--done-marker` absent from the final report |
 | 73 | claude-code harness only — transcript held zero `tool_use` blocks (`--allow-no-tools` allows it); not reachable on this harness |
-| 1 | OpenRouter credentials positively absent from auth.json |
+| 1 | OpenRouter credentials positively absent from auth.json (openrouter only) |
 | 124 | `--max-seconds` ceiling; process group killed |
 
-`<log>.rc` carries `harness=opencode`, `provider=openrouter`,
+`<log>.rc` carries `harness=opencode`, `provider=openrouter|zen`,
 `model_requested`, `model_actual` (from export), `session`, and
 `done_marker=found|absent (report)` with `done_marker_scope=report`.
 
