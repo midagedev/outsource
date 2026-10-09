@@ -114,8 +114,9 @@ type Options struct {
 	// Providers names which catalogues to load; empty means all of them.
 	Providers []string
 	// Refresh fetches even over a fresh cache — catalogues, the provider
-	// policy list, endpoint lists — and asks opencode to refresh its own
-	// (--refresh). A failed catalogue fetch still falls back to the cache,
+	// policy list, endpoint lists. (opencode is asked to refresh its own
+	// list on every run, Refresh or not: see zenArgs.) A failed catalogue
+	// fetch still falls back to the cache,
 	// as it does without Refresh; a failed policy fetch is still unknown.
 	Refresh bool
 	// PolicyFor selects the entries whose data policy to resolve; nil

@@ -24,14 +24,15 @@ import (
 // unit is read from that sibling, not from a Zen id.
 const zenTimeout = 60 * time.Second
 
-// zenArgs is the opencode command line after the binary name.
-func zenArgs(refresh bool) []string {
-	args := []string{"models", ZenQualifier, "--verbose", "--pure"}
-	if refresh {
-		// opencode's own models.dev cache, refreshed on the caller's ask.
-		args = append(args, "--refresh")
-	}
-	return args
+// zenArgs is the opencode command line after the binary name. --refresh
+// always: opencode runs only when our own cache missed or went stale (or the
+// caller asked), and without it opencode answers from its own models.dev
+// cache or, with none, a snapshot built into the binary — measured
+// 2026-10-09, 7 ids with three deprecated and step-5-preview-free missing,
+// against 11 refreshed. So the cost is at most one models.dev fetch per
+// FreshFor, and it buys a list an automatic pick can trust.
+func zenArgs() []string {
+	return []string{"models", ZenQualifier, "--verbose", "--pure", "--refresh"}
 }
 
 func loadZen(ctx context.Context, opts Options) ([]Entry, Source) {
@@ -39,7 +40,7 @@ func loadZen(ctx context.Context, opts Options) ([]Entry, Source) {
 	if run == nil {
 		run = runOpencode
 	}
-	args := zenArgs(opts.Refresh)
+	args := zenArgs()
 	return loadCached(Zen, "opencode "+strings.Join(args, " "), opts.Refresh,
 		func() ([]byte, error) {
 			cctx, cancel := context.WithTimeout(ctx, zenTimeout)

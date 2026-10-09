@@ -589,7 +589,9 @@ func TestZenPolicyTable(t *testing.T) {
 	if p := byID(t, entries, Zen, "fixture-priced").Policy; p != "" {
 		t.Errorf("priced id not selected, but policy %q", p)
 	}
-	if !reflect.DeepEqual(e.oc.calls, [][]string{{"models", "opencode", "--verbose", "--pure"}}) {
+	// --refresh on every run since 2026-10-09 (TestZenMissRefreshesOpencode
+	// says why); before that this pinned the argv without it.
+	if !reflect.DeepEqual(e.oc.calls, [][]string{{"models", "opencode", "--verbose", "--pure", "--refresh"}}) {
 		t.Errorf("opencode calls %v", e.oc.calls)
 	}
 	if meta.PolicyList.Loaded() || e.or.totalHits() != 0 {
@@ -767,6 +769,31 @@ func TestRefreshAlwaysFetches(t *testing.T) {
 		if s := meta.Providers[p]; s.From != FromNetwork {
 			t.Errorf("%s: %+v, want network", p, s)
 		}
+	}
+}
+
+// Our zen cache missing (or stale) is the only time opencode runs, and
+// opencode answers from its own models.dev cache — or, with none, from a
+// snapshot built into the binary. Measured 2026-10-09: with an empty opencode
+// cache it listed 7 ids, three of which models.dev marks deprecated, and
+// missed step-5-preview-free, which the refreshed listing (11 ids) had. Free
+// ids change weekly, and this list feeds an automatic pick, so every opencode
+// run asks it to refresh: at most one models.dev fetch per FreshFor.
+// FAIL-first: with --refresh passed only on Options.Refresh, the first load
+// over an empty cache ran opencode without it.
+func TestZenMissRefreshesOpencode(t *testing.T) {
+	e := newEnv(t)
+	load(t, e.opts())
+	if len(e.oc.calls) != 1 {
+		t.Fatalf("opencode ran %d times over an empty cache, want 1", len(e.oc.calls))
+	}
+	first := e.oc.calls[0]
+	if first[len(first)-1] != "--refresh" {
+		t.Errorf("a zen cache miss ran opencode %v, want --refresh passed on", first)
+	}
+	load(t, e.opts())
+	if len(e.oc.calls) != 1 {
+		t.Errorf("a fresh zen cache ran opencode again (%d runs)", len(e.oc.calls))
 	}
 }
 
