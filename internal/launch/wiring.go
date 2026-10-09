@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/midagedev/outsource/internal/config"
 	"github.com/midagedev/outsource/internal/tail"
 )
 
@@ -827,12 +828,51 @@ func pairingRefusal(harnessName, providerName string) string {
 	return msg
 }
 
+// ProviderNames is the routable provider names for tools outside this
+// package — the config CLI enumerates its providers.<name> keys against it.
+// It wraps providerNameList so the list keeps one owner.
+func ProviderNames() []string { return providerNameList() }
+
+// ProviderQualifiers maps every provider name to the qualifier a qualifying
+// harness writes before its model ids, for tools outside this package — the
+// config CLI's defaultModel validation refuses a stored qualifier/<id>. Built
+// from qualifierOf, the single owner of the mapping, so a row whose launcher
+// name and CLI id differ (zen) cannot drift between the launcher and the CLI.
+func ProviderQualifiers() map[string]string {
+	out := make(map[string]string, len(providerTable))
+	for _, p := range providerTable {
+		out[p.name] = qualifierOf(p)
+	}
+	return out
+}
+
 // wiringMatrix renders the routable (provider, harness) cells with their
 // defaults, then the per-id model facts under them. It is what `outsource-run
 // --list-wiring` prints, so "what can run where" is one command rather than a
 // read of this file.
+//
+// The user's config file (internal/config) is appended as one CONFIG line per
+// provider it changes, so the follow-up question — "and what did I change?" —
+// is answered in the same read. No CONFIG line when the file is absent or
+// changes nothing: a bare matrix means the table is the whole truth. A file
+// that does not parse gets one line saying so, since every launch refuses.
 func wiringMatrix() string {
-	return renderWiring(providerTable, modelTable)
+	out := renderWiring(providerTable, modelTable)
+	cfg, err := config.Load()
+	if err != nil {
+		path, _ := config.ResolvePath()
+		return out + fmt.Sprintf("CONFIG %s: every launch refuses — %v\n", path, err)
+	}
+	for _, p := range providerTable {
+		if on, set := cfg.Enabled(p.name); set && !on {
+			out += fmt.Sprintf("CONFIG %s: %s disabled\n", cfg.Path, p.name)
+			continue
+		}
+		if m, set := cfg.DefaultModel(p.name); set && m != p.defaultModel {
+			out += fmt.Sprintf("CONFIG %s: %s default model %s (table: %s)\n", cfg.Path, p.name, m, orDefault(p.defaultModel, "none"))
+		}
+	}
+	return out
 }
 
 // renderWiring is the matrix over given provider and model tables, so a

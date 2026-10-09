@@ -44,6 +44,16 @@
 #                              dispatcher.test.sh checks failed ("cache hit did
 #                              not exec the cached binary with the skill dir
 #                              exported"), because the caller's value wins
+#   OUTSOURCE_CONFIG           the launcher and `outsource config` read the
+#                              user's config file through it (internal/config
+#                              ResolvePath), and a caller's shell exported
+#                              value reaches every child. No suite result is
+#                              measured against it yet (added with the config
+#                              file, 2026-10-09); the Go side is measured:
+#                              with ~/.config/outsource/config.json disabling
+#                              zai, internal/launch went red until TestMain
+#                              pinned this name. Unlike the names above it is
+#                              not only unset — see hermetic_scrub_env
 hermetic_env_names=(
   OUTSOURCE_ROUND
   OUTSOURCE_DETACHED
@@ -55,16 +65,31 @@ hermetic_env_names=(
   CLAUDE_CODE_MAX_OUTPUT_TOKENS
   CLAUDE_CODE_MAX_CONTEXT_TOKENS
   OUTSOURCE_SKILL_DIR
+  OUTSOURCE_CONFIG
 )
 
 # hermetic_scrub_env unsets every name on the list. Call it at the top of a
 # suite, before the first assertion; tests that set a marker on purpose do so
 # after this and keep their meaning.
+#
+# OUTSOURCE_CONFIG is then exported again, at a file nothing creates: unset
+# alone would fall through to the developer's real
+# ~/.config/outsource/config.json, and a missing file is the empty config
+# (internal/config loadFile), so every suite starts from no user choices. The
+# path carries this shell's pid, so a suite that writes a config without
+# setting its own path first leaks it to no other suite. A suite that wants a
+# config exports its own OUTSOURCE_CONFIG after this call.
+#
+# It is not in hermetic_poison_names: run-all.sh poisons with the literal 1,
+# which as a path names a missing file — the empty config — so the poison
+# would gate nothing. A suite that never calls this scrub still reads the
+# real default-path config, and only sourcing this file closes that.
 hermetic_scrub_env() {
-  local n
+  local n tmp="${TMPDIR:-/tmp}"
   for n in "${hermetic_env_names[@]}"; do
     unset "$n"
   done
+  export OUTSOURCE_CONFIG="${tmp%/}/outsource-hermetic-$$/config-absent.json"
 }
 
 # The subset run-all.sh poisons in the lead's shell so that shell sees the

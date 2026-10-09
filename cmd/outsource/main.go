@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/midagedev/outsource/internal/audit"
+	"github.com/midagedev/outsource/internal/config"
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/gitshim"
 	"github.com/midagedev/outsource/internal/guard"
@@ -55,6 +56,7 @@ var tools = []tool{
 	{"credential", noStdin(cred.Main)},
 	{"verify-key", func(a []string, in io.Reader, out, err io.Writer) int { return cred.VerifyMain(a, out, err, in) }},
 	{"audit", noStdin(audit.Main)},
+	{"config", noStdin(config.Main)},
 	{"guard", guard.Main},
 	{"git-shim", gitshim.Main},
 	{"grok-run", noStdin(launch.GrokMain)},
@@ -69,6 +71,17 @@ var tools = []tool{
 	{"statusline", statusline.Main},
 	{"tail", tail.Main},
 	{"telemetry", noStdin(telemetry.ReportMain)},
+}
+
+// The config CLI enumerates provider keys and validates default models
+// against the wiring tables, which internal/launch owns — and launch imports
+// internal/config (the launcher loads the file), so config cannot import
+// launch back. This binary is the one place both are linked, so the injection
+// lives here: the tables keep one owner and the CLI has no second copy.
+func init() {
+	config.KnownProviders = launch.ProviderNames
+	qualifiers := launch.ProviderQualifiers()
+	config.QualifierFor = func(provider string) string { return qualifiers[provider] }
 }
 
 // toolFor resolves a name to a tool. The `.sh` suffix is accepted because the

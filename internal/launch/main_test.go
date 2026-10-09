@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/midagedev/outsource/internal/config"
 )
 
 // selfReexecExit is the test binary's refusal when it is re-executed as the
@@ -78,6 +80,16 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	os.Setenv("TMPDIR", filepath.Join(dir, "tmp"))
+	// The user's config file must not reach a launch test either (the same
+	// class as the registry and TMPDIR floors above): a developer's real
+	// ~/.config/outsource/config.json, or an OUTSOURCE_CONFIG inherited from
+	// the caller's shell, would disable providers and swap default models
+	// under the tests. It points at a path nothing creates — a missing file is
+	// an empty config — so every test starts from no user choices unless it
+	// sets its own with t.Setenv. TestConfigFileIsolationFromTheUsersOwn pins
+	// it; FAIL-first: without this line, a temp HOME whose config disables zai
+	// turns zai launch tests red.
+	os.Setenv("OUTSOURCE_CONFIG", filepath.Join(dir, "absent-config", "config.json"))
 	// No harness CLI is reachable from a launch test (pinHarnessFreePath).
 	if msg := pinHarnessFreePath(); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
@@ -169,5 +181,21 @@ func TestTempDirIsPrivate(t *testing.T) {
 	want := filepath.Join(filepath.Dir(runsDir), "tmp")
 	if got := os.TempDir(); filepath.Clean(got) != want {
 		t.Fatalf("os.TempDir() = %q, want the package's private %q", got, want)
+	}
+}
+
+// TestConfigFileIsolationFromTheUsersOwn pins TestMain's config floor: the
+// user config every launch test reads is a path inside the package's private
+// directory that does not exist, never the developer's ~/.config/outsource/
+// config.json. FAIL-first: without the Setenv in TestMain, OUTSOURCE_CONFIG is
+// empty here (or the caller's own) and the config resolves to the real one.
+func TestConfigFileIsolationFromTheUsersOwn(t *testing.T) {
+	private := filepath.Dir(os.Getenv("OUTSOURCE_RUNS_DIR"))
+	path, source := config.ResolvePath()
+	if source != "OUTSOURCE_CONFIG" || !strings.HasPrefix(path, private+string(filepath.Separator)) {
+		t.Fatalf("the launch tests' config is %s (source %s), want a path under the package's private %s", path, source, private)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the launch tests' config %s must not exist (stat: %v): a missing file is the empty config every test starts from", path, err)
 	}
 }

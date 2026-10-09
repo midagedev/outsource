@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/midagedev/outsource/internal/audit"
+	"github.com/midagedev/outsource/internal/config"
 	"github.com/midagedev/outsource/internal/cred"
 	"github.com/midagedev/outsource/internal/quota"
 	"github.com/midagedev/outsource/internal/report"
@@ -220,6 +221,41 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "unknown provider: %s (known: %s)\n", o.providerName, providerNames())
 		return ExitUsage
 	}
+	// The user's own choices (internal/config is their one owner), read once,
+	// before every model decision below and before the registry, so a provider
+	// the user disabled never records a round. The --detach child re-runs this
+	// function and reads the same file; nothing about it travels through the
+	// environment. A file that does not parse is refused, not skipped: skipping
+	// it would route rounds where the user said not to.
+	userCfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "outsource: refusing to launch — %v (`outsource config path` names the file; fix it or move it aside)\n", err)
+		telemetry.Note("why", "user config does not parse")
+		return ExitUsage
+	}
+	if on, set := userCfg.Enabled(p.name); set && !on {
+		fmt.Fprintf(stderr, "outsource: provider %s is disabled in %s (providers.%s.enabled=false) — enable it with: outsource config set providers.%s.enabled true\n",
+			p.name, userCfg.Path, p.name, p.name)
+		telemetry.Note("why", "provider disabled in the user config")
+		return ExitUsage
+	}
+	// A config default replaces the row's default on this LOCAL copy, so every
+	// later reader — a harness's own default qualification, requiredModelError,
+	// the vision guard, the registry and the sentinel — sees it unchanged.
+	// Precedence, highest first: --model, the provider's modelEnv (seedModel
+	// below), the config default, the table's default. The file can be
+	// hand-edited, so CheckDefaultModel — the rule `outsource config set`
+	// applies — runs here too.
+	cfgModel := false
+	if m, set := userCfg.DefaultModel(p.name); set {
+		if msg := config.CheckDefaultModel(p.name, qualifierOf(p), m); msg != "" {
+			fmt.Fprintf(stderr, "outsource: refusing providers.%s.defaultModel %q in %s — %s\n", p.name, m, userCfg.Path, msg)
+			telemetry.Note("why", "user config default model refused")
+			return ExitUsage
+		}
+		p.defaultModel = m
+		cfgModel = true
+	}
 	// The provider's own model env var (zai's GLM_DELEGATE_MODEL). Applying one
 	// provider's pin to every provider leaked a glm-* id into opencode's -m,
 	// which opencode then rejected (the form there is <qualifier>/<id>).
@@ -229,8 +265,14 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	// Checked here — after the seed, before the registry and before the
 	// --detach re-exec — for the same reason as the model-form check below:
 	// past the re-exec there is no caller left to tell. Exit 70 because this
-	// is the model-identity failure known before spending the round.
-	if msg, ok := mappedModelError(p, o.model); !ok {
+	// is the model-identity failure known before spending the round. The
+	// EFFECTIVE model goes through the guard, so a config default is refused
+	// exactly as the same id given to --model is.
+	if msg, ok := mappedModelError(p, orDefault(o.model, p.defaultModel)); !ok {
+		if o.model == "" && cfgModel {
+			// The guard's message says --model; this round had none.
+			fmt.Fprintf(stderr, "outsource: no --model was given; the model below is providers.%s.defaultModel in %s\n", p.name, userCfg.Path)
+		}
 		fmt.Fprintln(stderr, msg)
 		telemetry.Note("why", "mapped model: request would be answered by a different model")
 		return ExitModelIdentity
