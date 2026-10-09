@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/midagedev/outsource/internal/tail"
@@ -11,9 +12,12 @@ import (
 
 // This file is the single owner of "what can run where".
 //
-// Two tables answer every routing question this launcher has: `providerTable`
+// Three tables answer every routing question this launcher has: `providerTable`
 // says which models an account offers and how they behave, `harnessTable` says
-// which CLI drives them headlessly. Everything downstream DERIVES from them —
+// which CLI drives them headlessly, and `modelTable` owns what was measured
+// about a single model id — its vision level, whether the endpoint silently
+// answers it with another id, and its context window when it differs from the
+// provider's. Everything downstream DERIVES from them —
 // the harness-name validation, the detach PATH lookup, the progress-trail
 // location, the dispatch, the pairing matrix, the help text. Adding an arm is
 // one row; withdrawing one is one row.
@@ -70,19 +74,18 @@ type provider struct {
 	// leaked a glm-* id into opencode's -m, which opencode then rejected.
 	modelEnv string
 
-	// vision answers "can this model see pixels", given the bare (unqualified)
-	// model id. nil means no model on this provider can. It is the single
-	// owner the vision guard asks — never a provider-name test at a call site.
-	vision func(model string) bool
+	// unlistedVision is what the vision guard answers for an id that has no
+	// modelTable row, or whose row is visionUnmeasured. It is the single
+	// owner the vision guard asks — never a provider-name test at a call
+	// site.
+	unlistedVision bool
 
-	// silentMappings records model ids the endpoint accepts WITHOUT error but
-	// answers with a different model. Refused at launch: such a round could
-	// never be the round that was asked for.
-	silentMappings map[string]string
-
-	// contextWindow is the model's real input ceiling, in tokens, for the
-	// claude-code harness only. ZERO means "not measured here" and nothing is
-	// set, leaving the CLI's own behaviour untouched.
+	// contextWindow is the real input ceiling, in tokens, for the
+	// claude-code harness only. It is the FALLBACK for every id of this
+	// provider: a modelTable row's non-zero contextWindow overrides it for
+	// that id (contextWindowFor is the single owner of that rule). ZERO means
+	// "not measured here" and nothing is set, leaving the CLI's own behaviour
+	// untouched.
 	//
 	// It exists because the CLI's unknown-model default is not a display
 	// value: it is ENFORCED client-side. Measured 2026-09-20 on zai — the CLI
@@ -92,10 +95,9 @@ type provider struct {
 	// endpoint reported 243868 input tokens. So a round reading a few large
 	// files was dying against a limit its model does not have.
 	//
-	// Per provider rather than a constant, because the harness serves several
-	// and their windows differ; per provider rather than per model, because
-	// every model routed here today shares one. Split it the day that stops
-	// being true — a wrong number is worse than none, since it would refuse
+	// The fallback lives on the provider row because the harness serves
+	// several models and their windows differ; a per-id fact lives in
+	// modelTable. A wrong number is worse than none, since it would refuse
 	// work the model could do.
 	contextWindow int
 
@@ -112,25 +114,11 @@ var providerTable = []provider{
 		defaultModel:   "glm-5.3",
 		defaultHarness: "claude-code",
 		modelEnv:       "GLM_DELEGATE_MODEL",
-		// Only the DEFAULT is blind. Measured 2026-08-27 on a white-7-on-black
-		// probe: glm-5.3 answered "Y" while glm-5.3-flash answered "7", and
-		// through the claude-code harness's Read tool flash also named a solid
-		// #1E50DC fill as #2244DD (per-channel error ~5%). flash is the
-		// officially unveiled ox-alpha, whose vision this skill had already
-		// measured on OpenRouter. Colour fidelity on the raw API (no harness)
-		// was weaker in one probe — treat flash as reliable for
-		// shape/layout/presence and usable-but-verify for exact colour.
-		vision: visionModels("glm-5.3-flash"),
-		// Measured 2026-08-27 (two probes each): the response's `model` field
-		// came back "glm-5.3" for a "glm-5.2" request — the field is not an
-		// echo, because it differs from the request — while glm-5.3,
-		// glm-5.3-flash and glm-4.6 were honoured verbatim and a nonexistent id
-		// (glm-5.2-flash) errored loudly (code 1214). So a glm-5.2 round can
-		// never be a glm-5.2 round: on claude-code the identity assertion would
-		// burn the whole round and then exit 70; on crush there is no assertion
-		// at all and the misassignment would be permanent and silent. Refusing
-		// at launch is the only guard that covers both harnesses.
-		silentMappings: map[string]string{"glm-5.2": "glm-5.3"},
+		// zai is the one provider whose ids were probed individually, so the
+		// per-id vision levels live in modelTable; an id with no row (or an
+		// unmeasured one) REFUSES a pixel verdict rather than guessing — that
+		// was the old per-id list's answer too, and it stays the answer here.
+		unlistedVision: false,
 		// 1310720, the exact figure behind z.ai's "1M-token context window"
 		// for GLM-5.3 and GLM-5.3-Flash (their model page), and what the CLI
 		// reports verbatim once told. Measured to work: 243868 input tokens
@@ -142,7 +130,9 @@ var providerTable = []provider{
 		url:            "https://api.x.ai",
 		defaultModel:   "grok-4.6",
 		defaultHarness: "claude-code",
-		vision:         visionAlways,
+		// No grok vision probe on record through this launcher; the guard
+		// passes rather than refuses on a guess, as this row always has.
+		unlistedVision: true,
 	},
 	{
 		name: "openrouter",
@@ -160,7 +150,7 @@ var providerTable = []provider{
 		// this column must not be. So the field goes back to empty and
 		// requiredModelError resumes asking the caller for an id.
 		defaultHarness: "opencode",
-		// Still visionAlways, and still for the deferring reason rather than a
+		// unlistedVision is true for the deferring reason rather than a
 		// claim: OpenRouter is a catalogue, the caller names the id per round,
 		// and this launcher keeps no capability table for ids it has not
 		// probed. The guard's question is only "do pixels reach the model",
@@ -176,8 +166,8 @@ var providerTable = []provider{
 		// arriving is not colour fidelity, and a guard that only gates the
 		// former must not be read as certifying the latter. references/
 		// opencode.md carries this where a spec author will meet it.
-		vision:      visionAlways,
-		pairingNote: "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
+		unlistedVision: true,
+		pairingNote:    "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
 	},
 	{
 		name: "muse",
@@ -191,15 +181,11 @@ var providerTable = []provider{
 		// `billing_error`, while the CLI's own session ran in the same minute.
 		defaultModel:   "muse-spark-1.3-contributor",
 		defaultHarness: "muse",
-		// Measured 2026-09-18 through the CLI's own read tool: a drawn white
-		// "H" on black was read back as "H", and a uniform #1E50DC fill as
-		// "#0000FF, blue" — the right colour NAME with the exact value well
-		// off. So: shape, layout and colour family yes; exact hex no, the same
-		// standing rule this skill applies everywhere. Unlike the openrouter
-		// row this is one known model rather than a catalogue, so the column
-		// states a measurement instead of deferring.
-		vision:      visionAlways,
-		pairingNote: "the muse CLI owns its own OAuth credentials and resolves its endpoint itself, so there is no Anthropic-compatible URL and no cred row for muse",
+		// muse-spark-1.3-contributor is the one routed id and carries its own
+		// measured vision level in modelTable; any other muse id keeps the
+		// pass this row has always given.
+		unlistedVision: true,
+		pairingNote:    "the muse CLI owns its own OAuth credentials and resolves its endpoint itself, so there is no Anthropic-compatible URL and no cred row for muse",
 	},
 	{
 		name: "agy",
@@ -215,25 +201,19 @@ var providerTable = []provider{
 		// 앞으로 그거 쓰도록") the day `agy models` started listing it; the
 		// vision and speed measurements above are 3.7's and have not been re-run
 		// on 3.8.
-		vision:      visionAlways,
-		pairingNote: "the Antigravity CLI drives itself; there is no Anthropic-compatible URL",
+		//
+		// That is why unlistedVision is true and the routed id's modelTable
+		// row says visionUnmeasured: the exact-hex result belongs to an id
+		// (3.7-flash-low) this launcher no longer routes, so it explains the
+		// fallback instead of claiming a measurement for 3.8.
+		unlistedVision: true,
+		pairingNote:    "the Antigravity CLI drives itself; there is no Anthropic-compatible URL",
 	},
 }
 
-// visionAlways is the vision column for a provider whose routed models all see
-// pixels.
-func visionAlways(string) bool { return true }
-
-// visionModels builds a vision column from the exact bare model ids measured to
-// see pixels. An id absent from the list is blind as far as the guard is
-// concerned — the guard's job is to refuse a verdict nobody measured.
-func visionModels(ids ...string) func(string) bool {
-	set := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		set[id] = true
-	}
-	return func(model string) bool { return set[model] }
-}
+// The provider-column forms of the vision fact are gone: what a model does
+// with pixels is a fact about the model, and it lives in modelTable now. A
+// provider keeps only unlistedVision, the answer for ids nobody has measured.
 
 func findProvider(name string) (provider, bool) {
 	for _, p := range providerTable {
@@ -259,15 +239,6 @@ func providerNames() string {
 	return strings.Join(providerNameList(), " ") + " "
 }
 
-// modelVision answers "can THIS round see pixels". model may be
-// provider-qualified (crush's zai/…, opencode's openrouter/…).
-func modelVision(p provider, model string) bool {
-	if p.vision == nil {
-		return false
-	}
-	return p.vision(strings.TrimPrefix(model, p.name+"/"))
-}
-
 // seedModel applies the provider's own model environment variable. An explicit
 // --model always wins, and a provider without modelEnv ignores every such var.
 func seedModel(providerName, model string) string {
@@ -281,21 +252,157 @@ func seedModel(providerName, model string) string {
 	return os.Getenv(p.modelEnv)
 }
 
+// ---- models -----------------------------------------------------------------
+
+// visionLevel is what a measured probe showed a model can do with pixels.
+type visionLevel int
+
+const (
+	visionUnmeasured   visionLevel = iota // no probe on record: the provider's unlistedVision decides
+	visionBlind                           // probe showed it does not see pixels
+	visionShape                           // reads shape; colour answers were wrong
+	visionColourFamily                    // reads shape and names the colour family; exact hex is off
+	visionExactHex                        // named a uniform fill's hex exactly
+)
+
+// model is one id a provider routes, with what was measured about it.
+type model struct {
+	provider      string      // a providerTable name
+	id            string      // the bare id, as the endpoint takes it
+	vision        visionLevel // zero value = unmeasured
+	contextWindow int         // claude-code harness only; 0 = use the provider's
+	answeredBy    string      // non-empty: the endpoint silently answers this id with answeredBy — refused at launch
+}
+
+// modelTable is the model axis of the wiring: facts that belong to one
+// (provider, id) pair rather than to an account or a CLI. The derived guards
+// below (modelVision, mappedModelError, contextWindowFor) are its only
+// readers, and no call site tests a provider name. openrouter has no rows
+// here on purpose — it is a catalogue, the caller names the id per round, and
+// its provider row's unlistedVision carries the deferral.
+var modelTable = []model{
+	{
+		provider: "zai",
+		id:       "glm-5.3",
+		// Only the DEFAULT is blind. Measured 2026-08-27 on a white-7-on-black
+		// probe: glm-5.3 answered "Y" while glm-5.3-flash answered "7", and
+		// through the claude-code harness's Read tool flash also named a solid
+		// #1E50DC fill as #2244DD (per-channel error ~5%).
+		vision: visionBlind,
+	},
+	{
+		provider: "zai",
+		id:       "glm-5.3-flash",
+		// The probe is the 2026-08-27 one on the glm-5.3 row above: flash
+		// answered "7" on the white-7 shape probe and named a #1E50DC fill as
+		// #2244DD (~5% per channel). flash is the officially unveiled ox-alpha, whose vision this skill
+		// had already measured on OpenRouter. Colour fidelity on the raw API
+		// (no harness) was weaker in one probe — treat flash as reliable for
+		// shape/layout/presence and usable-but-verify for exact colour.
+		vision: visionColourFamily,
+	},
+	{
+		provider: "zai",
+		id:       "glm-5.2",
+		// Measured 2026-08-27 (two probes each): the response's `model` field
+		// came back "glm-5.3" for a "glm-5.2" request — the field is not an
+		// echo, because it differs from the request — while glm-5.3,
+		// glm-5.3-flash and glm-4.6 were honoured verbatim and a nonexistent id
+		// (glm-5.2-flash) errored loudly (code 1214). So a glm-5.2 round can
+		// never be a glm-5.2 round: on claude-code the identity assertion would
+		// burn the whole round and then exit 70; on crush there is no assertion
+		// at all and the misassignment would be permanent and silent. Refusing
+		// at launch is the only guard that covers both harnesses.
+		vision:     visionUnmeasured,
+		answeredBy: "glm-5.3",
+	},
+	{
+		provider: "xai",
+		id:       "grok-4.6",
+		// No probe on record; the xai provider row's unlistedVision answers
+		// for this id, as it does for every id without a row.
+		vision: visionUnmeasured,
+	},
+	{
+		provider: "muse",
+		id:       "muse-spark-1.3-contributor",
+		// Measured 2026-09-18 through the CLI's own read tool: a drawn white
+		// "H" on black was read back as "H", and a uniform #1E50DC fill as
+		// "#0000FF, blue" — the right colour NAME with the exact value well
+		// off. So: shape, layout and colour family yes; exact hex no, the same
+		// standing rule this skill applies everywhere. Unlike the openrouter
+		// row this is one known model rather than a catalogue, so the column
+		// states a measurement instead of deferring.
+		vision: visionColourFamily,
+	},
+	{
+		provider: "agy",
+		id:       "gemini-3.8-flash-high",
+		// 3.8 is routed (user decision 2026-09-05) but its vision has not been
+		// re-measured; the agy provider row keeps the 3.7-flash-low result,
+		// which is why unlistedVision is true there.
+		vision: visionUnmeasured,
+	},
+}
+
+// findModel is the modelTable lookup every model-axis guard goes through. id
+// is the BARE form; the callers strip the provider qualifier (crush's zai/…).
+func findModel(providerName, id string) (model, bool) {
+	for _, m := range modelTable {
+		if m.provider == providerName && m.id == id {
+			return m, true
+		}
+	}
+	return model{}, false
+}
+
+// modelVision answers "can THIS round see pixels". model may be
+// provider-qualified (crush's zai/…, opencode's openrouter/…); an empty model
+// resolves to the provider's default. A row with a measured vision level
+// answers for its id (anything above blind sees); everything else falls to
+// the provider's unlistedVision.
+func modelVision(p provider, model string) bool {
+	bare := strings.TrimPrefix(model, p.name+"/")
+	if bare == "" {
+		bare = p.defaultModel
+	}
+	if m, ok := findModel(p.name, bare); ok && m.vision != visionUnmeasured {
+		return m.vision != visionBlind
+	}
+	return p.unlistedVision
+}
+
+// contextWindowFor is the claude-code harness's input ceiling for one id: the
+// model row's window when it declares one, else the provider's fallback. An
+// unlisted id (zai's glm-4.6) gets the provider column exactly as before the
+// model axis existed.
+func contextWindowFor(p provider, model string) int {
+	bare := strings.TrimPrefix(model, p.name+"/")
+	if bare == "" {
+		bare = p.defaultModel
+	}
+	if m, ok := findModel(p.name, bare); ok && m.contextWindow > 0 {
+		return m.contextWindow
+	}
+	return p.contextWindow
+}
+
 // mappedModelError refuses, at launch, a model id measured to be silently
-// answered by a different model. model may be bare (claude-code) or
-// provider-qualified (crush's zai/…). OUTSOURCE_ALLOW_MAPPED_MODEL=1
-// overrides — that exists for re-measuring the mapping, not for routing.
+// answered by a different model (the model row's answeredBy). model may be
+// bare (claude-code) or provider-qualified (crush's zai/…).
+// OUTSOURCE_ALLOW_MAPPED_MODEL=1 overrides — that exists for re-measuring the
+// mapping, not for routing.
 func mappedModelError(p provider, model string) (string, bool) {
-	if model == "" || len(p.silentMappings) == 0 {
+	if model == "" {
 		return "", true
 	}
 	bare := strings.TrimPrefix(model, p.name+"/")
-	answered, mapped := p.silentMappings[bare]
-	if !mapped || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
+	m, mapped := findModel(p.name, bare)
+	if !mapped || m.answeredBy == "" || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
 		return "", true
 	}
 	return fmt.Sprintf("--model %s is silently answered by %s on the %s endpoint (measured: the response model field differs from the request). The round could never run the model you asked for — request %s explicitly, or set OUTSOURCE_ALLOW_MAPPED_MODEL=1 to re-measure the mapping.",
-		model, answered, p.name, answered), false
+		model, m.answeredBy, p.name, m.answeredBy), false
 }
 
 // requiredModelError refuses a provider with no routable default when --model
@@ -543,15 +650,16 @@ func pairingRefusal(harnessName, providerName string) string {
 }
 
 // wiringMatrix renders the routable (provider, harness) cells with their
-// defaults. It is what `outsource-run --list-wiring` prints, so "what can run
-// where" is one command rather than a read of this file.
+// defaults, then the per-id model facts under them. It is what `outsource-run
+// --list-wiring` prints, so "what can run where" is one command rather than a
+// read of this file.
 func wiringMatrix() string {
-	return renderWiring(providerTable)
+	return renderWiring(providerTable, modelTable)
 }
 
-// renderWiring is the matrix over a given provider table, so the empty-default
-// column can be rendered in a test without emptying a live row.
-func renderWiring(providers []provider) string {
+// renderWiring is the matrix over given provider and model tables, so a
+// synthetic row can be rendered in a test without editing a live one.
+func renderWiring(providers []provider, models []model) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-12s %-14s %-24s %s\n", "PROVIDER", "HARNESS", "DEFAULT MODEL", "NOTES")
 	for _, p := range providers {
@@ -573,5 +681,71 @@ func renderWiring(providers []provider) string {
 			fmt.Fprintf(&b, "%-12s %-14s %-24s %s\n", p.name, hname, def, strings.Join(notes, "; "))
 		}
 	}
+	// The model axis under the pairing matrix: what was measured per id, and
+	// what the vision guard answers for the ids nobody has measured.
+	b.WriteString("\n")
+	writeModelBlock(&b, providers, models)
 	return b.String()
+}
+
+// writeModelBlock renders the modelTable half of --list-wiring. Rows are
+// grouped by provider in providerTable order, model rows in modelTable order,
+// each provider ending on its (other ids) line — the guard's answer for an
+// unlisted id. Trailing spaces are trimmed per line so a notes-less row does
+// not end in padding.
+func writeModelBlock(b *strings.Builder, providers []provider, models []model) {
+	b.WriteString("MODELS (measured per id; ids not listed fall back to the provider)\n")
+	writeModelLine(b, "PROVIDER", "MODEL", "VISION", "CONTEXT", "NOTES")
+	for _, p := range providers {
+		for _, m := range models {
+			if m.provider != p.name {
+				continue
+			}
+			notes := []string{}
+			if m.id == p.defaultModel {
+				notes = append(notes, "default")
+			}
+			if m.answeredBy != "" {
+				notes = append(notes, "refused at launch: answered by "+m.answeredBy)
+			}
+			writeModelLine(b, p.name, m.id, visionWord(m.vision),
+				contextCell(contextWindowFor(p, m.id)), strings.Join(notes, "; "))
+		}
+		// The provider fallback verbatim: this line is about ids with no row,
+		// and a default row's window override must not leak into it.
+		guard := "guard refuses"
+		if p.unlistedVision {
+			guard = "guard passes"
+		}
+		writeModelLine(b, p.name, "(other ids)", guard, contextCell(p.contextWindow), "")
+	}
+}
+
+func writeModelLine(b *strings.Builder, providerName, id, vision, context, notes string) {
+	line := fmt.Sprintf("%-12s %-30s %-14s %-10s %s", providerName, id, vision, context, notes)
+	b.WriteString(strings.TrimRight(line, " ") + "\n")
+}
+
+// visionWord is visionLevel's one rendering, so the probe vocabulary in
+// --list-wiring cannot drift from the skill docs that define it.
+func visionWord(v visionLevel) string {
+	switch v {
+	case visionBlind:
+		return "blind"
+	case visionShape:
+		return "shape"
+	case visionColourFamily:
+		return "colour-family"
+	case visionExactHex:
+		return "exact-hex"
+	default:
+		return "unmeasured"
+	}
+}
+
+func contextCell(w int) string {
+	if w == 0 {
+		return "-"
+	}
+	return strconv.Itoa(w)
 }

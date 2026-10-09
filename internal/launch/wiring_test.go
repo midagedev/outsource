@@ -397,6 +397,48 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 	if !strings.Contains(out, "(--model required)") {
 		t.Errorf("openrouter has no default model and must be marked, not blank:\n%s", out)
 	}
+
+	// The model axis: every modelTable row must be a line of its own, and
+	// every provider must close with its (other ids) line — the vision
+	// guard's answer for an unlisted id, which is otherwise only in source.
+	// Searched in the model block only: the pairing block above also names
+	// default ids, and a match there would prove nothing about this block.
+	t.Log("\n" + out)
+	mblock := ""
+	if i := strings.Index(out, "MODELS ("); i >= 0 {
+		mblock = out[i:]
+	} else {
+		t.Fatal("--list-wiring has no MODELS block:\n" + out)
+	}
+	for _, m := range modelTable {
+		found := false
+		for _, l := range strings.Split(mblock, "\n") {
+			if strings.HasPrefix(l, m.provider+" ") && strings.Contains(l, m.id+" ") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("--list-wiring omits the model row %s/%s:\n%s", m.provider, m.id, out)
+		}
+	}
+	for _, p := range providerTable {
+		found := false
+		for _, l := range strings.Split(mblock, "\n") {
+			if strings.HasPrefix(l, p.name+" ") && strings.Contains(l, "(other ids)") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("--list-wiring omits %s's (other ids) line:\n%s", p.name, out)
+		}
+	}
+	// The one refused id must say so where a reader scanning for a model to
+	// pick would meet it, not only when the launch refuses.
+	if !strings.Contains(out, "refused at launch: answered by glm-5.3") {
+		t.Errorf("--list-wiring must carry the glm-5.2 refusal note:\n%s", out)
+	}
 }
 
 // A harness row that declares a trail format the renderer does not know ships a

@@ -6,8 +6,8 @@ import (
 )
 
 // The z.ai endpoint accepts glm-5.2 without error but answers with glm-5.3
-// (measured 2026-08-27, twice — see the zai row's silentMappings in
-// wiring.go). FAIL-first: before the guard, `--model glm-5.2` launched, and on
+// (measured 2026-08-27, twice — see the glm-5.2 row's answeredBy in
+// wiring.go's modelTable). FAIL-first: before the guard, `--model glm-5.2` launched, and on
 // the crush harness (which has no model-identity assertion) the misassignment
 // would have stayed silent forever; on claude-code it would burn the whole
 // round before exiting 70.
@@ -39,10 +39,10 @@ func TestZaiMappedModelGuardScope(t *testing.T) {
 			t.Fatalf("model %q must pass the mapped-model guard, got: %s", m, msg)
 		}
 	}
-	// The mapping is a per-provider column, so a provider that declares none
+	// The mapping is a per-provider fact, so a provider with no mapped ids
 	// passes every id — the guard cannot leak across rows.
 	if _, ok := mappedModelError(xai, "glm-5.2"); !ok {
-		t.Fatal("a provider with no silentMappings must pass every id")
+		t.Fatal("a provider with no mapped model rows must pass every id")
 	}
 }
 
