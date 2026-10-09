@@ -48,6 +48,14 @@ func TestModelAxisCharacterization(t *testing.T) {
 		{"openrouter", "", true, true},
 		{"openrouter", "openrouter/x/y", true, true},
 		{"openrouter", "openrouter/z-ai/glm-5.3-flash", true, true},
+		// zen: the qualifier is opencode, so the qualified form strips to the
+		// bare id through qualifierOf; the default resolves to its measured
+		// row; unlisted ids defer to the provider row (added 2026-10-09 with
+		// the qualifier column).
+		{"zen", "", true, true},
+		{"zen", "opencode/step-5-preview-free", true, true},
+		{"zen", "step-5-preview-free", true, true},
+		{"zen", "opencode/other-free", true, true},
 		// muse: one known model, measured to see.
 		{"muse", "", true, true},
 		{"muse", "muse-spark-1.3-contributor", true, true},

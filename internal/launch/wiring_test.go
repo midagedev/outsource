@@ -2,6 +2,7 @@ package launch
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,113 @@ func TestWiringTablesAgree(t *testing.T) {
 	}
 }
 
+// qualifierOf is the qualifier column's single accessor. zen is the reason it
+// exists: the launcher name is zen, the id opencode's CLI writes is
+// "opencode" (measured 2026-10-09). FAIL-first: make it return p.name
+// unconditionally and the zen assertion fails while the others keep passing —
+// exactly the split that hides a broken mapping.
+func TestQualifierOf(t *testing.T) {
+	zen, ok := findProvider("zen")
+	if !ok {
+		t.Fatal("the zen provider row is gone")
+	}
+	if got := qualifierOf(zen); got != "opencode" {
+		t.Errorf("qualifierOf(zen) = %q, want opencode (OpenCode Zen's CLI provider id)", got)
+	}
+	for _, name := range []string{"zai", "openrouter"} {
+		p, ok := findProvider(name)
+		if !ok {
+			t.Fatalf("the %s provider row is gone", name)
+		}
+		if p.qualifier != "" {
+			t.Errorf("provider %s sets qualifier %q; an empty column (same as name) is the design for every row but zen", name, p.qualifier)
+		}
+		if got := qualifierOf(p); got != name {
+			t.Errorf("qualifierOf(%s) = %q, want %q (empty qualifier means same as name)", name, got, name)
+		}
+	}
+}
+
+// findProviderIn is findProvider over a given table, so a checker fixture can
+// resolve providers in a broken COPY (the renderWiring/modelTableProblems
+// property: a violation is never demonstrated by editing a live row).
+func findProviderIn(providers []provider, name string) (provider, bool) {
+	for _, p := range providers {
+		if p.name == name {
+			return p, true
+		}
+	}
+	return provider{}, false
+}
+
+// providerTableProblems is the qualifier-consistency checker, over a given
+// provider table so a violation fixture is a broken COPY, never a live-row
+// edit. Empty means the table agrees.
+//
+// Two providers on one harness with the same qualifier are indistinguishable
+// downstream: the export's providerID (what assertOpencodeIdentity compares
+// against) is the qualifier, so a zen round answered under openrouter's id —
+// or the reverse — would PASS the identity assertion. That is a wiring
+// defect, and this is where it dies.
+func providerTableProblems(providers []provider) []string {
+	var probs []string
+	for _, h := range harnessTable {
+		seen := map[string]string{} // qualifier → provider name that claimed it
+		for _, pn := range h.providers {
+			p, ok := findProviderIn(providers, pn)
+			if !ok {
+				continue // TestWiringTablesAgree owns the unknown-provider clause
+			}
+			q := qualifierOf(p)
+			if first, clash := seen[q]; clash {
+				probs = append(probs, fmt.Sprintf(
+					"harness %s drives two providers with the qualifier %q (%s and %s): the export's providerID could not tell their rounds apart",
+					h.name, q, first, p.name))
+				continue
+			}
+			seen[q] = p.name
+		}
+	}
+	return probs
+}
+
+// TestProviderQualifiersAreUniquePerHarness is the recurrence gate for two
+// providers quietly sharing a qualifier on one harness — the state in which
+// the model-identity assertion stops discriminating. Asserted on the live
+// table (no problems) and on two broken-copy fixtures, one per direction.
+//
+// FAIL-first: reduce providerTableProblems to a no-op (return nil) and both
+// fixture assertions below fail with "the checker must flag".
+func TestProviderQualifiersAreUniquePerHarness(t *testing.T) {
+	if probs := providerTableProblems(providerTable); len(probs) > 0 {
+		for _, p := range probs {
+			t.Errorf("live providerTable: %s", p)
+		}
+	}
+	// Fixture 1: zen's qualifier overwritten with openrouter's.
+	broken := append([]provider(nil), providerTable...)
+	for i := range broken {
+		if broken[i].name == "zen" {
+			broken[i].qualifier = "openrouter"
+		}
+	}
+	probs := providerTableProblems(broken)
+	if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), `qualifier "openrouter" (openrouter and zen)`) {
+		t.Errorf("zen claiming openrouter's qualifier must be flagged with both names, got: %v", probs)
+	}
+	// Fixture 2: the other direction — openrouter adopting zen's qualifier.
+	broken = append([]provider(nil), providerTable...)
+	for i := range broken {
+		if broken[i].name == "openrouter" {
+			broken[i].qualifier = "opencode"
+		}
+	}
+	probs = providerTableProblems(broken)
+	if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), `qualifier "opencode" (openrouter and zen)`) {
+		t.Errorf("openrouter claiming zen's qualifier must be flagged with both names, got: %v", probs)
+	}
+}
+
 // The pairing matrix is derived from one column, so an allowed cell and a
 // refused one cannot disagree. These are the cells that must keep working.
 func TestPairingAllowedCells(t *testing.T) {
@@ -102,6 +210,7 @@ func TestPairingAllowedCells(t *testing.T) {
 		{"claude-code", "xai"},
 		{"crush", "xai"},
 		{"opencode", "openrouter"},
+		{"opencode", "zen"},
 		{"agy", "agy"},
 	} {
 		if msg := pairingRefusal(c.harness, c.provider); msg != "" {
@@ -130,6 +239,8 @@ func TestPairingMatrixRefusals(t *testing.T) {
 		{"xai", "opencode", "harness opencode does not drive provider xai"},
 		{"openrouter", "claude-code", "harness claude-code does not drive provider openrouter"},
 		{"openrouter", "crush", "harness crush does not drive provider openrouter"},
+		{"zen", "claude-code", "harness claude-code does not drive provider zen"},
+		{"zen", "crush", "harness crush does not drive provider zen"},
 		{"zai", "agy", "harness agy does not drive provider zai"},
 		{"agy", "claude-code", "harness claude-code does not drive provider agy"},
 	}
@@ -244,10 +355,44 @@ func TestRequiredModelErrorDemandsAnIDOnlyWhereThereIsNoDefault(t *testing.T) {
 	if ok {
 		t.Fatal("a provider with no default model must refuse an absent --model")
 	}
-	for _, want := range []string{"someday-empty", "no default model", "--model", "openrouter/<id>"} {
+	// Repointed 2026-10-09 (was "openrouter/<id>"): the hint's <provider>
+	// token is substituted with the provider's own qualifier, so a synthetic
+	// provider gets its own name — derivation: qualifierOf(provider{name:
+	// "someday-empty"}) = "someday-empty", the empty qualifier meaning
+	// "same as name". The old expectation failed on the substituted hint
+	// ("…got: … someday-empty/<id>", not "openrouter/<id>"); the live-row
+	// assertion below keeps the old meaning where it still holds.
+	for _, want := range []string{"someday-empty", "no default model", "--model", "someday-empty/<id>"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("refusal must contain %q, got: %s", want, msg)
 		}
+	}
+	// The live openrouter row keeps the openrouter/<id> hint byte for byte:
+	// its qualifier is empty, so the substitution reproduces the old text.
+	// openrouter has no default (emptyByDesign), so the refusal IS reachable
+	// on the live row — the same state the old assertion pinned.
+	openrouter, ok := findProvider("openrouter")
+	if !ok {
+		t.Fatal("the openrouter provider row is gone")
+	}
+	liveMsg, liveOK := requiredModelError(openrouter, oc, "")
+	if liveOK {
+		t.Fatal("openrouter has no default model and must refuse an absent --model")
+	}
+	if !strings.Contains(liveMsg, "openrouter/<id>") {
+		t.Fatalf("the openrouter row's substituted hint must still read openrouter/<id>, got: %s", liveMsg)
+	}
+	// And the shape the substitution exists for, on a synthetic zen-like row
+	// (the live zen row has a default, so the guard never refuses it today):
+	// a provider whose qualifier differs from its name renders the QUALIFIER
+	// in the hint, not the launcher name.
+	zenLike := provider{name: "zen", qualifier: "opencode", defaultModel: ""}
+	zenMsg, zenOK := requiredModelError(zenLike, oc, "")
+	if zenOK {
+		t.Fatal("a zen-like provider with no default must refuse an absent --model")
+	}
+	if !strings.Contains(zenMsg, "opencode/<id>") || strings.Contains(zenMsg, "zen/<id>") {
+		t.Fatalf("a zen-like row's hint must read opencode/<id>, not zen/<id>, got: %s", zenMsg)
 	}
 	// An explicit --model satisfies it even with no default.
 	if _, ok := requiredModelError(empty, oc, "openrouter/vendor/id"); !ok {
@@ -327,14 +472,14 @@ func TestProviderDefaultModelLaunchesWithoutTheFlag(t *testing.T) {
 	// the id is the caller's — which is the form every openrouter launch takes
 	// today.
 	const id = "vendor/model"
-	qualified, errMsg := qualifyOpencodeModel("openrouter/"+id, "")
+	qualified, errMsg := qualifyOpencodeModel("openrouter/"+id, "openrouter", "")
 	if errMsg != "" {
 		t.Fatalf("an explicit openrouter id must qualify: %s", errMsg)
 	}
 	if qualified != "openrouter/"+id {
 		t.Fatalf("qualified = %q, want openrouter/%s", qualified, id)
 	}
-	if got := requestedModelID(qualified); got != id {
+	if got := requestedModelID(qualified, "openrouter"); got != id {
 		t.Fatalf("requestedModelID(%q) = %q, want %q", qualified, got, id)
 	}
 }
@@ -347,16 +492,67 @@ func TestOpencodeModelFormIsPreflighted(t *testing.T) {
 	if !ok || h.modelForm == nil {
 		t.Fatal("the opencode harness must declare a modelForm rule")
 	}
-	if msg, ok := h.modelForm("zai/glm-5.3", "openrouter"); ok {
+	openrouter, ok := findProvider("openrouter")
+	if !ok {
+		t.Fatal("the openrouter provider row is gone")
+	}
+	if msg, ok := h.modelForm("zai/glm-5.3", openrouter); ok {
 		t.Fatalf("a non-openrouter prefix must be refused, got ok (msg=%q)", msg)
 	}
-	if _, ok := h.modelForm("openrouter/z-ai/glm-5.3-flash", "openrouter"); !ok {
+	if _, ok := h.modelForm("openrouter/z-ai/glm-5.3-flash", openrouter); !ok {
 		t.Fatal("a well-formed openrouter/<vendor>/<id> must pass")
 	}
 	// Empty is not a form error: requiredModelError owns that case, and the
 	// two guards must not both claim it with different messages.
-	if _, ok := h.modelForm("", "openrouter"); !ok {
+	if _, ok := h.modelForm("", openrouter); !ok {
 		t.Fatal("an empty model is not a form error")
+	}
+
+	// The rule takes the provider row: zen's qualifier is opencode, so the
+	// accepted form is opencode/<id> even though the launcher provider is
+	// named zen. FAIL-first: make opencodeModelFormError ignore its provider
+	// (the pre-qualifier "openrouter" literal) and the pass case below
+	// refuses.
+	zen, ok := findProvider("zen")
+	if !ok {
+		t.Fatal("the zen provider row is gone")
+	}
+	if _, ok := h.modelForm("opencode/step-5-preview-free", zen); !ok {
+		t.Fatal("a well-formed opencode/<id> must pass for zen")
+	}
+	msg, ok := h.modelForm("zen/step-5-preview-free", zen)
+	if ok {
+		t.Fatal("the launcher name as prefix must be refused for zen")
+	}
+	for _, want := range []string{"opencode/<id>", "zen"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("the zen refusal must contain %q, got: %s", want, msg)
+		}
+	}
+	if _, ok := h.modelForm("openrouter/x", zen); ok {
+		t.Fatal("an openrouter prefix must be refused for zen")
+	}
+
+	// crush keeps its text byte-identical for zai/xai: the prefix it compares
+	// moved to qualifierOf, which is the provider's own name for every
+	// crush-driven provider.
+	crush, ok := findHarness("crush")
+	if !ok || crush.modelForm == nil {
+		t.Fatal("the crush harness must declare a modelForm rule")
+	}
+	zai, ok := findProvider("zai")
+	if !ok {
+		t.Fatal("the zai provider row is gone")
+	}
+	if _, ok := crush.modelForm("zai/glm-5.3", zai); !ok {
+		t.Fatal("crush must accept zai/<id> for zai")
+	}
+	msg, ok = crush.modelForm("xai/grok-4.6", zai)
+	if ok {
+		t.Fatal("crush must refuse a foreign provider prefix")
+	}
+	if msg != "--model xai/grok-4.6 does not match --provider zai" {
+		t.Fatalf("crush refusal text must stay byte-identical, got: %s", msg)
 	}
 }
 
@@ -379,6 +575,38 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 			}
 			if line == "" {
 				t.Errorf("--list-wiring omits the routable cell %s+%s:\n%s", p.name, hn, out)
+				continue
+			}
+			// The DEFAULT MODEL cell must not run into NOTES: the column is
+			// 28 wide (widened 2026-10-09 from 24, which muse-spark-1.3-
+			// contributor at 26 chars overflowed), and an overflowing cell
+			// leaves a single space — two columns reading as one token.
+			def := p.defaultModel
+			if def == "" {
+				def = "(--model required)"
+			}
+			if i := strings.Index(line, def); i < 0 {
+				t.Errorf("%s+%s: the line has no DEFAULT MODEL cell %q: %q", p.name, hn, def, line)
+			} else if rest := line[i+len(def):]; rest != "" && !strings.HasPrefix(rest, "  ") {
+				t.Errorf("%s+%s: DEFAULT MODEL cell %q runs into NOTES (fewer than two spaces after it): %q", p.name, hn, def, line)
+			}
+		}
+	}
+	// zen: the line must name the default id and the substituted form hint —
+	// opencode/<id>, the qualifier, not the launcher name.
+	zenLine := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "zen ") {
+			zenLine = l
+			break
+		}
+	}
+	if zenLine == "" {
+		t.Errorf("--list-wiring omits the zen row:\n%s", out)
+	} else {
+		for _, want := range []string{"step-5-preview-free", "--model form opencode/<id>"} {
+			if !strings.Contains(zenLine, want) {
+				t.Errorf("the zen line must contain %q: %q", want, zenLine)
 			}
 		}
 	}
@@ -432,6 +660,25 @@ func TestListWiringPrintsEveryRoutableCell(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("--list-wiring omits %s's (other ids) line:\n%s", p.name, out)
+		}
+	}
+	// zen's own model row and fallback, in the model block: the measured
+	// colour-family level for the routed id, the deferring pass for the rest
+	// of the catalogue. (Columns are %-12s-padded, so the provider is matched
+	// as a prefix plus the id as a substring, like the loops above.)
+	for _, want := range []struct{ name, id, contains string }{
+		{"zen", "step-5-preview-free", "colour-family"},
+		{"zen", "(other ids)", "guard passes"},
+	} {
+		found := false
+		for _, l := range strings.Split(mblock, "\n") {
+			if strings.HasPrefix(l, want.name+" ") && strings.Contains(l, want.id) && strings.Contains(l, want.contains) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("--list-wiring omits the model-block line %s %s with %q:\n%s", want.name, want.id, want.contains, mblock)
 		}
 	}
 	// The one refused id must say so where a reader scanning for a model to

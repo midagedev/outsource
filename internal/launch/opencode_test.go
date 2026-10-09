@@ -15,22 +15,45 @@ func TestQualifyOpencodeModel(t *testing.T) {
 	// "openrouter/z-ai/glm-5.3-flash" → prefix "openrouter", id "z-ai" and a
 	// leftover "glm-5.3-flash". The id here is a fixture for that shape, not a
 	// claim about what this skill routes.
-	got, errMsg := qualifyOpencodeModel("", "z-ai/glm-5.3-flash")
+	got, errMsg := qualifyOpencodeModel("", "openrouter", "z-ai/glm-5.3-flash")
 	if errMsg != "" || got != "openrouter/z-ai/glm-5.3-flash" {
 		t.Fatalf("default: got %q err %q, want openrouter/z-ai/glm-5.3-flash", got, errMsg)
 	}
-	got, errMsg = qualifyOpencodeModel("openrouter/z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash")
+	got, errMsg = qualifyOpencodeModel("openrouter/z-ai/glm-5.3-flash", "openrouter", "z-ai/glm-5.3-flash")
 	if errMsg != "" || got != "openrouter/z-ai/glm-5.3-flash" {
 		t.Fatalf("slash-in-id: got %q err %q", got, errMsg)
 	}
-	if _, errMsg = qualifyOpencodeModel("openrouter/", "z-ai/glm-5.3-flash"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("openrouter/", "openrouter", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("empty remainder must be rejected")
 	}
-	if _, errMsg = qualifyOpencodeModel("zai/glm-5.3", "z-ai/glm-5.3-flash"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("zai/glm-5.3", "openrouter", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("non-openrouter prefix must be rejected")
 	}
-	if _, errMsg = qualifyOpencodeModel("z-ai/glm-5.3-flash", "z-ai/glm-5.3-flash"); errMsg == "" {
+	if _, errMsg = qualifyOpencodeModel("z-ai/glm-5.3-flash", "openrouter", "z-ai/glm-5.3-flash"); errMsg == "" {
 		t.Fatal("bare id without openrouter/ must be rejected")
+	}
+	// zen: the qualifier is opencode — the id opencode's CLI uses for
+	// OpenCode Zen, not the launcher name (measured 2026-10-09). FAIL-first:
+	// hardcode the old "openrouter" prefix and the default and explicit
+	// cases below come back wrong or refused.
+	got, errMsg = qualifyOpencodeModel("", "opencode", "step-5-preview-free")
+	if errMsg != "" || got != "opencode/step-5-preview-free" {
+		t.Fatalf("zen default: got %q err %q, want opencode/step-5-preview-free", got, errMsg)
+	}
+	if got, errMsg = qualifyOpencodeModel("opencode/step-5-preview-free", "opencode", "step-5-preview-free"); errMsg != "" || got != "opencode/step-5-preview-free" {
+		t.Fatalf("zen explicit: got %q err %q", got, errMsg)
+	}
+	if _, errMsg = qualifyOpencodeModel("openrouter/x/y", "opencode", "step-5-preview-free"); errMsg == "" {
+		t.Fatal("an openrouter/ prefix must be rejected under the opencode qualifier")
+	}
+	if _, errMsg = qualifyOpencodeModel("opencode/", "opencode", "step-5-preview-free"); errMsg == "" {
+		t.Fatal("empty remainder must be rejected under the opencode qualifier")
+	}
+	if _, errMsg = qualifyOpencodeModel("step-5-preview-free", "opencode", "step-5-preview-free"); errMsg == "" {
+		t.Fatal("bare id without opencode/ must be rejected")
+	}
+	if _, errMsg = qualifyOpencodeModel("zen/step-5-preview-free", "opencode", "step-5-preview-free"); errMsg == "" {
+		t.Fatal("the launcher name as prefix must be rejected for zen")
 	}
 }
 
@@ -78,23 +101,57 @@ func TestOpenrouterCredsPositivelyAbsent(t *testing.T) {
 
 func TestParseOpencodeExportIdentity(t *testing.T) {
 	ok := []byte(`{"info":{"model":{"id":"z-ai/glm-5.3-flash","providerID":"openrouter"}},"messages":[{"info":{"role":"user"}},{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
-	actual, _, verdict := parseOpencodeExport(ok, "openrouter/z-ai/glm-5.3-flash", "")
+	actual, _, verdict := parseOpencodeExport(ok, "openrouter", "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "ok" || actual != "z-ai/glm-5.3-flash" {
 		t.Fatalf("ok case: actual=%q verdict=%q", actual, verdict)
 	}
 	mismatch := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"glm-5.3","providerID":"openrouter"}}]}`)
-	_, _, verdict = parseOpencodeExport(mismatch, "openrouter/z-ai/glm-5.3-flash", "")
+	_, _, verdict = parseOpencodeExport(mismatch, "openrouter", "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "mismatch" {
 		t.Fatalf("mismatch case: verdict=%q", verdict)
 	}
 	none := []byte(`{"messages":[{"info":{"role":"user"}}]}`)
-	_, _, verdict = parseOpencodeExport(none, "openrouter/z-ai/glm-5.3-flash", "")
+	_, _, verdict = parseOpencodeExport(none, "openrouter", "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "absent" {
 		t.Fatalf("no assistant: verdict=%q", verdict)
 	}
-	_, _, verdict = parseOpencodeExport([]byte("not json"), "openrouter/z-ai/glm-5.3-flash", "")
+	_, _, verdict = parseOpencodeExport([]byte("not json"), "openrouter", "openrouter/z-ai/glm-5.3-flash", "")
 	if verdict != "absent" {
 		t.Fatalf("garbage: verdict=%q", verdict)
+	}
+}
+
+// The captured zen identity (measured 2026-10-09, `opencode export` of an
+// opencode/step-5-preview-free session): info.model {id: step-5-preview-free,
+// providerID: opencode, variant: default}; the assistant message carries
+// providerID opencode, modelID step-5-preview-free. The export's providerID
+// must equal the QUALIFIER — for zen that is "opencode", not the launcher
+// name. Both mismatch directions are pinned: a zen round answered under
+// openrouter's id, and an openrouter round answered under zen's, are the same
+// defect (the export could not tell the two providers' rounds apart — which
+// is also why two live providers may never share a qualifier on one harness;
+// see TestProviderQualifiersAreUniquePerHarness).
+//
+// FAIL-first: compare providerID against the pre-qualifier literal
+// "openrouter" and the zen direction below passes as "ok" instead of
+// mismatch.
+func TestParseOpencodeExportZenQualifier(t *testing.T) {
+	zen := []byte(`{"info":{"model":{"id":"step-5-preview-free","providerID":"opencode","variant":"default"}},"messages":[{"info":{"role":"user"}},{"info":{"role":"assistant","modelID":"step-5-preview-free","providerID":"opencode"}}]}`)
+	actual, _, verdict := parseOpencodeExport(zen, "opencode", "opencode/step-5-preview-free", "")
+	if verdict != "ok" || actual != "step-5-preview-free" {
+		t.Fatalf("zen ok case: actual=%q verdict=%q", actual, verdict)
+	}
+	// --provider zen (qualifier opencode) whose export says providerID
+	// openrouter: the modelID matches, so only the provider check can fire.
+	answeredOpenrouter := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"step-5-preview-free","providerID":"openrouter"}}]}`)
+	if _, _, v := parseOpencodeExport(answeredOpenrouter, "opencode", "opencode/step-5-preview-free", ""); v != "mismatch" {
+		t.Fatalf("zen round answered by openrouter: verdict=%q, want mismatch", v)
+	}
+	// --provider openrouter (qualifier openrouter) whose export says
+	// providerID opencode: mismatch in the other direction.
+	answeredZen := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"opencode"}}]}`)
+	if _, _, v := parseOpencodeExport(answeredZen, "openrouter", "openrouter/z-ai/glm-5.3-flash", ""); v != "mismatch" {
+		t.Fatalf("openrouter round answered by opencode: verdict=%q, want mismatch", v)
 	}
 }
 
@@ -140,8 +197,55 @@ func TestFirstSessionID(t *testing.T) {
 }
 
 func TestRequestedModelIDKeepsInnerSlash(t *testing.T) {
-	if got := requestedModelID("openrouter/z-ai/glm-5.3-flash"); got != "z-ai/glm-5.3-flash" {
+	if got := requestedModelID("openrouter/z-ai/glm-5.3-flash", "openrouter"); got != "z-ai/glm-5.3-flash" {
 		t.Fatalf("got %q", got)
+	}
+	if got := requestedModelID("opencode/step-5-preview-free", "opencode"); got != "step-5-preview-free" {
+		t.Fatalf("zen: got %q, want step-5-preview-free", got)
+	}
+	// Under a different qualifier nothing is stripped: the caller asked for a
+	// form it did not launch with, and the identity assertion reports that as
+	// a mismatch rather than silently re-stripping.
+	if got := requestedModelID("openrouter/x", "opencode"); got != "openrouter/x" {
+		t.Fatalf("foreign qualifier: got %q, want openrouter/x untouched", got)
+	}
+}
+
+// The credential preflight's seam is openrouter-only by measurement: a free
+// Zen id answered rc=0 with no Zen key stored (2026-10-09), so gating zen on
+// openrouterCredsPositivelyAbsent would refuse rounds that run.
+//
+// FAIL-first: drop the p.name == "openrouter" gate from opencodeCredsMissing
+// and the zen half of this fails.
+func TestOpencodeCredsMissingGatesOpenRouterOnly(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+	oc := filepath.Join(dir, "opencode")
+	if err := os.MkdirAll(oc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	openrouter, ok := findProvider("openrouter")
+	if !ok {
+		t.Fatal("the openrouter provider row is gone")
+	}
+	zen, ok := findProvider("zen")
+	if !ok {
+		t.Fatal("the zen provider row is gone")
+	}
+	if err := os.WriteFile(filepath.Join(oc, "auth.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !opencodeCredsMissing(openrouter) {
+		t.Fatal("a parseable auth.json without openrouter must gate openrouter")
+	}
+	if opencodeCredsMissing(zen) {
+		t.Fatal("zen must not be gated: free ids measured to run with no Zen key (2026-10-09)")
+	}
+	if err := os.WriteFile(filepath.Join(oc, "auth.json"), []byte(`{"openrouter":{"type":"api","key":"sk-or-x"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if opencodeCredsMissing(openrouter) || opencodeCredsMissing(zen) {
+		t.Fatal("a present openrouter key ungates both providers")
 	}
 }
 
@@ -175,7 +279,7 @@ func TestParseOpencodeExportWrongDirectory(t *testing.T) {
 	// The recurrence gate for the PWD leak: a session that records a
 	// directory other than --cwd fails the round even when the model matched.
 	exp := []byte(`{"info":{"directory":"/launcher/shell/cwd","model":{"id":"z-ai/glm-5.3-flash","providerID":"openrouter"}},"messages":[{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
-	actual, _, verdict := parseOpencodeExport(exp, "openrouter/z-ai/glm-5.3-flash", "/round/cwd")
+	actual, _, verdict := parseOpencodeExport(exp, "openrouter", "openrouter/z-ai/glm-5.3-flash", "/round/cwd")
 	if verdict != "wrongdir" {
 		t.Fatalf("verdict=%q, want wrongdir", verdict)
 	}
@@ -183,13 +287,13 @@ func TestParseOpencodeExportWrongDirectory(t *testing.T) {
 		t.Fatalf("actual=%q, want the offending directory", actual)
 	}
 	// Same directory (modulo cleaning) passes.
-	_, _, verdict = parseOpencodeExport(exp, "openrouter/z-ai/glm-5.3-flash", "/launcher/shell/cwd/")
+	_, _, verdict = parseOpencodeExport(exp, "openrouter", "openrouter/z-ai/glm-5.3-flash", "/launcher/shell/cwd/")
 	if verdict != "ok" {
 		t.Fatalf("same dir: verdict=%q, want ok", verdict)
 	}
 	// An export without a directory field skips the check rather than failing.
 	noDir := []byte(`{"messages":[{"info":{"role":"assistant","modelID":"z-ai/glm-5.3-flash","providerID":"openrouter"}}]}`)
-	if _, _, v := parseOpencodeExport(noDir, "openrouter/z-ai/glm-5.3-flash", "/round/cwd"); v != "ok" {
+	if _, _, v := parseOpencodeExport(noDir, "openrouter", "openrouter/z-ai/glm-5.3-flash", "/round/cwd"); v != "ok" {
 		t.Fatalf("missing directory field must fail open, got %q", v)
 	}
 }

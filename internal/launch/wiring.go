@@ -58,6 +58,17 @@ type provider struct {
 	name string
 	url  string
 
+	// qualifier is the provider id a qualifying harness (crush, opencode)
+	// writes before the model id in --model: crush's zai/<id>, opencode's
+	// openrouter/<id>. EMPTY means "same as name" — true for every row but
+	// zen, whose launcher name is zen while the id opencode's CLI uses for
+	// OpenCode Zen is opencode ("opencode" is already the harness's name; a
+	// provider and a harness are different things). qualifierOf is the single
+	// owner of the mapping: a call site building p.name+"/" on its own stops
+	// agreeing with it exactly where it matters — the identity assertion
+	// compares the export's providerID against the qualifier.
+	qualifier string
+
 	// defaultModel is what a round runs when --model is absent. EMPTY means
 	// this provider has no routable default and --model is required — see
 	// requiredModelError, which refuses at launch rather than letting a
@@ -170,6 +181,53 @@ var providerTable = []provider{
 		pairingNote:    "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for openrouter",
 	},
 	{
+		name:      "zen",
+		qualifier: "opencode",
+		// Measured 2026-10-09 (opencode CLI 1.18.21). OpenCode Zen is
+		// opencode's own hosted provider; the id opencode's CLI uses for it is
+		// `opencode`, which is why this row carries a qualifier — the launcher
+		// name is zen because "opencode" is already the harness's name, and a
+		// provider and a harness are different things. `opencode models
+		// --refresh` lists opencode/step-5-preview-free ("Step 5 Preview
+		// Free"); `opencode models opencode --verbose` shows for it: api url
+		// https://opencode.ai/zen/v1, cost input 0 / output 0, limit context
+		// 1000000 / output 65536, capabilities input text+image+video,
+		// reasoning true, toolcall true, status active. A raw `opencode run
+		// --format json --pure -m opencode/step-5-preview-free` answered rc=0
+		// while opencode's auth.json held ONLY an openrouter key — free ids
+		// need no Zen login, which is also why the credential preflight
+		// (opencodeCredsMissing) does not gate this provider.
+		//
+		// The free window is limited. Zen's docs (https://opencode.ai/docs/zen/
+		// fetched 2026-10-09) say "Step 5 Preview Free is free on OpenCode for
+		// a limited time" and give no end date; the one-week figure comes from
+		// OpenCode's announcement of 2026-10-09, not from the docs. When the
+		// window ends: empty
+		// defaultModel and add "zen" to emptyByDesign in wiring_test.go IN THE
+		// SAME COMMIT — the lapse story the openrouter row above already
+		// tells twice over.
+		//
+		// Privacy is per-id, not per-provider. The docs' zero-retention
+		// sentence ("Its provider follows a zero-retention policy and does not
+		// use your data for model training") is about THIS id; other free Zen
+		// ids differ — big-pickle: "During its free period, collected data may
+		// be used to improve the model"; the muse-spark contributor-free ids
+		// trade training permission; nemotron: "Trial use only". Read the
+		// id's own terms before routing another.
+		defaultModel:   "step-5-preview-free",
+		defaultHarness: "opencode",
+		// Zen is a catalogue like openrouter: the caller names the id per
+		// round and this launcher keeps no capability table for ids it has
+		// not probed, so the guard defers (passes) — the same deferring
+		// reason as openrouter's row, not a claim about any unlisted id.
+		unlistedVision: true,
+		// The api reports a 1000000 context limit, but this column exists for
+		// the claude-code harness only and zen never runs there; 0 leaves the
+		// opencode CLI's own limit untouched.
+		contextWindow: 0,
+		pairingNote:   "opencode owns its own auth store and resolves endpoints itself, so there is no Anthropic-compatible URL and no cred row for zen",
+	},
+	{
 		name: "muse",
 		// Muse Code is provider and harness in one, like agy: the model is
 		// Meta's and auth is an OAuth device flow the CLI owns at
@@ -222,6 +280,19 @@ func findProvider(name string) (provider, bool) {
 		}
 	}
 	return provider{}, false
+}
+
+// qualifierOf is the single owner of "which id the CLI writes before the
+// model id": the row's qualifier when it declares one, the provider's own
+// name otherwise. Every qualifier use goes through it — the harness model
+// form rules, the qualified-model parsing, and the form hints — so a row
+// whose launcher name and CLI id differ (zen) changes one column, not every
+// call site.
+func qualifierOf(p provider) string {
+	if p.qualifier != "" {
+		return p.qualifier
+	}
+	return p.name
 }
 
 // providerNameList is the routable provider names, in table order. Every
@@ -324,6 +395,22 @@ var modelTable = []model{
 		vision: visionUnmeasured,
 	},
 	{
+		provider: "zen",
+		id:       "step-5-preview-free",
+		// Measured 2026-10-09 through opencode's read tool (--auto, sequential
+		// probes): a drawn white `7` on black → `7` (high confidence); a
+		// drawn `L` → `L` (high); a uniform #1E50DC fill → `#3A5BF0`, "Royal
+		// blue" (medium) — right colour family, per-channel error 4–11%, so
+		// the standing rule applies: shape and colour family, not exact hex.
+		// Two hazards measured in the same session: one probe answered `S`
+		// with high confidence WITHOUT calling read at all (no tool_use in
+		// its log) — a verdict with no read tool call in the log is not a
+		// verdict — and one colour probe computed the hex with a bash/PIL
+		// script instead of looking. Judge the transcript, not only the
+		// answer.
+		vision: visionColourFamily,
+	},
+	{
 		provider: "muse",
 		id:       "muse-spark-1.3-contributor",
 		// Measured 2026-09-18 through the CLI's own read tool: a drawn white
@@ -357,12 +444,13 @@ func findModel(providerName, id string) (model, bool) {
 }
 
 // modelVision answers "can THIS round see pixels". model may be
-// provider-qualified (crush's zai/…, opencode's openrouter/…); an empty model
-// resolves to the provider's default. A row with a measured vision level
-// answers for its id (anything above blind sees); everything else falls to
-// the provider's unlistedVision.
+// provider-qualified (crush's zai/…, opencode's openrouter/… and, for zen,
+// opencode/… — qualifierOf owns the prefix); an empty model resolves to the
+// provider's default. A row with a measured vision level answers for its id
+// (anything above blind sees); everything else falls to the provider's
+// unlistedVision.
 func modelVision(p provider, model string) bool {
-	bare := strings.TrimPrefix(model, p.name+"/")
+	bare := strings.TrimPrefix(model, qualifierOf(p)+"/")
 	if bare == "" {
 		bare = p.defaultModel
 	}
@@ -377,7 +465,7 @@ func modelVision(p provider, model string) bool {
 // unlisted id (zai's glm-4.6) gets the provider column exactly as before the
 // model axis existed.
 func contextWindowFor(p provider, model string) int {
-	bare := strings.TrimPrefix(model, p.name+"/")
+	bare := strings.TrimPrefix(model, qualifierOf(p)+"/")
 	if bare == "" {
 		bare = p.defaultModel
 	}
@@ -396,7 +484,7 @@ func mappedModelError(p provider, model string) (string, bool) {
 	if model == "" {
 		return "", true
 	}
-	bare := strings.TrimPrefix(model, p.name+"/")
+	bare := strings.TrimPrefix(model, qualifierOf(p)+"/")
 	m, mapped := findModel(p.name, bare)
 	if !mapped || m.answeredBy == "" || os.Getenv("OUTSOURCE_ALLOW_MAPPED_MODEL") == "1" {
 		return "", true
@@ -414,7 +502,11 @@ func requiredModelError(p provider, h harness, model string) (string, bool) {
 	}
 	msg := fmt.Sprintf("provider %s has no default model — pass --model explicitly", p.name)
 	if h.modelFormHint != "" {
-		msg += fmt.Sprintf(" (form on the %s harness: %s)", h.name, h.modelFormHint)
+		// <provider> becomes the provider's own qualifier, so the hint names
+		// the form THIS provider's rounds take: zen renders opencode/<id> on
+		// the opencode harness, not a generic placeholder and not zen/<id>.
+		msg += fmt.Sprintf(" (form on the %s harness: %s)", h.name,
+			strings.ReplaceAll(h.modelFormHint, "<provider>", qualifierOf(p)))
 	}
 	return msg + ".", false
 }
@@ -458,11 +550,14 @@ type harness struct {
 	run func(*round) int
 
 	// modelForm is the harness's own rule about the SHAPE of --model, checked
-	// in OutsourceMain BEFORE the --detach re-exec. Past that re-exec there is
-	// no caller left to tell: that is how an unqualified --model once came back
-	// as "detached (pid=…)" and exit 0 over a round that was already dead
-	// (measured 2026-08-26, crush). nil means the harness accepts a bare id.
-	modelForm func(model, provider string) (msg string, ok bool)
+	// in OutsourceMain BEFORE the --detach re-exec. It takes the provider row
+	// because the shape is <qualifier>/<id> and the qualifier is the
+	// provider's, not the harness's — zen's rounds on the opencode harness
+	// are opencode/<id>. Past that re-exec there is no caller left to tell:
+	// that is how an unqualified --model once came back as "detached (pid=…)"
+	// and exit 0 over a round that was already dead (measured 2026-08-26,
+	// crush). nil means the harness accepts a bare id.
+	modelForm func(model string, p provider) (msg string, ok bool)
 
 	// effortFlag says this harness accepts a reasoning-effort level, so
 	// --effort is honoured rather than refused. A column and not a harness-name
@@ -472,7 +567,10 @@ type harness struct {
 	effortFlag bool
 
 	// modelFormHint renders that rule for a human, in the message that asks for
-	// a --model this launcher has no default for.
+	// a --model this launcher has no default for. The token <provider> is
+	// replaced with the provider's qualifier at both consumers
+	// (requiredModelError, renderWiring), so one hint serves every provider
+	// a harness drives.
 	modelFormHint string
 
 	// resumeOnReset says this harness leaves a plan-limit (HTTP 429) death the
@@ -512,12 +610,12 @@ var harnessTable = []harness{
 		trailFormat:   tail.FormatLines,
 		run:           (*round).runCrush,
 		modelForm:     crushModelFormError,
-		modelFormHint: "provider/id",
+		modelFormHint: "<provider>/<id>",
 	},
 	{
 		name:      "opencode",
 		bin:       "opencode",
-		providers: []string{"openrouter"},
+		providers: []string{"openrouter", "zen"},
 		// `--format json` flushes one JSONL event at a time onto --log while the
 		// process is still running (measured 2026-08-23), so the log file itself
 		// is the live trail.
@@ -526,7 +624,7 @@ var harnessTable = []harness{
 		trailFormat:   tail.FormatOpencodeEvents,
 		run:           (*round).runOpencode,
 		modelForm:     opencodeModelFormError,
-		modelFormHint: "openrouter/<id>",
+		modelFormHint: "<provider>/<id>",
 	},
 	{
 		name:      "agy",
@@ -661,7 +759,7 @@ func wiringMatrix() string {
 // synthetic row can be rendered in a test without editing a live one.
 func renderWiring(providers []provider, models []model) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-12s %-14s %-24s %s\n", "PROVIDER", "HARNESS", "DEFAULT MODEL", "NOTES")
+	fmt.Fprintf(&b, "%-12s %-14s %-28s %s\n", "PROVIDER", "HARNESS", "DEFAULT MODEL", "NOTES")
 	for _, p := range providers {
 		for _, hname := range harnessesFor(p.name) {
 			def := p.defaultModel
@@ -673,12 +771,12 @@ func renderWiring(providers []provider, models []model) string {
 				notes = append(notes, "default harness")
 			}
 			if h, ok := findHarness(hname); ok && h.modelFormHint != "" {
-				notes = append(notes, "--model form "+h.modelFormHint)
+				notes = append(notes, "--model form "+strings.ReplaceAll(h.modelFormHint, "<provider>", qualifierOf(p)))
 			}
 			if p.modelEnv != "" {
 				notes = append(notes, "seeds from $"+p.modelEnv)
 			}
-			fmt.Fprintf(&b, "%-12s %-14s %-24s %s\n", p.name, hname, def, strings.Join(notes, "; "))
+			fmt.Fprintf(&b, "%-12s %-14s %-28s %s\n", p.name, hname, def, strings.Join(notes, "; "))
 		}
 	}
 	// The model axis under the pairing matrix: what was measured per id, and

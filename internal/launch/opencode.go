@@ -13,7 +13,9 @@ import (
 	"github.com/midagedev/outsource/internal/telemetry"
 )
 
-// runOpencode drives `opencode run --format json` against OpenRouter.
+// runOpencode drives `opencode run --format json` against the provider's
+// qualifier — openrouter for OpenRouter ids, opencode for Zen ids; the
+// qualifier column (qualifierOf) owns that mapping.
 //
 // Field-measured 2026-08-23 (opencode 1.18.21, stealth/ox-alpha):
 //   - stdin is the spec; `-m openrouter/stealth/ox-alpha` is honoured
@@ -32,7 +34,7 @@ func (r *round) runOpencode() int {
 		r.bailed = true
 		return ExitHarnessMissing
 	}
-	model, errMsg := qualifyOpencodeModel(r.o.model, r.p.defaultModel)
+	model, errMsg := qualifyOpencodeModel(r.o.model, qualifierOf(r.p), r.p.defaultModel)
 	if errMsg != "" {
 		fmt.Fprintln(r.stderr, errMsg)
 		r.bailed = true
@@ -127,7 +129,7 @@ func (r *round) runOpencode() int {
 		telemetry.Note("why", "model unverifiable: no session id")
 		assertCode = ExitModelIdentity
 	default:
-		actual, src, verdict := assertOpencodeIdentity(r.sid, r.o.model, r.o.cwd, cmd.Env)
+		actual, src, verdict := assertOpencodeIdentity(r.sid, qualifierOf(r.p), r.o.model, r.o.cwd, cmd.Env)
 		r.modelVerdict, r.modelSource = verdict, src
 		switch verdict {
 		case "ok":
@@ -208,42 +210,52 @@ func opencodeLogError(logPath string) string {
 	return out
 }
 
-// opencodeModelFormError is the single owner of opencode's openrouter/<id>
+// opencodeModelFormError is the single owner of opencode's <qualifier>/<id>
 // rule, in the shape the harness table checks BEFORE the --detach re-exec.
 // Same reason as crush's: a form error raised inside the detached child prints
 // to nothing, and the caller sees "detached (pid=…)" over a round that is
 // already dead. An empty model is not a form error here — a provider with no
 // default is refused earlier, by requiredModelError.
-func opencodeModelFormError(model, _ string) (string, bool) {
+//
+// The refusal names the launcher provider (zen) as well as the expected
+// prefix (opencode): the qualifier alone cannot say who mis-qualified, and
+// for zen the qualifier IS the harness's own name — "for provider opencode"
+// would point at the harness, not the account.
+func opencodeModelFormError(model string, p provider) (string, bool) {
 	if model == "" {
 		return "", true
 	}
-	if _, errMsg := qualifyOpencodeModel(model, ""); errMsg != "" {
-		return errMsg, false
+	if _, errMsg := qualifyOpencodeModel(model, qualifierOf(p), ""); errMsg != "" {
+		return fmt.Sprintf("--model must be %s/<id> for provider %s on the opencode harness, got: %s",
+			qualifierOf(p), p.name, model), false
 	}
 	return "", true
 }
 
-// qualifyOpencodeModel returns provider/id. The model id itself may contain
+// qualifyOpencodeModel returns qualifier/id. The model id itself may contain
 // slashes (an OpenRouter id is vendor/model); a naive one-slash split is
-// wrong. The prefix must be openrouter/ and the remainder non-empty.
+// wrong. The prefix must be the provider's qualifier and the remainder
+// non-empty.
 //
-// defaultID may be empty: openrouter has no routable default since ox-alpha
-// was withdrawn, and "openrouter/" then fails the remainder check below rather
-// than reaching the CLI as a malformed id.
-func qualifyOpencodeModel(model, defaultID string) (qualified string, errMsg string) {
+// defaultID may be empty (openrouter has had no routable default since
+// ox-alpha was withdrawn): qualifier+"/" then fails the remainder check below
+// rather than reaching the CLI as a malformed id.
+func qualifyOpencodeModel(model, qualifier, defaultID string) (qualified string, errMsg string) {
 	if model == "" {
-		model = "openrouter/" + defaultID
+		model = qualifier + "/" + defaultID
 	}
-	rest, ok := strings.CutPrefix(model, "openrouter/")
+	rest, ok := strings.CutPrefix(model, qualifier+"/")
 	if !ok || rest == "" {
-		return "", fmt.Sprintf("--model must be openrouter/<id> for the opencode harness, got: %s", model)
+		return "", fmt.Sprintf("--model must be %s/<id> for the opencode harness, got: %s", qualifier, model)
 	}
 	return model, ""
 }
 
-func requestedModelID(qualified string) string {
-	rest, ok := strings.CutPrefix(qualified, "openrouter/")
+// requestedModelID strips the qualifier the round was launched with; under a
+// different qualifier the string is returned as is, which the identity
+// assertion then reports as a mismatch rather than silently re-stripping.
+func requestedModelID(qualified, qualifier string) string {
+	rest, ok := strings.CutPrefix(qualified, qualifier+"/")
 	if !ok {
 		return qualified
 	}
@@ -415,6 +427,16 @@ func openrouterCredsPositivelyAbsent() bool {
 	return strings.TrimSpace(e.Key) == ""
 }
 
+// opencodeCredsMissing is the credential preflight's seam: which providers
+// the "no credentials" refusal gates. openrouter only — zen is exempt by
+// measurement (2026-10-09): a free Zen id (opencode/step-5-preview-free)
+// answered rc=0 while opencode's auth.json held only an openrouter key, so
+// free Zen ids need no Zen login and gating them would refuse rounds that
+// run. A priced Zen id may need one; re-measure before widening this.
+func opencodeCredsMissing(p provider) bool {
+	return p.name == "openrouter" && openrouterCredsPositivelyAbsent()
+}
+
 func firstSessionID(logPath string) string {
 	f, err := os.Open(logPath)
 	if err != nil {
@@ -456,12 +478,15 @@ type opencodeExport struct {
 }
 
 // parseOpencodeExport is the identity check, split out so tests can feed it
-// a captured export without spawning the CLI. wantDir is the round's --cwd:
-// a session whose recorded directory is somewhere else did its work in the
-// wrong tree (the PWD leak above was exactly that, and the artifact landed
-// outside --cwd with every other signal green), so it fails the same
-// assertion. Empty wantDir skips the directory check.
-func parseOpencodeExport(raw []byte, requested, wantDir string) (actual, source, verdict string) {
+// a captured export without spawning the CLI. The export's assistant
+// providerID must equal the qualifier the round was launched under and its
+// modelID the requested id minus qualifier+"/" — under zen the providerID is
+// "opencode", not the launcher name. wantDir is the round's --cwd: a session
+// whose recorded directory is somewhere else did its work in the wrong tree
+// (the PWD leak above was exactly that, and the artifact landed outside
+// --cwd with every other signal green), so it fails the same assertion.
+// Empty wantDir skips the directory check.
+func parseOpencodeExport(raw []byte, qualifier, requested, wantDir string) (actual, source, verdict string) {
 	start := bytesIndexBrace(raw)
 	if start < 0 {
 		return "", "unparseable export", "absent"
@@ -473,13 +498,13 @@ func parseOpencodeExport(raw []byte, requested, wantDir string) (actual, source,
 	if wantDir != "" && doc.Info.Directory != "" && !samePath(doc.Info.Directory, wantDir) {
 		return doc.Info.Directory, "opencode export session directory", "wrongdir"
 	}
-	wantID := requestedModelID(requested)
+	wantID := requestedModelID(requested, qualifier)
 	var answered []string
 	for _, m := range doc.Messages {
 		if m.Info.Role != "assistant" {
 			continue
 		}
-		if m.Info.ProviderID != "openrouter" || m.Info.ModelID != wantID {
+		if m.Info.ProviderID != qualifier || m.Info.ModelID != wantID {
 			got := m.Info.ProviderID + "/" + m.Info.ModelID
 			return got, "opencode export assistant message", "mismatch"
 		}
@@ -500,7 +525,7 @@ func bytesIndexBrace(b []byte) int {
 	return -1
 }
 
-func assertOpencodeIdentity(sid, requested, wantDir string, env []string) (actual, source, verdict string) {
+func assertOpencodeIdentity(sid, qualifier, requested, wantDir string, env []string) (actual, source, verdict string) {
 	cmd := exec.Command("opencode", "export", sid)
 	cmd.Env = env
 	cmd.Stdin = nil
@@ -508,7 +533,7 @@ func assertOpencodeIdentity(sid, requested, wantDir string, env []string) (actua
 	if err != nil {
 		return "", "opencode export failed", "absent"
 	}
-	return parseOpencodeExport(out, requested, wantDir)
+	return parseOpencodeExport(out, qualifier, requested, wantDir)
 }
 
 // samePath compares two directories after resolving symlinks (macOS aliases

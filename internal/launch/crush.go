@@ -53,9 +53,9 @@ func (r *round) runCrush() int {
 	// The default is qualified HERE and not at registration, which is why the
 	// registry field and the sentinel disagree on an unqualified launch.
 	if r.o.model == "" {
-		r.o.model = r.p.name + "/" + r.p.defaultModel
+		r.o.model = qualifierOf(r.p) + "/" + r.p.defaultModel
 	}
-	if msg, ok := crushModelFormError(r.o.model, r.p.name); !ok {
+	if msg, ok := crushModelFormError(r.o.model, r.p); !ok {
 		fmt.Fprintln(r.stderr, msg)
 		r.bailed = true
 		return ExitUsage
@@ -184,14 +184,16 @@ func (r *round) crushSession(dataDir string) string {
 	return ""
 }
 
-// crushModelFormError is the single owner of crush's provider/id rule. It is
-// checked twice: here, when the round starts, and again before the --detach
-// re-exec — because a check that only runs in the detached child has nowhere
-// to print. That is how an unqualified --model came back as "detached
-// (pid=…)" and exit 0 over a round that was already dead (2026-08-26).
+// crushModelFormError is the single owner of crush's provider/id rule: the
+// prefix must be the provider's qualifier (qualifierOf) — the provider's own
+// name for every crush-driven provider today. It is checked twice: here, when
+// the round starts, and again before the --detach re-exec — because a check
+// that only runs in the detached child has nowhere to print. That is how an
+// unqualified --model came back as "detached (pid=…)" and exit 0 over a round
+// that was already dead (2026-08-26).
 //
 // An empty model is not an error: runCrush qualifies the default itself.
-func crushModelFormError(model, provider string) (string, bool) {
+func crushModelFormError(model string, p provider) (string, bool) {
 	if model == "" {
 		return "", true
 	}
@@ -199,8 +201,8 @@ func crushModelFormError(model, provider string) (string, bool) {
 	if !hasSlash {
 		return fmt.Sprintf("--model must be provider/id for the crush harness, got: %s", model), false
 	}
-	if prefix != provider {
-		return fmt.Sprintf("--model %s does not match --provider %s", model, provider), false
+	if prefix != qualifierOf(p) {
+		return fmt.Sprintf("--model %s does not match --provider %s", model, p.name), false
 	}
 	return "", true
 }

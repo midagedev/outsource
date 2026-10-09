@@ -222,7 +222,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	}
 	// The provider's own model env var (zai's GLM_DELEGATE_MODEL). Applying one
 	// provider's pin to every provider leaked a glm-* id into opencode's -m,
-	// which opencode then rejected (the remainder must be openrouter/…).
+	// which opencode then rejected (the form there is <qualifier>/<id>).
 	// Scoped by the table, after the provider is known and after --model, so an
 	// explicit --model still wins.
 	o.model = seedModel(p.name, o.model)
@@ -353,10 +353,11 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Fail before registering only when we can positively see that openrouter
-	// is missing from opencode's auth.json. A missing file is not proof —
-	// newer opencode also keeps credentials in opencode.db, which this
-	// binary does not open.
-	if p.name == "openrouter" && openrouterCredsPositivelyAbsent() {
+	// is missing from opencode's auth.json — opencodeCredsMissing owns which
+	// providers this gates (zen is exempt: free ids measured to run with no
+	// Zen key, 2026-10-09). A missing file is not proof — newer opencode also
+	// keeps credentials in opencode.db, which this binary does not open.
+	if opencodeCredsMissing(p) {
 		fmt.Fprintln(stderr, "outsource: no OpenRouter credentials in opencode's auth store; run `opencode auth login` then retry")
 		return ExitNoCredential
 	}
@@ -365,7 +366,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 	// harness: past the re-exec below there is no caller left to tell. The
 	// table owns which harnesses have such a rule.
 	if h.modelForm != nil {
-		if msg, ok := h.modelForm(o.model, p.name); !ok {
+		if msg, ok := h.modelForm(o.model, p); !ok {
 			fmt.Fprintln(stderr, msg)
 			telemetry.Note("why", "--model is not in the "+h.name+" harness's form")
 			return ExitUsage
