@@ -131,8 +131,15 @@ cp -R "$SRC/." "$DEST/"
 # something an install ships: the binary arrives by build (below) or by the
 # dispatcher's verified fetch. Leaving a copied one in would make two
 # different installs of the same source carry different bytes. The pattern
-# hits only outsource-<os>-<arch>; outsource.sha256 has a dot, not a dash.
-rm -f "$DEST"/bin/outsource-*
+# targets outsource-<os>-<arch> local builds only: *.sh is skipped so the
+# compatibility shims (outsource-run.sh among them) survive the cleanup, and
+# outsource.sha256 has a dot, not a dash, so the glob never sees it.
+for artifact in "$DEST"/bin/outsource-*; do
+  case "$artifact" in
+    *.sh) ;;  # a compatibility shim, not a build artifact
+    *) rm -f "$artifact" ;;
+  esac
+done
 
 if [ -n "$TMP_OVERLAY" ]; then
   mkdir -p "$DEST/references"

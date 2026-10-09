@@ -68,9 +68,28 @@ fi
 host_t="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | tr '[:upper:]' '[:lower:]' | sed 's/aarch64/arm64/;s/x86_64/amd64/')"
 if [ -x "$DEST/bin/outsource-$host_t" ]; then ok
 else bad "a Go install left no executable bin/outsource-$host_t in the install"; fi
-strays="$(find "$DEST/bin" -name 'outsource-*' ! -name "outsource-$host_t" 2>/dev/null)"
+strays="$(find "$DEST/bin" -name 'outsource-*' ! -name '*.sh' ! -name "outsource-$host_t" 2>/dev/null)"
 if [ -z "$strays" ]; then ok
 else bad "the install carried non-host local builds into DEST/bin: $strays"; fi
+
+# Every shipped bin/*.sh must come out of the install present and executable:
+# the docs launch rounds through bin/outsource-run.sh, and the cleanup glob
+# outsource-* used to eat exactly that shim (measured 2026-10-09: the
+# installed copy had every other *.sh but not that one). Keyed on git
+# ls-files rather than a hand list, so a newly tracked shim is covered the
+# moment it exists.
+tracked_shims="$(git ls-files 'skills/outsource/bin/*.sh' 2>/dev/null)"
+if [ -z "$tracked_shims" ]; then
+  bad "git ls-files listed no skills/outsource/bin/*.sh — the shim check has nothing to check"
+else
+  missing_shims=""
+  while IFS= read -r tracked; do
+    name="${tracked##*/}"
+    [ -x "$DEST/bin/$name" ] || missing_shims="$missing_shims $name"
+  done <<< "$tracked_shims"
+  if [ -z "$missing_shims" ]; then ok
+  else bad "install dropped shipped shims from DEST/bin:$missing_shims"; fi
+fi
 
 # ── skeleton: the Go-path manifest check, cheap and per-target ──────────────
 # A real repo check would rebuild the real binary four times per case; the
@@ -117,6 +136,17 @@ if command -v go >/dev/null 2>&1; then
   else bad "the skeleton with a matching manifest did not install: $(cat "$TMP/skel.err")"; fi
   if [ -x "$SKDEST/bin/outsource-$host_t" ]; then ok
   else bad "the skeleton Go install built no host binary into DEST/bin"; fi
+  # the cleanup still bites: sparing *.sh from the removal must not become
+  # removing nothing — a stray foreign-arch build sitting in the source's
+  # bin/ must not survive into the install
+  printf 'not a real build\n' > "$SK/skills/outsource/bin/outsource-plan9-386"
+  if HOME="$TMP/skelhome" "$SK/install.sh" --force >/dev/null 2>"$TMP/skel.err"; then
+    if [ ! -e "$SKDEST/bin/outsource-plan9-386" ]; then ok
+    else bad "the install carried the fake outsource-plan9-386 local build into DEST/bin"; fi
+  else
+    bad "the skeleton install failed with the stray binary present: $(cat "$TMP/skel.err")"
+  fi
+  rm -f "$SK/skills/outsource/bin/outsource-plan9-386"
   # a missing manifest refuses rather than installing a dispatcher with nothing
   # to verify against
   mv "$SK/skills/outsource/bin/outsource.sha256" "$TMP/hidden-manifest"
