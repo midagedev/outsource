@@ -3,7 +3,12 @@
 // All data comes from the outsource binary — `runs json` for the row list and
 // `tail <id>` for rendered trails — which stays the single owner of registry
 // parsing and transcript rendering. Every process call lives in a timer tick
-// (never inside ui.render); the render hooks read module state only.
+// or a handler (never inside ui.render); the render hooks read module state
+// only.
+//
+// `/rounds setup` opens a second pane over the user's own choices (enabled
+// and default model per provider). It reads and writes them only through the
+// binary's `config` verbs, the one owner of that file and its rules.
 //
 // The pure display rules (widths, ordering, line shapes) live in view.js.
 
@@ -18,9 +23,15 @@ import {
   bandLine,
   bandRow,
   binCandidates,
+  catalogueArgv,
+  configListArgv,
+  defaultModelArgv,
   findTarget,
+  firstLine,
+  freeModelOptions,
   inboxReason,
   inlineRowsWanted,
+  isCatalogue,
   isLeadStop,
   isLive,
   isOwn,
@@ -28,12 +39,18 @@ import {
   logText,
   offSectionText,
   pairVerdict,
+  parseConfigList,
+  providerLine,
+  providerStates,
+  rejectionText,
   roundsToolLine,
   rowColor,
   rowLine,
   sectionText,
+  setupRowsWanted,
   stripStamp,
   toastFor,
+  toggleEnabledArgv,
   toolName,
   trailHeader,
   trailLines,
@@ -46,9 +63,12 @@ import {
 
 const PANE_ID = 'outsource-rounds'
 const PANE_TITLE = 'outsource rounds'
+const SETUP_ID = 'outsource-setup'
+const SETUP_TITLE = 'outsource setup'
 const CLOSED_MS = 5000
 const OPEN_MS = 2000
 const RUN_TIMEOUT_MS = 4000
+const CATALOGUE_TIMEOUT_MS = 30000 // `models` may fetch a catalogue or run opencode
 const CATCHUP_WINDOW_MS = 24 * 3600 * 1000
 const PRUNE_MS = 7 * 24 * 3600 * 1000
 const REFUSE_REASON = 'the bundled outsource plugin carries the panel in this session'
@@ -84,6 +104,17 @@ let catchupArmed = true // the first good poll runs the resume catch-up
 let wakePending = false // a wake submit has not settled yet
 let wakeBuffer = [] // transitions found while a submit was outstanding (already recorded)
 let retryQueue = [] // { id, kind } a refused submit un-recorded, for the next poll
+// The setup pane. It has no timer: it loads on open, after every write, and
+// on a reload that finds it open.
+let setupOpen = false
+let setupConfig = null // the last good `config list --json`: { path, values }
+let setupError = null // 'config list failed: …' when the last load failed
+let setupSelected = null // the selected provider's name
+let setupStatus = null // { text, isError }: the last write's outcome this open; null before one
+let setupColumns = 80 // the setup pane's bodyColumns at its last render
+let catalogue = new Map() // provider → { state: 'loading' } | { state: 'ok', options } | { state: 'error', reason }, this open's
+let setupGen = 0 // one per open: a catalogue answer from an earlier open never lands in this one
+let loadSeq = 0 // one per config load: only the latest load's answer lands
 
 export const register = (on) => {
   // Never two panels. A user with the marketplace install who also passes
@@ -160,7 +191,7 @@ export const register = (on) => {
     await $.command.register({
       name: 'rounds',
       description: 'Show outsource rounds',
-      argumentHint: '[label] | send <label> <text> | wake [on|off] | on | off',
+      argumentHint: '[label] | send <label> <text> | wake [on|off] | on | off | setup',
       immediate: true,
     })
     // Awaited before next(e): the tools are listed by turn one. The engine
@@ -193,14 +224,31 @@ export const register = (on) => {
     // A reload keeps an open pane up; the engine's record, not ours, is true.
     const panes = await $.ui.panes()
     paneOpen = panes.some((pane) => pane.id === PANE_ID)
+    setupOpen = panes.some((pane) => pane.id === SETUP_ID)
+    setupConfig = null
+    setupError = null
+    setupStatus = null
+    catalogue = new Map()
+    setupGen += 1
     if (!enabled) {
       log($, 'the panel is off (store) — /rounds on turns it on')
       if (paneOpen) {
         paneOpen = false
         await $.ui.close({ id: PANE_ID })
       }
+      if (setupOpen) {
+        setupOpen = false
+        await $.ui.close({ id: SETUP_ID })
+      }
     }
     armTimer($, paneOpen ? OPEN_MS : CLOSED_MS) // arms nothing while off
+    // A setup pane a reload kept up has nothing loaded and no timer to load
+    // it: load it here, without holding the session's start.
+    if (setupOpen) {
+      void refreshSetup($).catch((err) => {
+        log($, 'setup reload failed: ' + rejectionText(err, $.plugin.name))
+      })
+    }
     return next(e)
   })
 
@@ -208,7 +256,7 @@ export const register = (on) => {
     if (standingDown) return next(e)
     const args = (e.args ?? '').trim()
     // The first word, when it names a subcommand, always means the
-    // subcommand — a round labelled `send`, `wake`, `on` or `off` is
+    // subcommand — a round labelled `send`, `wake`, `on`, `off` or `setup` is
     // reachable through the pane's round Select instead.
     const sp = args.indexOf(' ')
     const head = sp < 0 ? args : args.slice(0, sp)
@@ -220,6 +268,10 @@ export const register = (on) => {
     if (head === 'wake') return { text: await wakeCommand($, rest) }
     // Off, everything else the command does is the panel: one line says so.
     if (!enabled) return { text: PANEL_OFF_TEXT }
+    if (head === 'setup') {
+      if (rest !== '') return { text: 'usage: /rounds setup' }
+      return toggleSetup($)
+    }
     if (args === '') return togglePane($)
     if (head === 'send') {
       const labelSp = rest.indexOf(' ')
@@ -288,6 +340,16 @@ export const register = (on) => {
       paneOpen = false
       armTimer($, CLOSED_MS)
     }
+    return next(e)
+  })
+
+  on('ui.close', { id: SETUP_ID }, ($, e, next) => {
+    if (standingDown) return next(e)
+    setupOpen = false
+    return next(e)
+  }).catch(($, e, next) => {
+    // As the rounds pane's: a failure of ours never refuses the close.
+    if (!next.called && !standingDown) setupOpen = false
     return next(e)
   })
 
@@ -378,6 +440,135 @@ export const register = (on) => {
     return h(Box, { flexDirection: 'column' }, ...nodes)
   })
 
+  // The setup pane: module state only, as every render hook here. Its
+  // controls write through the binary (writeConfig), never the file.
+  on('ui.render', { component: 'Pane', requestId: SETUP_ID }, ($, e, next) => {
+    if (standingDown || !enabled) return next(e)
+    const { Box, Text, Button, Select, Input } = $.ui.resolve(e)
+    const bodyColumns = typeof e.props.bodyColumns === 'number' ? e.props.bodyColumns : 80
+    setupColumns = bodyColumns
+
+    if (!binOk) {
+      return h(
+        Box,
+        { flexDirection: 'column' },
+        h(Text, { color: 'red' }, truncate('outsource binary not found: ' + binTried.join(' · '), bodyColumns)),
+      )
+    }
+    const nodes = []
+    if (setupError !== null) nodes.push(h(Text, { color: 'red' }, truncate(setupError, bodyColumns)))
+    if (setupConfig === null) {
+      if (setupError === null) nodes.push(h(Text, { dimColor: true }, truncate('loading…', bodyColumns)))
+      return h(Box, { flexDirection: 'column' }, ...nodes)
+    }
+
+    nodes.push(h(Text, { dimColor: true }, truncate('config: ' + setupConfig.path, bodyColumns)))
+    const providers = providerStates(setupConfig.values)
+    for (const provider of providers) {
+      // Two Texts in a row: the model segment is dim on its own when it is
+      // the launcher's default.
+      const line = providerLine(provider, provider.name === setupSelected, bodyColumns)
+      nodes.push(
+        h(
+          Box,
+          { flexDirection: 'row' },
+          h(Text, { dimColor: line.headDim }, line.head),
+          line.model !== '' ? h(Text, { dimColor: line.modelDim }, line.model) : null,
+        ),
+      )
+    }
+    // A space, not '': an empty Text draws zero rows.
+    nodes.push(h(Text, {}, ' '))
+
+    const selected = providers.find((provider) => provider.name === setupSelected)
+    nodes.push(
+      h(
+        Box,
+        { flexDirection: 'row', gap: 1 },
+        providers.length > 0
+          ? h(Select, {
+              key: 'provider',
+              label: 'provider',
+              value: setupSelected ?? undefined,
+              options: providers.map((provider) => ({ value: provider.name })),
+              onSelect: async (value) => {
+                setupSelected = value
+                startCatalogue($)
+                $.ui.invalidate('ui.render')
+              },
+            })
+          : null,
+        selected !== undefined
+          ? h(Button, {
+              key: 'enabled',
+              label: 'enabled: ' + (selected.enabled ? 'on' : 'off'),
+              onPress: async () => {
+                await writeConfig($, toggleEnabledArgv(bin, selected.name, selected.enabled))
+              },
+            })
+          : null,
+        selected !== undefined && selected.model !== null
+          ? h(Button, {
+              key: 'reset',
+              label: 'reset default',
+              onPress: async () => {
+                await writeConfig($, defaultModelArgv(bin, selected.name, ''))
+              },
+            })
+          : null,
+        h(Button, {
+          key: 'close',
+          label: 'close',
+          onPress: async () => {
+            await closeSetup($)
+          },
+        }),
+      ),
+    )
+
+    if (selected !== undefined) {
+      nodes.push(
+        h(Input, {
+          key: 'model',
+          label: 'default model → ' + truncate(selected.name, 16),
+          submitLabel: 'set',
+          onSubmit: async (text) => {
+            await writeConfig($, defaultModelArgv(bin, selected.name, text))
+          },
+        }),
+      )
+    }
+
+    if (selected !== undefined && isCatalogue(selected.name)) {
+      const entry = catalogue.get(selected.name)
+      if (entry === undefined || entry.state === 'loading') {
+        nodes.push(h(Text, { dimColor: true }, truncate('loading free models…', bodyColumns)))
+      } else if (entry.state === 'error') {
+        nodes.push(h(Text, { dimColor: true }, truncate('free models unavailable: ' + entry.reason, bodyColumns)))
+      } else if (entry.options.length === 0) {
+        // A Select takes at least one option.
+        nodes.push(h(Text, { dimColor: true }, truncate('free models: none', bodyColumns)))
+      } else {
+        nodes.push(
+          h(Select, {
+            key: 'free',
+            label: 'free models',
+            value: entry.options.some((o) => o.value === selected.model) ? selected.model : undefined,
+            options: entry.options,
+            onSelect: async (id) => {
+              await writeConfig($, defaultModelArgv(bin, selected.name, id))
+            },
+          }),
+        )
+      }
+    }
+
+    if (setupStatus !== null) {
+      nodes.push(h(Text, setupStatus.isError ? { color: 'red' } : { dimColor: true }, truncate(setupStatus.text, bodyColumns)))
+    }
+    return h(Box, { flexDirection: 'column' }, ...nodes)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
     bandColumns = typeof e.props.bodyColumns === 'number' ? e.props.bodyColumns : 80
     if (standingDown || !enabled || paneOpen || e.props.hasSurvey) return next(e)
@@ -420,6 +611,10 @@ async function setEnabled($, on) {
       paneOpen = false
       await $.ui.close({ id: PANE_ID })
     }
+    if (setupOpen) {
+      setupOpen = false
+      await $.ui.close({ id: SETUP_ID })
+    }
   }
   armTimer($, CLOSED_MS)
   $.ui.invalidate('ui.render')
@@ -456,6 +651,9 @@ function log($, text) {
 // ---- the pane ----------------------------------------------------------------
 
 async function openPane($) {
+  // One outsource pane at a time: the engine places each pane on its own, so
+  // two would split the dock.
+  if (setupOpen) await closeSetup($)
   // `rows` sizes the pane only when it is seated inline (the dock ignores it);
   // without it an inline pane is a third of the window and folds the trail.
   // An open before the first tick would size the pane for an empty list and
@@ -469,11 +667,15 @@ async function openPane($) {
   return opened
 }
 
+async function closeRoundsPane($) {
+  paneOpen = false
+  armTimer($, CLOSED_MS)
+  await $.ui.close({ id: PANE_ID })
+}
+
 async function togglePane($) {
   if (paneOpen) {
-    paneOpen = false
-    armTimer($, CLOSED_MS)
-    await $.ui.close({ id: PANE_ID })
+    await closeRoundsPane($)
     return {}
   }
   const opened = await openPane($)
@@ -507,6 +709,155 @@ function listEntries(bodyColumns) {
   }
   if (k > 0) out.push({ text: '+' + k + ' more', textProps: { dimColor: true } })
   return out
+}
+
+// ---- the setup pane ------------------------------------------------------------
+
+async function toggleSetup($) {
+  if (setupOpen) {
+    await closeSetup($)
+    return {}
+  }
+  const opened = await openSetup($)
+  if (!opened.isPlaced) return { text: setupNotPlacedText(opened.reason) }
+  return {}
+}
+
+// Loaded before the open, as the rounds pane polls before its own: `rows`
+// sizes an inline pane for the provider lines the load found. No `focus`:
+// the prompt keeps the keyboard.
+async function openSetup($) {
+  if (paneOpen) await closeRoundsPane($)
+  setupGen += 1
+  catalogue = new Map()
+  setupStatus = null
+  if (binOk) await loadConfig($)
+  const providers = setupConfig === null ? 0 : providerStates(setupConfig.values).length
+  const opened = await $.ui.open({ id: SETUP_ID, title: SETUP_TITLE, rows: binOk ? setupRowsWanted(providers) : 1 })
+  setupOpen = true
+  startCatalogue($)
+  $.ui.invalidate('ui.render')
+  return opened
+}
+
+async function closeSetup($) {
+  setupOpen = false
+  await $.ui.close({ id: SETUP_ID })
+}
+
+function setupNotPlacedText(reason) {
+  const lines = []
+  if (!binOk) {
+    lines.push(truncate('outsource binary not found: ' + binTried.join(' · '), setupColumns))
+  } else {
+    if (setupError !== null) lines.push(truncate(setupError, setupColumns))
+    if (setupConfig !== null) {
+      lines.push(truncate('config: ' + setupConfig.path, setupColumns))
+      for (const provider of providerStates(setupConfig.values)) {
+        lines.push(providerLine(provider, provider.name === setupSelected, setupColumns).text)
+      }
+    }
+  }
+  lines.push('(pane not placed: ' + reason + ')')
+  return lines.join('\n')
+}
+
+// `config list --json` into setupConfig, or the reason into setupError (the
+// last good state stays drawn). Loads can overlap (two quick writes each
+// reload): only the latest one issued lands.
+async function loadConfig($) {
+  const seq = ++loadSeq
+  let parsed = null
+  let failure = null
+  try {
+    const res = await $.process.run(configListArgv(bin), { timeoutMs: RUN_TIMEOUT_MS })
+    if (res.exitCode !== 0) {
+      failure = firstLine(res.stderr) ?? 'exit ' + res.exitCode
+    } else {
+      parsed = parseConfigList(res.stdout)
+      if (parsed === null) failure = 'unparseable output'
+    }
+  } catch (err) {
+    failure = rejectionText(err, $.plugin.name)
+  }
+  if (seq !== loadSeq) return
+  if (failure !== null) {
+    setupError = 'config list failed: ' + failure
+    log($, setupError)
+    return
+  }
+  setupConfig = parsed
+  setupError = null
+  const names = providerStates(parsed.values).map((provider) => provider.name)
+  if (setupSelected === null || !names.includes(setupSelected)) setupSelected = names.length > 0 ? names[0] : null
+}
+
+async function refreshSetup($) {
+  if (!binOk) return
+  await loadConfig($)
+  startCatalogue($)
+  $.ui.invalidate('ui.render')
+}
+
+// One `config set|unset`, its outcome in the status line (the binary's own
+// line: stdout on success, the first stderr line on a refusal), then the
+// state the binary now holds. A refused write changes nothing on disk; the
+// reload after it shows exactly that.
+async function writeConfig($, argv) {
+  let res = null
+  try {
+    res = await $.process.run(argv, { timeoutMs: RUN_TIMEOUT_MS })
+  } catch (err) {
+    setupStatus = { text: 'config ' + argv[2] + ' failed: ' + rejectionText(err, $.plugin.name), isError: true }
+  }
+  if (res !== null && res.exitCode === 0) {
+    setupStatus = { text: firstLine(res.stdout) ?? 'config ' + argv.slice(2).join(' '), isError: false }
+  } else if (res !== null) {
+    setupStatus = { text: firstLine(res.stderr) ?? 'config ' + argv[2] + ' failed: exit ' + res.exitCode, isError: true }
+  }
+  log($, 'config ' + argv.slice(2).join(' ') + ' → ' + (res === null ? 'did not run' : 'exit ' + res.exitCode))
+  await refreshSetup($)
+}
+
+// The selected provider's free models, fetched once per open per catalogue
+// provider and never awaited by a handler (`models` may take seconds): the
+// pane draws `loading free models…` until the answer lands. An answer from
+// an earlier open is dropped (setupGen).
+function startCatalogue($) {
+  const provider = setupSelected
+  if (!binOk || provider === null || !isCatalogue(provider) || catalogue.has(provider)) return
+  catalogue.set(provider, { state: 'loading' })
+  const gen = setupGen
+  void fetchCatalogue($, provider)
+    .catch((err) => ({ state: 'error', reason: rejectionText(err, $.plugin.name) }))
+    .then((entry) => {
+      if (gen !== setupGen) return
+      catalogue.set(provider, entry)
+      $.ui.invalidate('ui.render')
+    })
+}
+
+async function fetchCatalogue($, provider) {
+  let res
+  try {
+    res = await $.process.run(catalogueArgv(bin, provider), { timeoutMs: CATALOGUE_TIMEOUT_MS })
+  } catch (err) {
+    return catalogueFailed($, provider, rejectionText(err, $.plugin.name))
+  }
+  if (res.exitCode !== 0) return catalogueFailed($, provider, firstLine(res.stderr) ?? 'exit ' + res.exitCode)
+  let parsed
+  try {
+    parsed = JSON.parse(res.stdout)
+    if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.models)) throw new Error('no models array')
+  } catch {
+    return catalogueFailed($, provider, 'unparseable output')
+  }
+  return { state: 'ok', options: freeModelOptions(parsed.models, provider) }
+}
+
+function catalogueFailed($, provider, reason) {
+  log($, 'free models for ' + provider + ' unavailable: ' + reason)
+  return { state: 'error', reason }
 }
 
 // ---- polling -----------------------------------------------------------------

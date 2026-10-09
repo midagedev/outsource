@@ -12,6 +12,11 @@
 #   C5          live send: a real receiver session gets PANEL-TOKEN-58 via
 #               `/rounds send live-recv …`; a control run with no send
 #               answers `none`.
+#   C6  160x50  /rounds setup opens the setup pane: the config line, one line
+#               per fixture provider, the controls row and the input label;
+#               typing `abc` proves the prompt kept focus; /rounds setup again
+#               closes it. The fake's `config` verbs write only a state file
+#               under the work dir, and OUTSOURCE_CONFIG points there too.
 #
 # Every process is waited on by a pid captured with `$!` (kill -0), signals
 # go only to pids captured at start, and the tmux server is killed on exit.
@@ -41,6 +46,8 @@ MODEL_ENV=(
 mkdir -p "$CAPS" "$FIXDIR"
 cp "$MOD"/tests/fixtures/runs.json "$FIXDIR"/
 cp "$MOD"/tests/fixtures/tail-*.txt "$FIXDIR"/
+cp "$MOD"/tests/fixtures/config-list.json "$MOD"/tests/fixtures/models-*.json "$FIXDIR"/
+CONFIG_STATE="$WD/config-state.json" # the fake's `config set|unset` target
 
 cleanup() {
   tmux -L "$SRV" kill-server >/dev/null 2>&1 || true
@@ -82,7 +89,7 @@ enter() { tmux -L "$SRV" send-keys -t "$1" Enter; }
 
 start_panel() { # <session> <columns> <rows>
   tmux -L "$SRV" new-session -d -s "$1" -x "$2" -y "$3" -c "$WD" \
-    "env CLAUDE_CONFIG_DIR='$WD/cap-cfg' OUTSOURCE_PANEL_BIN='$FAKE' OUTSOURCE_PANEL_FIXTURE_DIR='$FIXDIR' OUTSOURCE_PANEL_OWNER='$UUID' OUTSOURCE_PANEL_LIVE_SOCK_FILE='$FIXDIR/live-sock' ${MODEL_ENV[*]} claude --plugin-dir '$MOD' --session-id '$UUID' --debug-file '$WD/debug-$1.log'"
+    "env CLAUDE_CONFIG_DIR='$WD/cap-cfg' OUTSOURCE_PANEL_BIN='$FAKE' OUTSOURCE_PANEL_FIXTURE_DIR='$FIXDIR' OUTSOURCE_PANEL_OWNER='$UUID' OUTSOURCE_PANEL_LIVE_SOCK_FILE='$FIXDIR/live-sock' OUTSOURCE_PANEL_CONFIG_STATE='$CONFIG_STATE' OUTSOURCE_CONFIG='$WD/outsource-config.json' ${MODEL_ENV[*]} claude --plugin-dir '$MOD' --session-id '$UUID' --debug-file '$WD/debug-$1.log'"
 }
 
 # Seed the config dir so no onboarding or trust dialog blocks the session.
@@ -295,6 +302,48 @@ except Exception:
   return 0
 }
 
+check_c6() { # /rounds setup opens the setup pane, focus stays, again closes it
+  # /rounds setup toggles: start every attempt from a closed setup pane.
+  if tmux -L "$SRV" capture-pane -p -t panel 2>/dev/null | grep -qF "config: $CONFIG_STATE"; then
+    send_keys '/rounds setup' panel; enter panel
+    sleep 2
+  fi
+  send_keys '/rounds setup' panel; enter panel
+  sleep 4
+  cap c6 panel
+  dismiss_dialog panel
+  local ok=1 line
+  grep -qF "config: $CONFIG_STATE" "$CAPS/c6.txt" || ok=0
+  for line in \
+    '› agy        on   launcher default' \
+    '  muse       off  launcher default' \
+    '  openrouter on   nvidia/nemotron-3-ultra-550b-a55b:free' \
+    '  xai        on   launcher default' \
+    '  zai        on   launcher default' \
+    '  zen        on   launcher default'; do
+    grep -qF "$line" "$CAPS/c6.txt" || ok=0
+  done
+  # The controls row (the provider Select, the enabled toggle, close) and the
+  # input label for the selected provider.
+  grep -q 'provider' "$CAPS/c6.txt" || ok=0
+  grep -qF 'enabled: on' "$CAPS/c6.txt" || ok=0
+  grep -q 'close' "$CAPS/c6.txt" || ok=0
+  grep -qF 'default model → agy' "$CAPS/c6.txt" || ok=0
+  if [ "$ok" -ne 1 ]; then return 1; fi
+  send_keys 'abc' panel
+  sleep 1
+  cap c6-focus panel
+  grep -q 'abc' "$CAPS/c6-focus.txt" || return 1
+  tmux -L "$SRV" send-keys -t panel C-u # clear the typed text
+  sleep 1
+  send_keys '/rounds setup' panel; enter panel
+  sleep 2
+  cap c6-close panel
+  if grep -qF "config: $CONFIG_STATE" "$CAPS/c6-close.txt"; then return 1; fi
+  if grep -qF 'default model → agy' "$CAPS/c6-close.txt"; then return 1; fi
+  return 0
+}
+
 # ---- the run -----------------------------------------------------------------
 
 try_check() { # <name> <fn> — at most two attempts, then UNMEASURED
@@ -327,6 +376,7 @@ try_check C2 check_c2
 try_check C3 check_c3
 try_check C4 check_c4
 try_check C5 check_c5
+try_check C6 check_c6
 
 echo
 echo "════════ capture summary ════════"

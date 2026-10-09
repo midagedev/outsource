@@ -17,29 +17,43 @@
 import { test, expect, mock } from 'claude-code/testing'
 // The loader admits only code files, so the rows reach the test through a JS
 // fixture; tests/fixtures/runs.json (the shape specimen the fake binary
-// serves) is pinned to it by a drift check in tests/panel-mod.test.sh.
+// serves) is pinned to it by a drift check in tests/panel-mod.test.sh. The
+// same holds for the setup pane's two binary answers (config-list, models-zen).
 import { ROWS } from './fixtures/runs.js'
+import { CONFIG_LIST } from './fixtures/config-list.js'
+import { MODELS_ZEN } from './fixtures/models-zen.js'
 import {
   BUNDLED_NAME,
+  CATALOGUE_PROVIDERS,
   INBOX_OLDER_LAUNCH,
   PANEL_NAME,
   PANEL_OFF_TEXT,
   PANEL_ON_TEXT,
   PRE_TOKEN_NOTE,
   binCandidates,
+  catalogueArgv,
   charWidth,
   activityRows,
   bandRow,
+  defaultModelArgv,
   displayWidth,
   endingOf,
+  firstLine,
+  freeModelOptions,
   inboxReason,
   isLive,
   localHHMM,
   logText,
   offSectionText,
+  parseConfigList,
+  providerLine,
+  providerStates,
+  rejectionText,
   roundsToolLine,
   rowLine,
   secs,
+  setupRowsWanted,
+  toggleEnabledArgv,
   visibleRows,
   sectionText,
   toolName,
@@ -100,6 +114,52 @@ const BAND_PROPS = (bodyColumns: number, hasSurvey = false) => ({
   view: {},
 })
 
+// `outsource config` as internal/config/cli.go answers the setup pane: `list
+// --json` the one JSON line, `set`/`unset` their confirmation line (cmdSet,
+// cmdUnset) — or, while the test sets one, a refusal for every write.
+function configAnswer(state: any, argv: string[]) {
+  const answer = (exitCode: number, stdout: string, stderr: string) => ({ exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false })
+  const [, , verb, key, value] = argv
+  const c = state.config
+  if (verb === 'list' && argv.length === 4 && argv[3] === '--json') {
+    if (state.listFails !== null) return answer(state.listFails.exitCode, '', state.listFails.stderr)
+    return answer(0, (state.listStdout ?? JSON.stringify(c)) + '\n', '')
+  }
+  if ((verb === 'set' && argv.length === 5) || (verb === 'unset' && argv.length === 4)) {
+    if (state.configRefusal !== null) return answer(state.configRefusal.exitCode, '', state.configRefusal.stderr)
+    if (!(key in c.values)) return answer(64, '', 'outsource config: unknown key "' + key + '"\n')
+    if (verb === 'unset') {
+      if (c.values[key] === null) return answer(0, key + ' was not set (' + c.path + ')\n', '')
+      c.values[key] = null
+      return answer(0, key + ' unset (' + c.path + ')\n', '')
+    }
+    if (key.endsWith('.enabled') && value !== 'true' && value !== 'false') {
+      return answer(64, '', 'outsource config: ' + key + ' takes true or false, got: ' + value + '\n')
+    }
+    c.values[key] = key.endsWith('.enabled') ? value === 'true' : value
+    return answer(0, key + ' = ' + value + ' (' + c.path + ')\n', '')
+  }
+  return answer(64, '', 'outsource config: unexpected ' + argv.slice(1).join(' ') + '\n')
+}
+
+// `outsource models --provider <p> … --json`: the provider's stdout, exit 1
+// when the test serves none (no catalogue loaded), a `{ deny }` standing for a
+// timeout (it rejects the plugin's call; a stub that throws would be skipped
+// and the real run would answer); held while modelsHeld is an array.
+function modelsAnswer(state: any, argv: string[]) {
+  const provider = argv[argv.indexOf('--provider') + 1]
+  const answer = () => {
+    if (state.modelsReject !== null) return { deny: state.modelsReject }
+    const stdout = state.models[provider]
+    if (stdout === undefined) {
+      return { value: { exitCode: 1, stdout: '', stderr: 'models: ' + provider + ': no catalogue loaded\n', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  }
+  if (state.modelsHeld === null) return answer()
+  return new Promise((resolve) => state.modelsHeld.push(() => resolve(answer())))
+}
+
 // Everything a test needs from one boot: mutable stub state and the recorders.
 // `env` replaces the environment the plugin reads; `exists` answers $.fs.exists
 // (every path exists when left out).
@@ -107,7 +167,13 @@ async function boot(
   $: any,
   on: any,
   rows: Row[],
-  opts: { uiOpen?: any; store?: Record<string, unknown>; env?: Record<string, string>; exists?: (path: string) => boolean } = {},
+  opts: {
+    uiOpen?: any
+    store?: Record<string, unknown>
+    env?: Record<string, string>
+    exists?: (path: string) => boolean
+    panes?: Array<{ id: string }>
+  } = {},
 ) {
   const clock = mock.clock(on, { now: NOW_MS })
   mock.env(on, opts.env ?? { HOME: '/fakehome', OUTSOURCE_PANEL_BIN: BIN })
@@ -140,6 +206,20 @@ async function boot(
     submitMode: 'resolve' as 'resolve' | 'never',
     submitFails: 0,
     submitDefers: null as null | Array<{ promise: Promise<any>; resolve: (v: any) => void }>,
+    // The setup pane's binary: every process.run argv and init in order, the
+    // config the `config` verbs answer from and write to, and the `models`
+    // answers. A refusal answers every write while set; `models` holds its
+    // answer while modelsHeld is an array (each entry releases one).
+    argvs: [] as string[][],
+    inits: [] as any[],
+    hints: [] as string[], // argumentHint per command.register
+    config: JSON.parse(JSON.stringify(CONFIG_LIST)) as { path: string; values: Record<string, unknown>; unknown: string[] },
+    configRefusal: null as null | { exitCode: number; stderr: string },
+    listFails: null as null | { exitCode: number; stderr: string },
+    listStdout: null as null | string, // a list answer that replaces the config's
+    models: { zen: JSON.stringify(MODELS_ZEN) } as Record<string, string>, // stdout by provider; absent: exit 1
+    modelsReject: null as null | string,
+    modelsHeld: null as null | Array<() => void>,
   }
 
   on('session.start', () => ({ cwd: '/tmp/panel-test' })) // engine event: the result shape itself
@@ -151,6 +231,7 @@ async function boot(
   })
   on('command.register', ($, e: any, next: any) => {
     state.commands.push(next.origin.plugin + ':' + e.name)
+    state.hints.push(e.argumentHint)
     return { value: { command: e.name } }
   })
   // The engine names a plugin's tool mcp__<plugin>__<name>; so does this stub,
@@ -161,7 +242,7 @@ async function boot(
     state.registered.push(tool)
     return { value: { tool } }
   })
-  on('ui.panes', () => ({ value: [] }))
+  on('ui.panes', () => ({ value: opts.panes ?? [] }))
   on('ui.close', ($, e: any) => {
     state.closes.push(e)
     return { value: undefined }
@@ -231,7 +312,11 @@ async function boot(
   on('process.run', ($, e: any) => {
     state.processCalls += 1
     const argv: string[] = e.argv
+    state.argvs.push([...argv])
+    state.inits.push(e.init)
     if (argv[0] !== state.bin) return { value: { exitCode: 64, stdout: '', stderr: 'unexpected binary', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (argv[1] === 'config') return { value: configAnswer(state, argv) }
+    if (argv[1] === 'models') return modelsAnswer(state, argv)
     if (argv[1] === 'runs' && argv[2] === 'json') {
       state.runsCalls += 1
       if (state.runsFails) {
@@ -1887,6 +1972,580 @@ test('quota: running→waiting is silent, waiting→cut and waiting→done wake'
   expect(lines[1]).toBe('- api-fix: cut by the plan limit (429), resets 21:05 · 1h01m · log=/tmp/panel-fixtures/logs/w1.log')
   expect(lines[2]).toBe('- web-polish: done rc=0 · 1h01m · log=/tmp/panel-fixtures/logs/w2.log')
   expect(state.toasts).toEqual(['⛔ api-fix cut by the plan limit (429), resets 21:05', '✅ web-polish done · 1h01m'])
+})
+
+// ---- the setup pane: /rounds setup ---------------------------------------------
+//
+// Added 2026-10-09 (setup-pane round). A second pane over the user's own
+// choices — enabled and default model per provider — read and written only
+// through the binary's `config` verbs (internal/config/cli.go), the one owner
+// of the file and its rules. The stubs answer as that CLI does
+// (configAnswer, modelsAnswer); the data is the committed fixtures.
+
+const SETUP_PROPS = (bodyColumns: number, bodyRows: number) => ({
+  title: 'outsource setup',
+  isFocused: false,
+  bodyColumns,
+  placement: 'dock' as const,
+  scroll: { offset: 0, bodyRows },
+  view: {},
+})
+
+const mountSetup = ($: any, bodyColumns: number, bodyRows = 30) =>
+  $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', props: SETUP_PROPS(bodyColumns, bodyRows), requestId: 'outsource-setup' })
+
+const CONFIG_PATH = '/tmp/panel-fixtures/config.json'
+const writesOf = (state: any): string[][] => state.argvs.filter((a: string[]) => a[1] === 'config' && (a[2] === 'set' || a[2] === 'unset'))
+const listsOf = (state: any): number => state.argvs.filter((a: string[]) => a[1] === 'config' && a[2] === 'list').length
+const modelsOf = (state: any): string[][] => state.argvs.filter((a: string[]) => a[1] === 'models')
+
+// The setup pane's lines as drawn, top to bottom: a Text is its line, a row
+// Box of Texts (a provider line) its Texts joined; the controls are skipped.
+async function setupLines(ui: any): Promise<string[]> {
+  const root = await ui.drawn()
+  const textOf = (n: any): string => (n.children ?? []).filter((c: any) => typeof c === 'string').join('')
+  const out: string[] = []
+  for (const child of root.children ?? []) {
+    if (child === null || typeof child !== 'object') continue
+    const kids = (child.children ?? []).filter((c: any) => c !== null && typeof c === 'object')
+    if (child.type === 'Text') out.push(textOf(child))
+    else if (child.type === 'Box' && kids.length > 0 && kids.every((c: any) => c.type === 'Text')) out.push(kids.map(textOf).join(''))
+  }
+  return out
+}
+
+// The pure rules (view.js): the provider set is the binary's — every
+// `providers.<p>.enabled` key, in key order — and nothing else. FAIL-first:
+// with providerStates keeping only six hard-coded names, the `later` case
+// loses `acme`; with the key test loosened to /^providers\.(.+)\.enabled$/,
+// it lists a provider named `a.b`.
+test('setup pure: the providers are the enabled keys, in key order; other key shapes are skipped', () => {
+  const states = providerStates(CONFIG_LIST.values)
+  expect(states.map((p: any) => p.name)).toEqual(['agy', 'muse', 'openrouter', 'xai', 'zai', 'zen'])
+  expect(states.find((p: any) => p.name === 'muse')).toEqual({ name: 'muse', enabled: false, model: null })
+  expect(states.find((p: any) => p.name === 'openrouter')).toEqual({
+    name: 'openrouter',
+    enabled: true,
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+  })
+  expect(states.find((p: any) => p.name === 'agy')).toEqual({ name: 'agy', enabled: true, model: null }) // null enabled: on
+  const later = {
+    'context.autoCompactWindow': 120000, // a parallel round's key: not the pane's
+    'free.allowTraining': true,
+    'providers.acme.enabled': null, // a provider no list here names
+    'providers.acme.defaultModel': 'a-1',
+    'providers.acme.contextWindow': 5, // a field the pane does not know
+    'providers.enabled': false,
+    'providers.a.b.enabled': false,
+    'providers.zen.enabled': true,
+  }
+  expect(providerStates(later)).toEqual([
+    { name: 'acme', enabled: true, model: 'a-1' },
+    { name: 'zen', enabled: true, model: null },
+  ])
+  expect(providerStates({})).toEqual([])
+  expect(parseConfigList(JSON.stringify(CONFIG_LIST))).toEqual({ path: CONFIG_PATH, values: CONFIG_LIST.values })
+  expect(parseConfigList('{"path":1,"values":{}}')).toBe(null)
+  expect(parseConfigList('not json')).toBe(null)
+  expect(firstLine('\n  \nfirst\nsecond')).toBe('first')
+  expect(firstLine('')).toBe(null)
+  // An engine rejection loses only its own plugin's lead.
+  expect(rejectionText(new Error('outsource-panel: $.process.run: timed out'), 'outsource-panel')).toBe('$.process.run: timed out')
+  expect(rejectionText(new Error('outsource: $.process.run: timed out'), 'outsource-panel')).toBe('outsource: $.process.run: timed out')
+  expect(rejectionText('plain', 'outsource')).toBe('plain')
+})
+
+// `<sel> <name10> <on|off3>  <model>`, cut to the width, as two segments so
+// the model can be dim alone. FAIL-first: with the selected marker dropped,
+// the openrouter line reads '  openrouter …'; with truncate removed, the
+// 30-column line is 56 columns wide.
+test('setup pure: the provider line — marker, padding, on/off, launcher default, a 30-column cut', () => {
+  const or = { name: 'openrouter', enabled: true, model: 'nvidia/nemotron-3-ultra-550b-a55b:free' }
+  const wide = providerLine(or, true, 120)
+  expect(wide.text).toBe('› openrouter on   nvidia/nemotron-3-ultra-550b-a55b:free')
+  expect([wide.head, wide.model, wide.headDim, wide.modelDim]).toEqual(['› openrouter on   ', 'nvidia/nemotron-3-ultra-550b-a55b:free', false, false])
+  const agy = providerLine({ name: 'agy', enabled: true, model: null }, false, 120)
+  expect(agy.text).toBe('  agy        on   launcher default')
+  expect([agy.headDim, agy.modelDim]).toEqual([false, true]) // only the launcher default is dim
+  const muse = providerLine({ name: 'muse', enabled: false, model: null }, false, 120)
+  expect(muse.text).toBe('  muse       off  launcher default')
+  expect([muse.headDim, muse.modelDim]).toEqual([true, true]) // a disabled provider: the whole line
+  const narrow = providerLine(or, true, 30)
+  expect(narrow.text).toBe('› openrouter on   nvidia/nemo…')
+  expect(displayWidth(narrow.text)).toBe(30)
+  expect(narrow.head + narrow.model).toBe(narrow.text)
+  const tiny = providerLine(or, true, 10) // narrower than the head
+  expect([tiny.text, tiny.model]).toEqual(['› openrou…', ''])
+  expect(providerLine({ name: 'averyveryverylongname', enabled: true, model: 'm' }, false, 80).text).toBe('  averyvery… on   m')
+})
+
+// The free-model options. FAIL-first: without the router filter the router
+// row is the first option and k-small falls off the 8.
+test('setup pure: free model options — routers and deprecated dropped, context order, 8, labels', () => {
+  const m = (id: string, over: Record<string, unknown> = {}) => ({
+    provider: 'zen', id, name: id, context: 100000, free: true, tools: true, router: false, status: 'active', policy: 'trains', ...over,
+  })
+  const models = [
+    m('k-small', { context: 8000 }),
+    m('router-auto', { context: 9000000, router: true }),
+    m('old-big', { context: 5000000, status: 'deprecated' }),
+    m('beta-mid', { context: 64000, status: 'beta' }),
+    m('b-tie', { context: 131072 }),
+    m('a-tie', { context: 131072, policy: null }),
+    m('null-status', { context: 200000, status: null }),
+    m('no-ctx', { context: null, policy: 'retains' }),
+    m('other', { provider: 'openrouter', context: 7000000 }),
+    m('c', { context: 32768 }),
+    m('d', { context: 16384 }),
+    m('e', { context: 12000 }),
+    m('f', { context: 10000 }),
+    m('a-tie', { context: 131072 }), // the same id again: a Select's values are unique
+  ]
+  const options = freeModelOptions(models, 'zen')
+  expect(options.map((o: any) => o.value)).toEqual(['null-status', 'a-tie', 'b-tie', 'c', 'd', 'e', 'f', 'k-small'])
+  expect(options).toHaveLength(8) // no-ctx (the 9th) is cut
+  expect(options[0].label).toBe('null-status · 200k · trains')
+  expect(options[1].label).toBe('a-tie · 131k · unknown') // a null policy reads unknown
+  expect(options[7].label).toBe('k-small · 8k · trains')
+  const few = freeModelOptions([m('no-ctx', { context: null, policy: undefined }), m('one', { context: 1500 })], 'zen')
+  expect(few.map((o: any) => o.label)).toEqual(['one · 2k · trains', 'no-ctx · ?k · unknown'])
+  expect(freeModelOptions([], 'zen')).toEqual([])
+  // The fixture, as the binary prints it: the deprecated row is dropped.
+  const fromFixture = freeModelOptions(MODELS_ZEN.models, 'zen')
+  expect(fromFixture.map((o: any) => o.label)).toEqual([
+    'nemotron-3-ultra-free · 1000k · trains',
+    'fixture-a-free · 262k · no-train-no-retain',
+    'fixture-b-free · 200k · retains',
+    'fixture-c1-free · 131k · unknown',
+    'fixture-c2-free · 131k · unknown',
+    'fixture-d-free · 128k · trains',
+    'fixture-e-free · 66k · retains',
+    'fixture-f-free · 33k · trains',
+  ])
+  expect(CATALOGUE_PROVIDERS).toEqual(['openrouter', 'zen'])
+})
+
+// The argv rules: the binary's own verbs, one argument per element.
+// FAIL-first: with toggleEnabledArgv writing `set … true` to enable, the
+// second expect reads ['…', 'set', 'providers.zen.enabled', 'true'].
+test('setup pure: write argv — enable back is unset, an empty default is unset, odd ids stay one argument', () => {
+  expect(toggleEnabledArgv(BIN, 'zen', true)).toEqual([BIN, 'config', 'set', 'providers.zen.enabled', 'false'])
+  expect(toggleEnabledArgv(BIN, 'zen', false)).toEqual([BIN, 'config', 'unset', 'providers.zen.enabled'])
+  expect(defaultModelArgv(BIN, 'zen', 'x')).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', 'x'])
+  expect(defaultModelArgv(BIN, 'zen', '')).toEqual([BIN, 'config', 'unset', 'providers.zen.defaultModel'])
+  const odd = 'a b; rm -rf ~ $(id) `id` "q"'
+  expect(defaultModelArgv(BIN, 'zen', odd)).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', odd])
+  expect(defaultModelArgv(BIN, 'zen', ' ')).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', ' ']) // the binary judges it
+  expect(catalogueArgv(BIN, 'zen')).toEqual([BIN, 'models', '--provider', 'zen', '--free', '--tools', '--json'])
+  expect(setupRowsWanted(6)).toBe(12)
+})
+
+// The layout, top to bottom, and the open: the setup id and title, the rows
+// the tree needs inline, no focus request. FAIL-first: with the blank Text
+// drawn as '', the 8th line is missing; with `rows` left out of the open, the
+// open reads without rows.
+test('/rounds setup opens the setup pane: config line, one line per provider, controls, input', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  expect(state.hints).toEqual(['[label] | send <label> <text> | wake [on|off] | on | off | setup'])
+  const res = await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(res.text).toBeUndefined()
+  expect(state.opens).toEqual([{ id: 'outsource-setup', title: 'outsource setup', rows: 12 }])
+  expect(state.argvs).toEqual([[BIN, 'config', 'list', '--json']]) // loaded before the open
+  const ui = await mountSetup($, 120)
+  expect(await setupLines(ui)).toEqual([
+    'config: ' + CONFIG_PATH,
+    '› agy        on   launcher default',
+    '  muse       off  launcher default',
+    '  openrouter on   nvidia/nemotron-3-ultra-550b-a55b:free',
+    '  xai        on   launcher default',
+    '  zai        on   launcher default',
+    '  zen        on   launcher default',
+    ' ',
+  ]) // no status line before any write
+  expect((await ui.find({ type: 'Text', text: 'config: ' + CONFIG_PATH }))?.props.dimColor).toBe(true)
+  expect((await ui.find({ type: 'Text', text: '  muse       off  ' }))?.props.dimColor).toBe(true)
+  expect((await ui.find({ type: 'Text', text: '› agy        on   ' }))?.props.dimColor).toBe(false)
+  const provider = await ui.find({ type: 'Select', key: 'provider' })
+  expect(provider?.props.label).toBe('provider')
+  expect(provider?.props.value).toBe('agy')
+  expect((provider?.props.options as any[]).map((o) => o.value)).toEqual(['agy', 'muse', 'openrouter', 'xai', 'zai', 'zen'])
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['enabled: on', 'close']) // no reset: unset
+  const input = await ui.find({ type: 'Input', key: 'model' })
+  expect([input?.props.label, input?.props.submitLabel]).toEqual(['default model → agy', 'set'])
+  expect(await ui.find({ type: 'Select', key: 'free' })).toBeUndefined() // agy is no catalogue
+
+  // openrouter: its default is set, so reset shows; it is a catalogue, so the
+  // free models follow the input — the focus order is controls, input, free.
+  await ui.select({ key: 'provider', value: 'openrouter' })
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['enabled: on', 'reset default', 'close'])
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  const keys = allElements(await ui.drawn()).map((n: any) => n.props?.key).filter((k: any) => k !== undefined)
+  expect(keys.indexOf('provider')).toBeLessThan(keys.indexOf('model'))
+  expect(keys.indexOf('model')).toBeLessThan(keys.indexOf('free'))
+  expect((await setupLines(ui))[6]).toBe('› zen        on   launcher default')
+  await ui.unmount()
+})
+
+// Contract 2: every write's argv, recorded at process.run. FAIL-first: with
+// writeConfig running ['/bin/sh', '-c', argv.join(' ')], the first expect
+// reads undefined (no `config` argv reaches process.run).
+test('setup: every write passes its argv exactly, as an array', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const ui = await mountSetup($, 120)
+  await ui.press({ key: 'enabled' }) // agy on → off
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'set', 'providers.agy.enabled', 'false'])
+  expect(await ui.find({ type: 'Button', key: 'enabled' })).toMatchObject({ props: { label: 'enabled: off' } })
+  await ui.press({ key: 'enabled' }) // off → on again: unset, not `set true`
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'unset', 'providers.agy.enabled'])
+  await ui.input({ key: 'model', text: 'glm-5.3' })
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'set', 'providers.agy.defaultModel', 'glm-5.3'])
+  await ui.press({ key: 'reset' })
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'unset', 'providers.agy.defaultModel'])
+  await ui.input({ key: 'model', text: 'glm-5.3' })
+  await ui.input({ key: 'model', text: '' }) // an empty submit unsets
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'unset', 'providers.agy.defaultModel'])
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  await ui.select({ key: 'free', value: 'fixture-a-free' }) // a free-model pick sets it
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', 'fixture-a-free'])
+  expect((await ui.find({ type: 'Select', key: 'free' }))?.props.value).toBe('fixture-a-free')
+  const odd = 'x y; touch /tmp/pwned $(id) `id`'
+  await ui.input({ key: 'model', text: odd })
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', odd])
+  expect(writesOf(state)).toHaveLength(8)
+  expect(state.argvs.every((a) => a[0] === BIN)).toBe(true) // never a shell
+  await ui.unmount()
+})
+
+// Contract 3: after a write the pane reloads `config list` and draws what the
+// binary now holds; a refused write leaves the state and shows the binary's
+// first stderr line, red. FAIL-first: without the reload after a write, the
+// list count stays (Expected 2, Received 1); with the status line drawn from
+// stdout on a refusal, it is empty.
+test('setup: a write reloads and draws the new state; a refused write keeps it and shows stderr', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const ui = await mountSetup($, 120)
+  const before = listsOf(state)
+  await ui.press({ key: 'enabled' })
+  expect(listsOf(state)).toBe(before + 1)
+  const lines = await setupLines(ui)
+  expect(lines[1]).toBe('› agy        off  launcher default')
+  expect((await ui.find({ type: 'Text', text: '› agy        off  ' }))?.props.dimColor).toBe(true)
+  expect(lines.at(-1)).toBe('providers.agy.enabled = false (' + CONFIG_PATH + ')') // the binary's own line
+  const ok = await ui.find({ type: 'Text', text: 'providers.agy.enabled = false (' + CONFIG_PATH + ')' })
+  expect([ok?.props.dimColor, ok?.props.color]).toEqual([true, undefined])
+
+  const refusal =
+    'outsource config: providers.zen.defaultModel: a default model is stored bare and the launcher adds the opencode/ qualifier itself, so "opencode/x" would reach the harness as opencode/opencode/x — store "x"'
+  state.configRefusal = { exitCode: 64, stderr: refusal + '\nsecond line\n' }
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  const held = JSON.stringify(state.config.values)
+  const listsBefore = listsOf(state)
+  await ui.input({ key: 'model', text: 'opencode/x' })
+  expect(writesOf(state).at(-1)).toEqual([BIN, 'config', 'set', 'providers.zen.defaultModel', 'opencode/x'])
+  expect(JSON.stringify(state.config.values)).toBe(held)
+  expect(listsOf(state)).toBe(listsBefore + 1)
+  const after = await setupLines(ui)
+  expect(after).toContain('› zen        on   launcher default') // the state stays
+  expect(after.at(-1)).toBe(truncate(refusal, 120))
+  const status = await ui.find({ type: 'Text', text: truncate(refusal, 120) })
+  expect(status?.props.color).toBe('red')
+  expect(state.logs).toContain(logText('config set providers.zen.defaultModel opencode/x → exit 64'))
+  await ui.unmount()
+})
+
+// Contract 4: every process call is in a handler; a render reads state only.
+// FAIL-first: with the render hook calling loadConfig, processCalls grows
+// with every redraw.
+test('setup: no process runs inside a render', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(listsOf(state)).toBe(1) // the open loaded
+  const first = await mountSetup($, 120)
+  await first.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  expect(modelsOf(state)).toHaveLength(1) // the pick fetched
+  const before = state.processCalls
+  await first.redraw()
+  await first.redraw()
+  await first.redraw({ ...SETUP_PROPS(72, 20) })
+  await first.unmount()
+  const second = await mountSetup($, 40)
+  await second.redraw()
+  await clock.settle()
+  expect(state.processCalls).toBe(before)
+  await second.unmount()
+})
+
+// Contract 5: one outsource pane at a time; each command toggles its own.
+// FAIL-first: without the close in openSetup, the rounds pane stays open
+// beside it (closes reads []).
+test('setup: one outsource pane at a time', async ($, on) => {
+  const { clock, state } = await boot($, on, fixtureRows)
+  const ids = (list: any[]) => list.map((x) => x.id)
+  await $.command.run({ command: 'rounds', args: '' }) // rounds open
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(ids(state.closes)).toEqual(['outsource-rounds'])
+  expect(ids(state.opens)).toEqual(['outsource-rounds', 'outsource-setup'])
+  const polls = state.runsCalls
+  await clock.advance(10000) // the rounds timer is back at the closed cadence
+  expect(state.runsCalls).toBe(polls + 2)
+
+  await $.command.run({ command: 'rounds', args: '' }) // /rounds closes setup and opens rounds
+  expect(ids(state.closes)).toEqual(['outsource-rounds', 'outsource-setup'])
+  expect(ids(state.opens)).toEqual(['outsource-rounds', 'outsource-setup', 'outsource-rounds'])
+
+  await $.command.run({ command: 'rounds', args: '' }) // toggles rounds closed
+  await $.command.run({ command: 'rounds', args: 'setup' }) // opens setup, nothing to close
+  expect(ids(state.closes)).toEqual(['outsource-rounds', 'outsource-setup', 'outsource-rounds'])
+  await $.command.run({ command: 'rounds', args: 'setup' }) // again: closes it
+  expect(ids(state.closes)).toEqual(['outsource-rounds', 'outsource-setup', 'outsource-rounds', 'outsource-setup'])
+  expect(ids(state.opens)).toEqual(['outsource-rounds', 'outsource-setup', 'outsource-rounds', 'outsource-setup'])
+
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  await $.command.run({ command: 'rounds', args: 'quota-report' }) // a label opens rounds: setup closes
+  expect(ids(state.closes).at(-1)).toBe('outsource-setup')
+  expect(ids(state.opens).at(-1)).toBe('outsource-rounds')
+})
+
+// Contract 6: `models` only for a catalogue provider, once per provider per
+// open, with the long timeout; the config calls keep the short one.
+// FAIL-first: without the once-per-open guard, the second zen pick fetches
+// again (two zen calls); with the catalogue test dropped, the agy open calls
+// `models --provider agy`.
+test('setup: the catalogue is fetched only for catalogue providers, once per provider per open', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const ui = await mountSetup($, 120)
+  for (const p of ['muse', 'xai', 'zai', 'agy']) await ui.select({ key: 'provider', value: p })
+  await clock.settle()
+  expect(modelsOf(state)).toEqual([])
+  expect(await ui.find({ type: 'Select', key: 'free' })).toBeUndefined()
+
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  expect(modelsOf(state)).toEqual([[BIN, 'models', '--provider', 'zen', '--free', '--tools', '--json']])
+  const at = state.argvs.findIndex((a) => a[1] === 'models')
+  expect(state.inits[at]).toEqual({ timeoutMs: 30000 })
+  state.argvs.forEach((a, i) => {
+    if (a[1] === 'config') expect(state.inits[i]).toEqual({ timeoutMs: 4000 })
+  })
+  const free = await ui.find({ type: 'Select', key: 'free' })
+  expect(free?.props.label).toBe('free models')
+  expect((free?.props.options as any[])[0]).toEqual({ value: 'nemotron-3-ultra-free', label: 'nemotron-3-ultra-free · 1000k · trains' })
+  expect(free?.props.options as any[]).toHaveLength(8)
+
+  await ui.select({ key: 'provider', value: 'agy' })
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  expect(modelsOf(state)).toHaveLength(1) // once per open
+
+  await ui.select({ key: 'provider', value: 'openrouter' }) // no catalogue served: exit 1
+  await clock.settle()
+  expect(modelsOf(state).map((a) => a[3])).toEqual(['zen', 'openrouter'])
+  const line = await ui.find({ type: 'Text', text: 'free models unavailable: models: openrouter: no catalogue loaded' })
+  expect(line?.props.dimColor).toBe(true)
+  await ui.select({ key: 'provider', value: 'openrouter' })
+  await clock.settle()
+  expect(modelsOf(state)).toHaveLength(2) // a failure is not retried within the open
+
+  await $.command.run({ command: 'rounds', args: 'setup' }) // close
+  await $.command.run({ command: 'rounds', args: 'setup' }) // reopen: openrouter still selected, fetched again
+  await clock.settle()
+  expect(modelsOf(state).map((a) => a[3])).toEqual(['zen', 'openrouter', 'openrouter'])
+  await ui.unmount()
+})
+
+// The catalogue's three other faces: loading while `models` runs, a timeout
+// (the run rejects), unparseable output, and no option at all (a Select
+// takes at least one). FAIL-first: with the loading entry left out of
+// startCatalogue, the pick made while the first fetch is held fetches again
+// (modelsHeld length 2).
+test('setup: catalogue loading, timeout, unparseable and empty lines', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  state.modelsHeld = []
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const ui = await mountSetup($, 120)
+  await ui.select({ key: 'provider', value: 'zen' })
+  expect(state.modelsHeld).toHaveLength(1) // the pick did not wait for it
+  await ui.select({ key: 'provider', value: 'agy' })
+  await ui.select({ key: 'provider', value: 'zen' })
+  expect(state.modelsHeld).toHaveLength(1) // in flight counts as fetched
+  const loading = await ui.find({ type: 'Text', text: 'loading free models…' })
+  expect(loading?.props.dimColor).toBe(true)
+  expect(await ui.find({ type: 'Select', key: 'free' })).toBeUndefined()
+  state.modelsHeld.shift()!()
+  await clock.settle()
+  expect(await ui.find({ type: 'Select', key: 'free' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'loading free models…' })).toBeUndefined()
+
+  const reopen = async () => {
+    await $.command.run({ command: 'rounds', args: 'setup' })
+    await $.command.run({ command: 'rounds', args: 'setup' })
+    await clock.settle()
+  }
+  state.modelsHeld = null
+  state.modelsReject = 'timed out after 30000 ms'
+  await reopen()
+  // The engine's rejection reads `<plugin>: $.process.run: <reason>`; the
+  // pane drops the plugin name (rejectionText), which the log line's one
+  // prefix already carries (the last test checks it).
+  const timedOut = '$.process.run: timed out after 30000 ms'
+  expect(await ui.find({ type: 'Text', text: 'free models unavailable: ' + timedOut })).toBeDefined()
+  state.modelsReject = null
+  state.models.zen = '{"models": nope'
+  await reopen()
+  expect(await ui.find({ type: 'Text', text: 'free models unavailable: unparseable output' })).toBeDefined()
+  state.models.zen = JSON.stringify({ ...MODELS_ZEN, models: [] })
+  await reopen()
+  expect(await ui.find({ type: 'Text', text: 'free models: none' })).toBeDefined()
+  expect(await ui.find({ type: 'Select', key: 'free' })).toBeUndefined()
+  expect(state.logs).toContain(logText('free models for zen unavailable: ' + timedOut))
+  await ui.unmount()
+})
+
+// Nothing loaded yet draws `loading…`; a failed `config list` draws its
+// reason red, and under a later failure the last good state stays.
+// FAIL-first: with the loading line removed, the first expect reads [].
+test('setup: loading… until a load; a failed config list draws its reason', async ($, on) => {
+  const { state } = await boot($, on, [])
+  const ui = await mountSetup($, 120) // drawn before any open
+  expect(await setupLines(ui)).toEqual(['loading…'])
+  expect(listsOf(state)).toBe(0)
+  state.listFails = { exitCode: 1, stderr: 'outsource config: /tmp/x/config.json: invalid character \'}\'\nmore\n' }
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(await setupLines(ui)).toEqual(["config list failed: outsource config: /tmp/x/config.json: invalid character '}'"])
+  expect((await ui.find({ type: 'Text', text: /^config list failed: / }))?.props.color).toBe('red')
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+
+  state.listFails = null
+  state.listStdout = 'not json'
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(await setupLines(ui)).toEqual(['config list failed: unparseable output'])
+
+  state.listStdout = null
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect((await setupLines(ui))[0]).toBe('config: ' + CONFIG_PATH)
+  state.listFails = { exitCode: 1, stderr: 'outsource config: read: permission denied\n' }
+  await ui.press({ key: 'enabled' }) // the write goes through; the reload after it fails
+  const lines = await setupLines(ui)
+  expect(lines[0]).toBe('config list failed: outsource config: read: permission denied')
+  expect(lines[1]).toBe('config: ' + CONFIG_PATH) // the last good state stays drawn
+  expect(lines[2]).toBe('› agy        on   launcher default')
+  await ui.unmount()
+})
+
+// Binary missing: the red line alone, no controls, no process. FAIL-first:
+// without the render's binOk branch, the pane draws `loading…`.
+test('setup: binary missing draws the red line and no controls', async ($, on) => {
+  const { state } = await boot($, on, fixtureRows, { exists: () => false })
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  expect(state.argvs).toEqual([])
+  expect(state.opens.map((o: any) => o.id)).toEqual(['outsource-setup'])
+  const ui = await mountSetup($, 600)
+  expect(await texts(ui)).toEqual(['outsource binary not found: ' + state.existsAsked.join(' · ')])
+  expect((await ui.find({ type: 'Text' }))?.props.color).toBe('red')
+  for (const type of ['Button', 'Select', 'Input']) expect(await ui.findAll({ type })).toEqual([])
+  await ui.unmount()
+})
+
+// The panel switch covers the setup pane like everything else, and `setup`
+// is a subcommand word. FAIL-first: without the setup close in setEnabled,
+// closes reads [] after `/rounds off`.
+test('setup: panel off answers the off line and closes the setup pane; extra words are usage', async ($, on) => {
+  const { state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  await $.command.run({ command: 'rounds', args: 'off' })
+  expect(state.closes.map((c: any) => c.id)).toEqual(['outsource-setup'])
+  const lists = listsOf(state)
+  expect((await $.command.run({ command: 'rounds', args: 'setup' })).text).toBe(PANEL_OFF_TEXT)
+  expect(state.opens).toHaveLength(1)
+  expect(listsOf(state)).toBe(lists)
+  const pane = await mountSetup($, 120)
+  expect(await texts(pane)).toEqual([]) // off: the render passes on
+  await pane.unmount()
+  await $.command.run({ command: 'rounds', args: 'on' })
+  expect((await $.command.run({ command: 'rounds', args: 'setup now' })).text).toBe('usage: /rounds setup')
+  expect(state.opens).toHaveLength(1)
+})
+
+// No focus capture in the setup pane either. FAIL-first: with `focus: true`
+// in openSetup's open, the `focus` expect fails.
+test('setup: no autoFocus, hotkey or focus request', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const ui = await mountSetup($, 120)
+  await ui.select({ key: 'provider', value: 'zen' })
+  await clock.settle()
+  await ui.press({ key: 'enabled' }) // a status line too
+  const nodes = allElements(await ui.drawn())
+  expect(nodes.some((n: any) => n.type === 'Select' && n.props?.key === 'free')).toBe(true)
+  for (const node of nodes) {
+    expect(node.props?.autoFocus, `${node.type} autoFocus`).toBeUndefined()
+    expect(node.props?.hotkey, `${node.type} hotkey`).toBeUndefined()
+  }
+  expect('focus' in state.opens[0]).toBe(false)
+  await ui.unmount()
+})
+
+// Every line fits its body, a provider line's two Texts together included.
+// FAIL-first: with the status line drawn uncut, the 30-column check fails.
+test('setup: every line fits bodyColumns at 30, 40 and 72', async ($, on) => {
+  const { clock, state } = await boot($, on, [])
+  state.configRefusal = { exitCode: 64, stderr: 'outsource config: ' + 'x'.repeat(200) + '\n' }
+  await $.command.run({ command: 'rounds', args: 'setup' })
+  const probe = await mountSetup($, 120)
+  await probe.select({ key: 'provider', value: 'openrouter' })
+  await clock.settle()
+  await probe.press({ key: 'enabled' }) // a long red status line
+  await probe.unmount()
+  for (const columns of [30, 40, 72]) {
+    const ui = await mountSetup($, columns)
+    const lines = await setupLines(ui)
+    expect(lines.length).toBeGreaterThan(8)
+    for (const line of lines) expect(displayWidth(line), `setup ${columns}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(columns)
+    for (const text of await texts(ui)) expect(displayWidth(text)).toBeLessThanOrEqual(columns)
+    await ui.unmount()
+  }
+})
+
+// An open the engine cannot seat answers the setup lines as command text, as
+// the rounds pane does (test 12). FAIL-first: with toggleSetup ignoring
+// isPlaced, res.text is undefined.
+test('setup: a not-placed open returns the setup lines as text', async ($, on) => {
+  const reason = 'no room above the prompt'
+  await boot($, on, [], { uiOpen: { isPlaced: false, reason } })
+  const res = await $.command.run({ command: 'rounds', args: 'setup' })
+  expect((res.text ?? '').split('\n')).toEqual([
+    'config: ' + CONFIG_PATH,
+    '› agy        on   launcher default',
+    '  muse       off  launcher default',
+    '  openrouter on   nvidia/nemotron-3-ultra-550b-a55b:free',
+    '  xai        on   launcher default',
+    '  zai        on   launcher default',
+    '  zen        on   launcher default',
+    '(pane not placed: ' + reason + ')',
+  ])
+})
+
+// A reload that finds the setup pane open loads it (it has no timer).
+// FAIL-first: without the load in session.start, no config list runs
+// (Expected 1, Received 0).
+test('setup: a reload that finds the setup pane open loads it', async ($, on) => {
+  const { clock, state } = await boot($, on, [], { panes: [{ id: 'outsource-setup' }] })
+  await clock.settle()
+  expect(listsOf(state)).toBe(1)
+  const ui = await mountSetup($, 120)
+  expect((await setupLines(ui))[0]).toBe('config: ' + CONFIG_PATH)
+  await $.command.run({ command: 'rounds', args: 'setup' }) // the engine's record says open: this closes it
+  expect(state.closes.map((c: any) => c.id)).toEqual(['outsource-setup'])
+  await ui.unmount()
 })
 
 // Last, on purpose: every `$.ui.log` line any test above produced went to the

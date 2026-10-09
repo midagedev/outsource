@@ -10,6 +10,14 @@
 #                 when there are more than -n, the last -n entries, each
 #                 clipped to -w characters with `…`. No fixture for the id
 #                 means "no trail yet": exit 65, like the real binary.
+#   config list --json | set <key> <value> | unset <key>
+#               — the setup pane's verbs over a state file seeded from
+#                 config-list.json, with the confirmation lines the real
+#                 `outsource config` prints. Without a state file the list
+#                 serves the fixture and every write is refused (exit 1).
+#   models --provider <p> … --json
+#               — models-<p>.json; no fixture for <p> is a catalogue that did
+#                 not load: exit 1, like the real binary.
 #
 # Environment:
 #   OUTSOURCE_PANEL_FIXTURE_DIR   fixtures (default: this script's directory)
@@ -19,8 +27,11 @@
 #   OUTSOURCE_PANEL_LIVE_SOCK_FILE  same, but the socket path is read from
 #                                 this file at every call (so a capture can
 #                                 add the row after a receiver starts)
+#   OUTSOURCE_PANEL_CONFIG_STATE  the file `config set|unset` writes (a
+#                                 capture's temp dir; never a real config)
 #
-# It reads only the committed synthetic fixtures — never a real registry.
+# It reads only the committed synthetic fixtures — never a real registry or
+# a real config.
 set -uo pipefail
 
 FIXTURE_DIR="${OUTSOURCE_PANEL_FIXTURE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
@@ -106,6 +117,82 @@ PY
     printf '%s\n' "$entries" | awk -v w="$w" '{
       if (w > 0 && length($0) > w) print substr($0, 1, w) "…"; else print
     }'
+    ;;
+  config)
+    shift
+    exec python3 - "$FIXTURE_DIR/config-list.json" "${OUTSOURCE_PANEL_CONFIG_STATE:-}" "$@" <<'PY'
+import json, os, sys
+
+fixture, state, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+base = json.load(open(fixture))
+
+def load():
+    if state and os.path.exists(state):
+        return state, json.load(open(state))
+    return (state or base["path"]), dict(base["values"])
+
+def fail(code, text):
+    sys.stderr.write(text + "\n")
+    sys.exit(code)
+
+verb = args[0] if args else ""
+if verb == "list" and args[1:] == ["--json"]:
+    path, values = load()
+    # As encoding/json prints it: one compact line, the map's keys sorted.
+    out = {"path": path, "values": dict(sorted(values.items())), "unknown": []}
+    sys.stdout.write(json.dumps(out, separators=(",", ":"), ensure_ascii=False) + "\n")
+    sys.exit(0)
+if (verb == "set" and len(args) == 3) or (verb == "unset" and len(args) == 2):
+    if not state:
+        fail(1, "fake-outsource: config writes need OUTSOURCE_PANEL_CONFIG_STATE (a temp file); refused")
+    path, values = load()
+    key = args[1]
+    if key not in values:
+        fail(64, 'outsource config: unknown key "%s"' % key)
+    if verb == "unset":
+        if values[key] is None:
+            print("%s was not set (%s)" % (key, path))
+            sys.exit(0)
+        values[key] = None
+        line = "%s unset (%s)" % (key, path)
+    else:
+        raw = args[2]
+        if key.endswith(".enabled"):
+            if raw not in ("true", "false"):
+                fail(64, "outsource config: %s takes true or false, got: %s" % (key, raw))
+            values[key] = raw == "true"
+        else:
+            values[key] = raw
+        line = "%s = %s (%s)" % (key, raw, path)
+    with open(state, "w") as f:
+        json.dump(values, f, ensure_ascii=False)
+    print(line)
+    sys.exit(0)
+fail(64, "fake-outsource: unsupported config call: %s" % " ".join(args))
+PY
+    ;;
+  models)
+    shift
+    prov=""
+    json=0
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --provider) prov="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+        --json) json=1; shift ;;
+        --free|--tools|--policy|--refresh) shift ;;
+        *) echo "models: unknown argument: $1" >&2; exit 64 ;;
+      esac
+    done
+    if [ "$json" -ne 1 ]; then
+      echo "fake-outsource: models serves --json only" >&2
+      exit 64
+    fi
+    f="$FIXTURE_DIR/models-$prov.json"
+    if [ -z "$prov" ] || [ ! -f "$f" ]; then
+      echo "models: no catalogue loaded for ${prov:-any provider} (no fixture)" >&2
+      exit 1
+    fi
+    cat "$f"
     ;;
   *)
     echo "fake-outsource: unsupported command: $cmd" >&2

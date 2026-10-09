@@ -7,10 +7,12 @@
 # loads the module runs for both.
 #
 # Layers:
-#   1. fixture drift — tests/fixtures/runs.js (what the unit tests import)
-#      must be the same rows as tests/fixtures/runs.json (what the capture
-#      fake serves); the loader admits only code files, so the duplication
-#      is unavoidable and this check is what keeps it honest;
+#   1. fixture drift — each JS fixture the unit tests import must hold the
+#      same data as the JSON fixture the capture fake serves: runs.js and
+#      runs.json (the rows), config-list.js and config-list.json (`config
+#      list --json`), models-zen.js and models-zen.json (`models … --json`);
+#      the loader admits only code files, so the duplication is unavoidable
+#      and this check is what keeps it honest;
 #   2. claude plugin validate --strict, the standalone and the root (the root
 #      validation must reach the root's hooks module, not only the
 #      marketplace file beside it);
@@ -38,22 +40,27 @@ fail=0
 out="$(mktemp "${TMPDIR:-/tmp}/panel-mod.XXXXXX")"
 trap 'rm -f "$out"' EXIT
 
-# 1. Fixture drift: the JS fixture and the JSON fixture are the same rows.
+# 1. Fixture drift: each JS fixture and its JSON twin hold the same data.
 if command -v python3 >/dev/null 2>&1; then
-  if ! python3 - "$MOD/tests/fixtures/runs.js" "$MOD/tests/fixtures/runs.json" >"$out" 2>&1 <<'PY'
+  if ! python3 - "$MOD/tests/fixtures" runs config-list models-zen >"$out" 2>&1 <<'PY'
 import json, sys
 
-js, json_path = sys.argv[1], sys.argv[2]
-source = open(js).read()
-from_js = json.loads(source[source.index("["): source.rindex("]") + 1])
-from_json = json.load(open(json_path))
-if from_js != from_json:
-    print("runs.js and runs.json differ: the unit-test fixture and the "
-          "capture fixture have drifted apart; regenerate one from the other.")
-    sys.exit(1)
+fixtures, names = sys.argv[1], sys.argv[2:]
+bad = 0
+for name in names:
+    source = open(f"{fixtures}/{name}.js").read()
+    # The one `export const NAME = <literal>`: everything after its `=` is the
+    # JSON literal (an object fixture holds `[]` too, so no bracket slicing).
+    decl = source.index("export const ")
+    literal = source[source.index("=", decl) + 1:].strip().rstrip(";")
+    if json.loads(literal) != json.load(open(f"{fixtures}/{name}.json")):
+        print(f"{name}.js and {name}.json differ: the unit-test fixture and the "
+              "capture fixture have drifted apart; regenerate one from the other.")
+        bad = 1
+sys.exit(bad)
 PY
   then
-    echo "FAIL: fixture drift between runs.js and runs.json"
+    echo "FAIL: fixture drift between a JS fixture and its JSON twin"
     cat "$out"
     exit 1
   fi

@@ -1,0 +1,222 @@
+{
+  "generated_at": "2026-10-09T07:01:21Z",
+  "providers": {
+    "zen": {
+      "source": "cache",
+      "fetched_at": "2026-10-09T06:37:08Z",
+      "error": null
+    }
+  },
+  "models": [
+    {
+      "provider": "zen",
+      "id": "fixture-retired-free",
+      "name": "Fixture Retired Free",
+      "context": 2000000,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "deprecated",
+      "policy": "trains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "nemotron-3-ultra-free",
+      "name": "Nemotron 3 Ultra Free",
+      "context": 1000000,
+      "max_output": 128000,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "trains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-a-free",
+      "name": "Fixture A Free",
+      "context": 262144,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "no-train-no-retain",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-b-free",
+      "name": "Fixture B Free",
+      "context": 200000,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "retains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-c1-free",
+      "name": "Fixture C1 Free",
+      "context": 131072,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": null,
+      "policy_source": null,
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-c2-free",
+      "name": "Fixture C2 Free",
+      "context": 131072,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "unknown",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-d-free",
+      "name": "Fixture D Free",
+      "context": 128000,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": null,
+      "policy": "trains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-e-free",
+      "name": "Fixture E Free",
+      "context": 65536,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "retains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-f-free",
+      "name": "Fixture F Free",
+      "context": 32768,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "trains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    },
+    {
+      "provider": "zen",
+      "id": "fixture-g-free",
+      "name": "Fixture G Free",
+      "context": null,
+      "max_output": 32768,
+      "free": true,
+      "price_in": 0,
+      "price_out": 0,
+      "tools": true,
+      "inputs": [
+        "text"
+      ],
+      "router": false,
+      "expires": null,
+      "status": "active",
+      "policy": "retains",
+      "policy_source": "zen docs 2026-10-09",
+      "measured_vision": null,
+      "default_harness": "opencode"
+    }
+  ]
+}

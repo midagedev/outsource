@@ -685,3 +685,159 @@ export function localHHMM(iso) {
   const d = new Date(t)
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
 }
+
+// ---- the setup pane (`/rounds setup`) ---------------------------------------
+//
+// The setup pane shows and changes two of the user's own choices per provider
+// — enabled, and the default model — through the binary's `config` verbs
+// (internal/config/cli.go). The binary is the one owner of the file's format
+// and of every validation rule: the pane never reads or writes the file
+// itself, and passes what the person typed on for the binary to judge.
+
+// Why an engine call rejected, without the `<plugin>: ` the engine leads the
+// message with (measured 2026-10-09 in `claude plugin test`: a `{ deny }`
+// reads `outsource-panel: $.process.run: <reason>`): the pane's line names
+// what failed itself, and a log line carries the one prefix logText gives it.
+export function rejectionText(err, pluginName) {
+  const text = err instanceof Error ? err.message : String(err)
+  const lead = pluginName + ': '
+  return typeof pluginName === 'string' && pluginName !== '' && text.startsWith(lead) ? text.slice(lead.length) : text
+}
+
+// The first non-blank line of a process's output, or null when it wrote none.
+export function firstLine(s) {
+  const line = String(s ?? '')
+    .split('\n')
+    .find((l) => l.trim() !== '')
+  return line === undefined ? null : line
+}
+
+// `outsource config list --json` as the pane uses it — `{ path, values }` —
+// or null when stdout is not that shape.
+export function parseConfigList(stdout) {
+  let parsed
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const { path, values } = parsed
+  if (typeof path !== 'string' || values === null || typeof values !== 'object' || Array.isArray(values)) return null
+  return { path, values }
+}
+
+// The providers, one per `providers.<p>.enabled` key of `values`, in key
+// order (the binary writes them sorted): the set is the binary's, never a
+// list here. An unset (null) `enabled` is enabled; an unset `defaultModel`
+// is null, which the pane draws as the launcher's own default. Every other
+// key shape — free.*, context.*, a provider field this pane does not know —
+// is not the pane's business and is skipped.
+const ENABLED_KEY = /^providers\.([^.]+)\.enabled$/
+export function providerStates(values) {
+  const out = []
+  for (const key of Object.keys(values)) {
+    const m = ENABLED_KEY.exec(key)
+    if (m === null) continue
+    const name = m[1]
+    const model = values['providers.' + name + '.defaultModel']
+    out.push({ name, enabled: values[key] !== false, model: typeof model === 'string' ? model : null })
+  }
+  return out
+}
+
+export const LAUNCHER_DEFAULT = 'launcher default'
+
+// `<sel> <name10> <on|off3>  <model>`, cut to bodyColumns: `›` marks the
+// selected provider, an unset default reads `launcher default`. Returned as
+// the line (`text`) and its two segments (`head` + `model` === `text`), so
+// the model can be drawn dim on its own (`modelDim`: a launcher default) and
+// a disabled provider's whole line dim (`headDim` and `modelDim`).
+export function providerLine(provider, isSelected, bodyColumns) {
+  const head =
+    (isSelected ? '›' : ' ') +
+    ' ' +
+    padRight(truncate(provider.name, 10), 10) +
+    ' ' +
+    padRight(provider.enabled ? 'on' : 'off', 3) +
+    '  '
+  const text = truncate(head + (provider.model ?? LAUNCHER_DEFAULT), bodyColumns)
+  const cut = text.startsWith(head) ? head.length : text.length
+  return {
+    text,
+    head: text.slice(0, cut),
+    model: text.slice(cut),
+    headDim: !provider.enabled,
+    modelDim: !provider.enabled || provider.model === null,
+  }
+}
+
+// The providers `outsource models --provider` takes (the Go side's
+// catalog.Providers, internal/catalog/catalog.go). The one provider-name list
+// the pane carries: `models` refuses any other name, so the pane never asks.
+export const CATALOGUE_PROVIDERS = ['openrouter', 'zen']
+export function isCatalogue(provider) {
+  return CATALOGUE_PROVIDERS.includes(provider)
+}
+
+export const MAX_FREE_MODELS = 8
+
+// The `free models` options from the `models` JSON rows (`models` of
+// `outsource models --provider <p> --free --tools --json`): the provider's
+// own rows that are not routers and whose status is absent or `active`,
+// largest context first, then by id; ids unique (a Select's values must
+// be); at most MAX_FREE_MODELS. A label reads `<id> · <context/1000>k ·
+// <policy>`, `?k` when the catalogue states no context and `unknown` (the
+// catalogue's own word) when it states no policy.
+export function freeModelOptions(models, provider) {
+  const ctx = (m) => (typeof m.context === 'number' ? m.context : -Infinity)
+  const rows = models.filter(
+    (m) =>
+      m !== null &&
+      typeof m === 'object' &&
+      m.provider === provider &&
+      typeof m.id === 'string' &&
+      m.id !== '' &&
+      m.router !== true &&
+      (m.status === null || m.status === undefined || m.status === 'active'),
+  )
+  rows.sort((a, b) => (ctx(a) === ctx(b) ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : ctx(b) - ctx(a)))
+  const out = []
+  for (const m of rows) {
+    if (out.some((o) => o.value === m.id)) continue
+    const k = typeof m.context === 'number' ? Math.round(m.context / 1000) + 'k' : '?k'
+    out.push({ value: m.id, label: m.id + ' · ' + k + ' · ' + (m.policy ?? 'unknown') })
+    if (out.length === MAX_FREE_MODELS) break
+  }
+  return out
+}
+
+// The argv of each setup call, as `$.process.run` takes it (no shell): one
+// argument per element, so an id with odd characters stays one argument.
+// Enabled again is `unset` (absent means enabled), so the file holds only
+// real choices; an empty default model is `unset` too, and any other text
+// goes as typed — the binary judges it (CheckDefaultModel).
+export function toggleEnabledArgv(bin, provider, isEnabled) {
+  const key = 'providers.' + provider + '.enabled'
+  return isEnabled ? [bin, 'config', 'set', key, 'false'] : [bin, 'config', 'unset', key]
+}
+
+export function defaultModelArgv(bin, provider, id) {
+  const key = 'providers.' + provider + '.defaultModel'
+  return id === '' ? [bin, 'config', 'unset', key] : [bin, 'config', 'set', key, id]
+}
+
+export function configListArgv(bin) {
+  return [bin, 'config', 'list', '--json']
+}
+
+export function catalogueArgv(bin, provider) {
+  return [bin, 'models', '--provider', provider, '--free', '--tools', '--json']
+}
+
+// The body rows the whole setup tree needs inline: the config line, one line
+// per provider, the blank row, the controls row, the input, the free-models
+// line and the status line.
+export function setupRowsWanted(providerCount) {
+  return 1 + providerCount + 1 + 1 + 1 + 1 + 1
+}
