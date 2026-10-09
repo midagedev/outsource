@@ -1,0 +1,228 @@
+opencode/big-pickle
+{
+  "id": "big-pickle",
+  "providerID": "opencode",
+  "name": "Big Pickle",
+  "family": "big-pickle",
+  "api": {
+    "id": "big-pickle",
+    "url": "https://opencode.ai/zen/v1",
+    "npm": "@ai-sdk/openai-compatible"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 200000,
+    "input": 160000,
+    "output": 32000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": false,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": {
+      "field": "reasoning_content"
+    }
+  },
+  "release_date": "2025-10-17",
+  "variants": {}
+}
+opencode/step-5-preview-free
+{
+  "id": "step-5-preview-free",
+  "providerID": "opencode",
+  "name": "Step 5 Preview Free",
+  "api": {
+    "id": "step-5-preview-free",
+    "url": "https://opencode.ai/zen/v1",
+    "npm": "@ai-sdk/openai-compatible"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "input": 1000000,
+    "output": 65536
+  },
+  "capabilities": {
+    "temperature": false,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": true,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": {
+      "field": "reasoning_content"
+    }
+  },
+  "release_date": "2026-09-16",
+  "variants": {
+    "low": {
+      "reasoningEffort": "low"
+    },
+    "medium": {
+      "reasoningEffort": "medium"
+    },
+    "high": {
+      "reasoningEffort": "high"
+    }
+  }
+}
+opencode/nemotron-3-ultra-free
+{
+  "id": "nemotron-3-ultra-free",
+  "providerID": "opencode",
+  "name": "Nemotron 3 Ultra Free",
+  "family": "nemotron-free",
+  "api": {
+    "id": "nemotron-3-ultra-free",
+    "url": "https://opencode.ai/zen/v1",
+    "npm": "@ai-sdk/openai-compatible"
+  },
+  "status": "active",
+  "headers": {},
+  "options": {},
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "limit": {
+    "context": 1000000,
+    "output": 128000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": false,
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    },
+    "interleaved": {
+      "field": "reasoning_content"
+    }
+  },
+  "release_date": "2026-06-04",
+  "variants": {}
+}
+opencode/fixture-priced
+{
+  "id": "fixture-priced",
+  "providerID": "opencode",
+  "name": "Fixture Priced",
+  "status": "beta",
+  "cost": {
+    "input": 3,
+    "output": 15,
+    "cache": {
+      "read": 0.3,
+      "write": 3.75
+    }
+  },
+  "limit": {
+    "context": 200000,
+    "output": 64000
+  },
+  "capabilities": {
+    "temperature": true,
+    "reasoning": true,
+    "attachment": true,
+    "toolcall": false,
+    "input": {
+      "text": true,
+      "audio": false,
+      "image": true,
+      "video": false,
+      "pdf": true
+    },
+    "output": {
+      "text": true,
+      "audio": false,
+      "image": false,
+      "video": false,
+      "pdf": false
+    }
+  }
+}
+opencode/fixture-unknown-free
+{
+  "id": "fixture-unknown-free",
+  "providerID": "opencode",
+  "name": "Fixture Unknown Free",
+  "status": "active",
+  "cost": {
+    "input": 0,
+    "output": 0
+  },
+  "limit": {
+    "context": 131072,
+    "output": 8192
+  },
+  "capabilities": {
+    "toolcall": true,
+    "input": {
+      "text": true,
+      "image": false
+    }
+  }
+}

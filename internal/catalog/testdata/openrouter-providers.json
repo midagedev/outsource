@@ -1,0 +1,168 @@
+{
+ "data": [
+  {
+   "name": "Poolside",
+   "displayName": "Poolside",
+   "slug": "poolside",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "canPublish": false,
+    "termsOfServiceURL": "http://poolside.ai/legal",
+    "privacyPolicyURL": "https://poolside.ai/legal/privacy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "BaseTen",
+   "displayName": "Baseten",
+   "slug": "baseten",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": false,
+    "canPublish": false,
+    "termsOfServiceURL": "https://www.baseten.co/terms-and-conditions",
+    "privacyPolicyURL": "https://www.baseten.co/privacy-policy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Cohere",
+   "displayName": "Cohere",
+   "slug": "cohere",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "retentionDays": 30,
+    "canPublish": false,
+    "termsOfServiceURL": "https://cohere.com/terms-of-use",
+    "privacyPolicyURL": "https://cohere.com/privacy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Thinking Machines",
+   "displayName": "Thinking Machines",
+   "slug": "thinkingmachines",
+   "dataPolicy": {
+    "training": true,
+    "trainingOpenRouter": true,
+    "retainsPrompts": true,
+    "canPublish": false,
+    "termsOfServiceURL": "https://thinkingmachines.ai/legal/tml-free-research-api-tier-terms-of-service.pdf",
+    "privacyPolicyURL": "https://thinkingmachines.ai/legal/tml-free-research-api-tier-privacy-notice.pdf",
+    "requiresUserIDs": true
+   }
+  },
+  {
+   "name": "Nvidia",
+   "displayName": "NVIDIA",
+   "slug": "nvidia",
+   "dataPolicy": {
+    "training": true,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "canPublish": false,
+    "termsOfServiceURL": "https://assets.ngc.nvidia.com/products/api-catalog/legal/NVIDIA%20API%20Trial%20Terms%20of%20Service.pdf",
+    "privacyPolicyURL": "https://www.nvidia.com/en-us/about-nvidia/privacy-policy/",
+    "requiresUserIDs": true
+   }
+  },
+  {
+   "name": "DeepInfra",
+   "displayName": "DeepInfra",
+   "slug": "deepinfra",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": false,
+    "canPublish": false,
+    "termsOfServiceURL": "https://deepinfra.com/terms",
+    "privacyPolicyURL": "https://deepinfra.com/privacy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Liquid",
+   "displayName": "Liquid",
+   "slug": "liquid",
+   "dataPolicy": {
+    "training": true,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "canPublish": false,
+    "termsOfServiceURL": "https://www.liquid.ai/terms-conditions",
+    "privacyPolicyURL": "https://www.liquid.ai/privacy-policy",
+    "requiresUserIDs": true
+   }
+  },
+  {
+   "name": "AtlasCloud",
+   "displayName": "AtlasCloud",
+   "slug": "atlas-cloud",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "canPublish": false,
+    "privacyPolicyURL": "https://www.atlascloud.ai/privacy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Google AI Studio",
+   "displayName": "Google AI Studio",
+   "slug": "google-ai-studio",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": true,
+    "retentionDays": 55,
+    "canPublish": false,
+    "termsOfServiceURL": "https://cloud.google.com/terms/",
+    "privacyPolicyURL": "https://cloud.google.com/terms/cloud-privacy-notice",
+    "requiresUserIDs": true
+   }
+  },
+  {
+   "name": "Venice",
+   "displayName": "Venice",
+   "slug": "venice",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": false,
+    "canPublish": false,
+    "termsOfServiceURL": "https://venice.ai/legal/tos",
+    "privacyPolicyURL": "https://venice.ai/legal/privacy-policy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Novita",
+   "displayName": "NovitaAI",
+   "slug": "novita",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false,
+    "retainsPrompts": false,
+    "canPublish": false,
+    "termsOfServiceURL": "https://novita.ai/legal/terms-of-service",
+    "privacyPolicyURL": "https://novita.ai/legal/privacy-policy",
+    "requiresUserIDs": false
+   }
+  },
+  {
+   "name": "Fixture Unstated",
+   "displayName": "Fixture Unstated",
+   "slug": "fixture-unstated",
+   "dataPolicy": {
+    "training": false,
+    "trainingOpenRouter": false
+   }
+  }
+ ]
+}

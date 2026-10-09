@@ -1,0 +1,508 @@
+{
+ "data": [
+  {
+   "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+   "canonical_slug": "nvidia/nemotron-3-ultra-550b-a55b-20260604",
+   "name": "NVIDIA: Nemotron 3 Ultra (free)",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 1000000,
+    "max_completion_tokens": 65536
+   },
+   "supported_parameters": [
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "seed",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/nvidia/nemotron-3-ultra-550b-a55b-20260604/endpoints"
+   }
+  },
+  {
+   "id": "inclusionai/ling-3.1-flash",
+   "canonical_slug": "inclusionai/ling-3.1-flash-20261002",
+   "name": "inclusionAI: Ling 3.1 Flash",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32768
+   },
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logprobs",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "seed",
+    "stop",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/inclusionai/ling-3.1-flash-20261002/endpoints"
+   }
+  },
+  {
+   "id": "poolside/laguna-s-2.1:free",
+   "canonical_slug": "poolside/laguna-s-2.1-20260720",
+   "name": "Poolside: Laguna S 2.1 (free)",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32768
+   },
+   "supported_parameters": [
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "temperature",
+    "tool_choice",
+    "tools"
+   ],
+   "expiration_date": "2026-10-31",
+   "links": {
+    "details": "/api/v1/models/poolside/laguna-s-2.1-20260720/endpoints"
+   }
+  },
+  {
+   "id": "google/gemma-4-31b-it:free",
+   "canonical_slug": "google/gemma-4-31b-it-20260402",
+   "name": "Google: Gemma 4 31B (free)",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text+image+video->text",
+    "input_modalities": [
+     "image",
+     "text",
+     "video"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32768
+   },
+   "supported_parameters": [
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "response_format",
+    "seed",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/google/gemma-4-31b-it-20260402/endpoints"
+   }
+  },
+  {
+   "id": "thinkingmachines/inkling:free",
+   "canonical_slug": "thinkingmachines/inkling-20260715",
+   "name": "Thinking Machines: Inkling (free)",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text+image+audio->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "audio"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 262144
+   },
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "seed",
+    "stop",
+    "temperature",
+    "tools",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/thinkingmachines/inkling-20260715/endpoints"
+   }
+  },
+  {
+   "id": "openrouter/free",
+   "canonical_slug": "openrouter/free",
+   "name": "Free Models Router",
+   "context_length": 200000,
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null
+   },
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logprobs",
+    "max_completion_tokens",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/openrouter/free/endpoints"
+   }
+  },
+  {
+   "id": "openrouter/auto",
+   "canonical_slug": "openrouter/auto",
+   "name": "Auto Router",
+   "context_length": 2000000,
+   "architecture": {
+    "modality": "text+image+file+audio+video->text+image",
+    "input_modalities": [
+     "text",
+     "image",
+     "audio",
+     "file",
+     "video"
+    ],
+    "output_modalities": [
+     "text",
+     "image"
+    ]
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null
+   },
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "prediction",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_a",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+    "web_search_options"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/openrouter/auto/endpoints"
+   }
+  },
+  {
+   "id": "nvidia/switchyard",
+   "canonical_slug": "nvidia/switchyard",
+   "name": "NVIDIA: Switchyard",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null
+   },
+   "supported_parameters": [],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/nvidia/switchyard/endpoints"
+   }
+  },
+  {
+   "id": "unbiased/pareto",
+   "canonical_slug": "unbiased/pareto-20260917",
+   "name": "Pareto",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0.0000025",
+    "completion": "0.0000075"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 131072
+   },
+   "supported_parameters": [
+    "max_tokens",
+    "response_format",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_p"
+   ],
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/unbiased/pareto-20260917/endpoints"
+   }
+  },
+  {
+   "id": "fixture/zero-decimal:free",
+   "name": "Fixture: zero written as 0.0",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0.0",
+    "completion": "0.0"
+   },
+   "top_provider": {
+    "context_length": 131072,
+    "max_completion_tokens": 16384
+   },
+   "supported_parameters": [
+    "max_tokens",
+    "tools"
+   ],
+   "expiration_date": null
+  },
+  {
+   "id": "fixture/tiny-price",
+   "name": "Fixture: rounds to $0.00 but is priced",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0.000000001",
+    "completion": "0.000000001"
+   },
+   "top_provider": {
+    "context_length": 131072,
+    "max_completion_tokens": 16384
+   },
+   "supported_parameters": [
+    "max_tokens",
+    "tools"
+   ],
+   "expiration_date": null
+  },
+  {
+   "id": "fixture/no-price",
+   "name": "Fixture: pricing omitted",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {},
+   "top_provider": {
+    "context_length": 131072,
+    "max_completion_tokens": 16384
+   },
+   "supported_parameters": [
+    "max_tokens",
+    "tools"
+   ],
+   "expiration_date": null
+  },
+  {
+   "id": "fixture/no-tools:free",
+   "name": "Fixture: free, no tool calling",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "video",
+     "text",
+     "image",
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 131072,
+    "max_completion_tokens": null
+   },
+   "supported_parameters": [
+    "max_tokens",
+    "temperature"
+   ],
+   "expiration_date": null
+  },
+  {
+   "id": "fixture/unlisted-provider:free",
+   "name": "Fixture: served by a provider missing from the policy list",
+   "context_length": 131072,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 131072,
+    "max_completion_tokens": 16384
+   },
+   "supported_parameters": [
+    "tools"
+   ],
+   "expiration_date": null
+  }
+ ]
+}

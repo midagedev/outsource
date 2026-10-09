@@ -64,6 +64,7 @@ var tools = []tool{
 	{"outsource-run", noStdin(launch.OutsourceMain)},
 	{"overlays", noStdin(overlays.Main)},
 	{"last-report", noStdin(report.Main)},
+	{"models", noStdin(launch.ModelsMain)},
 	{"quota", noStdin(quota.Main)},
 	{"runs", noStdin(runs.Main)},
 	{"slot", slot.Main},
