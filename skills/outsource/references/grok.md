@@ -1,7 +1,8 @@
 # grok backend — running the grok CLI headless
 
 Loaded on demand from the outsource skill. Everything here is
-field-measured on grok-4.6. Shared implementer rules live in
+field-measured on grok-4.6. grok-4.7, grok-run's default since 0.21.1, is
+not re-measured yet: read each number below as a 4.6 number. Shared implementer rules live in
 references/spec-preamble.md; spec-authoring guidance in
 references/spec-authoring.md.
 
