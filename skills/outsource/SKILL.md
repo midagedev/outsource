@@ -4,7 +4,7 @@ description: >
   Outsource implementation, investigation/research, numeric harnesses and
   vision-verdict work to third-party model CLIs running as headless
   sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
-  headless Claude Code or the crush CLI), the grok CLI (grok-4.6),
+  headless Claude Code or the crush CLI), the grok CLI (grok-4.7),
   gemini-3.8-flash-high (agy CLI, Google plan), muse-spark-1.3-contributor
   (Muse Code CLI), OpenCode Zen's free step-5-preview-free (opencode CLI),
   and any OpenRouter id — named, configured, or picked free from the live
@@ -47,7 +47,7 @@ included; the three tables in `internal/launch/wiring.go` are the source.
 | **glm-5.3-flash** | zai · claude-code or crush | mechanical and fan-out rounds when 5.3 quota is the constraint (3× the quota), and capture self-verification | sees shape and colour family (`#1E50DC` read as `#2244DD`); slower than 5.3 on every benched task |
 | **gemini-3.8-flash-high** — Google plan | agy · agy (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8, routed since 2026-09-05, not yet re-measured) | exit 0 ≠ success — the launcher reads the result event's `status` |
 | **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · opencode (`references/opencode.md`) | a process family at no cost and with no login: 1M context | **borrowed** — the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Sees shape and colour family (`#1E50DC` read as `#3A5BF0`), and once answered a glyph probe without opening the image |
-| **grok-4.6** | the `grok` CLI, headless (`references/grok.md`); also xai · claude-code or crush | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
+| **grok-4.7** (CLI; the xai API row stays grok-4.6) | the `grok` CLI, headless (`references/grok.md`); also xai · claude-code or crush | image/video **generation**, web research when GLM's harness lacks the tool, and vision verdicts | verdicts contradicting instrumentation escalate to a Claude agent |
 | **muse-spark-1.3-contributor** — Muse Code | muse · muse (`references/muse.md`) | a fourth process family on a separate account: 262k context, `--effort` maps to `--reasoning-effort`, and it reads shape and colour family (a drawn `H`; `#1E50DC` as "blue") | the CLI has no hook and no definable permission profile — an unguarded round **commits** (measured), so the git guard is a `git` shim first on the round's `PATH`, refusing with exit 97 |
 | **any OpenRouter id** — named, a config default, or `--model free` | openrouter · claude-code (default; bare `vendor/id`) or opencode (`openrouter/<vendor>/<id>`) (`references/openrouter.md`) | a process family when the plans are out of headroom. `--model free` picks a free, tool-capable id from the live catalogue, by default only one that neither trains on nor retains prompts | no table default: with no `--model` and no config default it is exit 64. Free ids churn weekly and most of them train on prompts; `:free` ids are limited to 20 requests a minute. Vision measured only on opencode (a stealth id **saw shape, not colour**) |
 

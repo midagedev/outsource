@@ -83,7 +83,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 	if nestedLaunchRefusal("grok-run", stderr) {
 		return ExitUsage
 	}
-	o := grokOpts{profile: "strict", model: "grok-4.6", effort: "xhigh", maxTurns: "1200"}
+	o := grokOpts{profile: "strict", model: "grok-4.7", effort: "xhigh", maxTurns: "1200"}
 	for i := 0; i < len(args); i++ {
 		need := func() (string, bool) {
 			if i+1 >= len(args) {
