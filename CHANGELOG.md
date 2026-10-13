@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.21.1 — 2026-10-13 — grok-run runs grok-4.7, and a research round's done marker is a line, not a file
+
+- **`grok-run` defaults to grok-4.7**, the default of the grok CLI (1.0.54,
+  grok.com login; `grok models` lists grok-4.7, grok-4.7-build-fast,
+  grok-4.6 and grok-4.5). `--model grok-4.6` still pins the old one. The xai
+  rows of the provider table (claude-code and crush, which call the xAI API
+  with a key) stay on grok-4.6: no key was at hand to verify 4.7 there. Every
+  grok number in the skill and the READMEs was measured on 4.6, and says so.
+- **A research round's notice names its done marker as the final message's
+  last line.** A research round has no write tool, and one took the spec's
+  "end with the marker" for a file to write: it ended 72 with a good report.
+  The notice now says the marker is the last line of the final message, and
+  says nothing about a marker when the round has none.
+
 ## 0.21.0 — 2026-10-09 — OpenRouter on Claude Code, free models picked from the live catalogue, and one file for your own defaults
 
 - **OpenRouter runs on the claude-code harness by default.** Its
