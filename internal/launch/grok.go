@@ -52,7 +52,19 @@ var gitProfiles = map[string][]string{
 // message is the only deliverable channel.
 const researchNotice = "> [runner notice — research mode] 이 라운드에는 파일 쓰기 도구가 없다.\n" +
 	"> 스펙이 산출물을 파일로 요구하더라도 파일은 만들 수 없으며, 모든 산출물은\n" +
-	"> **최종 메시지 본문**으로 제출하라. 쓰기 시도를 반복하지 말 것.\n\n"
+	"> **최종 메시지 본문**으로 제출하라. 쓰기 시도를 반복하지 말 것.\n"
+
+// researchMarkerNotice closes the research notice when the round has a
+// --done-marker: the marker is read from the final message's last line (the
+// sentinel check below), never from a file, and a research round that took the
+// spec's "marker as the last line" for a file to write ended 72 with a good
+// report (2026-10-13).
+func researchMarkerNotice(marker string) string {
+	if marker == "" {
+		return ">\n\n"
+	}
+	return "> 완료 표시도 파일이 아니다: 최종 메시지의 **마지막 줄**을 정확히 `" + marker + "` 한 줄로 끝내라.\n\n"
+}
 
 type grokOpts struct {
 	cwd, spec, log, label, marker, profile, resume string
@@ -253,7 +265,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "grok-run: could not stage the research spec: %v\n", err)
 			return ExitUsage
 		}
-		if _, err := f.WriteString(researchNotice + string(specBody)); err != nil {
+		if _, err := f.WriteString(researchNotice + researchMarkerNotice(o.marker) + string(specBody)); err != nil {
 			f.Close()
 			fmt.Fprintf(stderr, "grok-run: could not stage the research spec: %v\n", err)
 			return ExitUsage
