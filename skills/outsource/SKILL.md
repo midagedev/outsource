@@ -390,6 +390,26 @@ before lead tokens may treat a note as a peer's (relaunch with `--session`
 for a binding one). A round launched before inbox support cannot receive
 (stop it and resume with `--session`).
 
+**Agent-tool subagents are not outsource rounds.** The inbox above belongs to a
+round this skill launched (its own process and socket). A subagent that the
+lead spawned with Claude Code's Agent tool (`subagent_type`, `run_in_background`)
+reads its mailbox only between turns. Measured on 2026-10-19 (mwoyeo, three film
+rounds): a lead SendMessage sent during a long render turn arrived only after the
+subagent had written its final report, so the amendment was lost and the work
+was redone a round later. The subagent's own SendMessage to `main` did arrive
+mid-turn, which hides the asymmetry. For an Agent-tool round:
+- write every amendment to a file next to its spec, `<label>.addenda.md`, with one
+  `## A<n> <time>` entry each, and send SendMessage only as a one-line pointer;
+- in the spec, tell the round to re-read that file at every phase boundary
+  (before the first edit, before each render or long run, before the gates, and
+  before the report), and to ack each id in its report;
+- if the amendment cannot wait for the next boundary, stop the round (TaskStop)
+  and resume it with the amendment in its prompt.
+
+Do not borrow a domain's agent definition for another domain: a `round` agent
+written for one repo's box and lease rules carries those rules into every report
+of another repo. Give each domain its own definition.
+
 **Stopping a round.** `outsource runs stop <label|id> [--reason <text>]`
 TERMs the round's recorded harness child, sends KILL to its process group
 after 20 s (`--kill-after N`), and prints the sentinel's `rc=` line; the
