@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.21.2 — 2026-10-19 — Agent-tool subagents are amended through a file, not a mid-turn message
+
+- **The skill tells Agent-tool subagents apart from outsource rounds.** A
+  subagent the lead spawns with Claude Code's Agent tool reads its mailbox only
+  between turns. Measured on 2026-10-19 (three film rounds in another repo): a
+  lead SendMessage sent during a long render turn arrived after the final
+  report, and the amendment was lost. The subagent's own messages to the lead
+  arrived mid-turn, which hid the asymmetry. The skill now has the lead write
+  each amendment to `<label>.addenda.md` (one `## A<n>` entry each), have the
+  round re-read it at every phase boundary and ack each id, and stop and resume
+  the round when it cannot wait.
+- **One round definition per domain.** A `round` agent written for one repo's
+  box and lease rules carried them into every report of another repo. The
+  skill says so.
+
 ## 0.21.1 — 2026-10-13 — grok-run runs grok-4.7, and a research round's done marker is a line, not a file
 
 - **`grok-run` defaults to grok-4.7**, the default of the grok CLI (1.0.54,
