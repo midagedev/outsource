@@ -134,7 +134,7 @@ func GrokMain(args []string, stdout, stderr io.Writer) int {
 		case "--foreground":
 			o.foreground, ok = true, true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "usage: grok-run --cwd <dir> --spec <file> --log <file.ndjson> [--label L] [--done-marker M] [--git-profile strict|readonly-plus|trusted] [--resume SID] [--model M] [--reasoning-effort E] [--max-turns N] [--research] [--detach] [--foreground] [-- <grok flags...>]")
+			printGrokHelp(stdout)
 			return 0
 		case "--":
 			o.extra = append(o.extra, args[i+1:]...)

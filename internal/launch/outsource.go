@@ -218,10 +218,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprint(stdout, wiringMatrix())
 			return 0
 		case "-h", "--help":
-			// The harness and provider lists are derived, so a new arm cannot
-			// be routable and undocumented at the same time.
-			fmt.Fprintf(stdout, "usage: outsource-run --cwd <dir> --spec <file> --log <file> [--session S] [--model M|free] [--allow-free-training] [--harness %s] [--provider %s] [--config-dir D] [--label L] [--done-marker M] [--require-quota N] [--max-seconds N] [--effort low|medium|high|xhigh|max] [--allow-agent] [--no-vision-check] [--allow-no-tools] [--resume-on-reset] [--detach] [--foreground] [--list-wiring]\n",
-				strings.Join(harnessNameList(), "|"), strings.Join(providerNameList(), "|"))
+			printOutsourceHelp(stdout)
 			return 0
 		default:
 			fmt.Fprintf(stderr, "unknown flag: %s\n", args[i])
