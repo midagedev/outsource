@@ -1183,3 +1183,153 @@ func TestEntryActive(t *testing.T) {
 		t.Errorf("NOTES for an active id: %q", n)
 	}
 }
+
+// ---- free.prefer (2026-10-20) --------------------------------------------------
+
+// --provider named: the provider's own prefer entry beats the ranking, even
+// over an id with a modelTable row. FAIL-first: with the prefer block removed
+// from resolveFree the pick is vendor/b:free (the table row).
+func TestFreePreferBeatsRankingOnANamedProvider(t *testing.T) {
+	or := mustProvider(t, "openrouter")
+	swapModelTable(t, model{provider: "openrouter", id: "vendor/b:free"})
+	useCatalog(t,
+		freeEntry("openrouter", "vendor/b:free", 900000, nnr),
+		freeEntry("openrouter", "vendor/a:free", 200000, nnr),
+	)
+	cfg := cfgFrom(t, `{"free": {"prefer": ["zen/other-free", "openrouter/vendor/a:free"]}}`)
+	got, refusal := resolveFree(freeRequest{p: or, harness: "claude-code", cwd: t.TempDir(), cfg: cfg, now: time.Now()})
+	if refusal != "" || got.model != "vendor/a:free" || got.preferN != 2 {
+		t.Fatalf("picked %q #%d (refusal %q), want vendor/a:free #2", got.model, got.preferN, refusal)
+	}
+	if got.candidates[0].ID != "vendor/a:free" || len(got.candidates) != 2 {
+		t.Fatalf("the preferred id is not first among the candidates: %v", got.candidates)
+	}
+	if line := got.line(time.Now()); !strings.HasSuffix(line, "(free.prefer #2)") {
+		t.Fatalf("pick line lacks the source: %s", line)
+	}
+	if got.skipLine() != "" {
+		t.Fatalf("zen's entry is not this provider's; skip line %q", got.skipLine())
+	}
+}
+
+// A preferred id the filters dropped is skipped with its reason, never
+// picked, and the next entry or the ranking decides. FAIL-first: with
+// free.prefer ignored the pick is vendor/trainer's rival vendor/clean:free
+// with no #3 and no skip line (checked 2026-10-20).
+func TestFreePreferNeverBypassesTheFilters(t *testing.T) {
+	or := mustProvider(t, "openrouter")
+	useCatalog(t,
+		freeEntry("openrouter", "vendor/trainer:free", 900000, trains),
+		freeEntry("openrouter", "vendor/clean:free", 300000, nnr),
+		freeEntry("openrouter", "vendor/second:free", 200000, nnr),
+	)
+	pick := func(body string) freePick {
+		t.Helper()
+		got, refusal := resolveFree(freeRequest{p: or, harness: "claude-code", cwd: t.TempDir(), cfg: cfgFrom(t, body), now: time.Now()})
+		if refusal != "" {
+			t.Fatal(refusal)
+		}
+		return got
+	}
+	got := pick(`{"free": {"prefer": ["openrouter/vendor/trainer:free", "openrouter/vendor/gone:free", "openrouter/vendor/second:free"]}}`)
+	if got.model != "vendor/second:free" || got.preferN != 3 {
+		t.Fatalf("picked %q #%d, want vendor/second:free #3", got.model, got.preferN)
+	}
+	want := "outsource: free.prefer skipped #1 openrouter/vendor/trainer:free (filtered: data policy trains); #2 openrouter/vendor/gone:free (not in catalogue)"
+	if got.skipLine() != want {
+		t.Fatalf("skip line %q, want %q", got.skipLine(), want)
+	}
+	// Nothing preferred is available: the ranking, with no source on the line.
+	got = pick(`{"free": {"prefer": ["openrouter/vendor/trainer:free"]}}`)
+	if got.model != "vendor/clean:free" || got.preferN != 0 || strings.Contains(got.line(time.Now()), "free.prefer") {
+		t.Fatalf("fallback picked %q #%d line %s", got.model, got.preferN, got.line(time.Now()))
+	}
+}
+
+// No --provider: the walk crosses providers and the launch runs under the
+// winner's provider and default harness; the --detach child is told the
+// provider. FAIL-first: without the auto walk in OutsourceMain the launch
+// stays on zai and refuses ("picks from a catalogue").
+func TestFreePreferChoosesTheProvider(t *testing.T) {
+	g := newFreeRig(t)
+	t.Setenv("OUTSOURCE_PROVIDER", "")
+	useCatalog(t,
+		freeEntry("openrouter", "vendor/other:free", 262144, nnr),
+		freeEntry("zen", "y-free", 300000, nnr),
+	)
+	userConfig(t, `{"free": {"prefer": ["openrouter/vendor/x:free", "zen/y-free"]}}`)
+	child := captureDetach(t)
+	rc, errs := g.run("--detach", "--model", "free")
+	if rc != 0 {
+		t.Fatalf("rc=%d; stderr=%s", rc, errs)
+	}
+	if m, prov := argAfter(*child, "--model"), argAfter(*child, "--provider"); m != "opencode/y-free" || prov != "zen" {
+		t.Fatalf("the child runs %q on %q, want opencode/y-free on zen; argv %v", m, prov, *child)
+	}
+	mustContain(t, "the pick line", errs, "--model free → opencode/y-free (no-train-no-retain, ")
+	mustContain(t, "the source", errs, "(free.prefer #2)")
+	mustContain(t, "the skip", errs, "free.prefer skipped #1 openrouter/vendor/x:free (not in catalogue)")
+
+	// --harness claude-code does not drive zen: that entry is skipped, and
+	// openrouter's later entry wins.
+	userConfig(t, `{"free": {"prefer": ["zen/y-free", "openrouter/vendor/other:free"]}}`)
+	child = captureDetach(t)
+	rc, errs = g.run("--detach", "--model", "free", "--harness", "claude-code")
+	if rc != 0 {
+		t.Fatalf("--harness: rc=%d; stderr=%s", rc, errs)
+	}
+	if m, prov := argAfter(*child, "--model"), argAfter(*child, "--provider"); m != "vendor/other:free" || prov != "openrouter" {
+		t.Fatalf("--harness claude-code: the child runs %q on %q; argv %v", m, prov, *child)
+	}
+	mustContain(t, "the harness skip", errs, "#1 zen/y-free (harness claude-code does not drive it)")
+
+	// --provider named: only that provider's entries apply.
+	child = captureDetach(t)
+	if rc, errs = g.run("--detach", "--model", "free", "--provider", "openrouter"); rc != 0 {
+		t.Fatalf("--provider: rc=%d; stderr=%s", rc, errs)
+	}
+	if m := argAfter(*child, "--model"); m != "vendor/other:free" {
+		t.Fatalf("--provider openrouter ran %q, want vendor/other:free", m)
+	}
+}
+
+// No entry available and no --provider: the launch is what it was before
+// free.prefer — zai, which has no catalogue. FAIL-first: a walk that falls
+// back to the first catalogue provider launches instead of refusing.
+func TestFreePreferNothingAvailableChangesNothing(t *testing.T) {
+	g := newFreeRig(t)
+	t.Setenv("OUTSOURCE_PROVIDER", "")
+	useCatalog(t, freeEntry("openrouter", "vendor/other:free", 262144, nnr))
+	userConfig(t, `{}`)
+	rc0, errs0 := g.run("--detach", "--model", "free")
+	userConfig(t, `{"free": {"prefer": ["openrouter/vendor/x:free", "zen/y-free"]}}`)
+	rc1, errs1 := g.run("--detach", "--model", "free")
+	if rc0 != ExitUsage || rc1 != rc0 || errs1 != errs0 {
+		t.Fatalf("without prefer rc=%d %q; with unavailable prefer rc=%d %q", rc0, errs0, rc1, errs1)
+	}
+}
+
+// `models --pick free` previews free.prefer: the first line names the provider
+// a launch without --provider takes, and a --provider pick applies the
+// provider's entries. FAIL-first: without the preview block in modelsPick the
+// first line is missing.
+func TestModelsPickShowsFreePrefer(t *testing.T) {
+	userConfig(t, `{"free": {"prefer": ["openrouter/vendor/x:free", "zen/y-free"]}}`)
+	useCatalog(t,
+		freeEntry("openrouter", "vendor/clean:free", 262144, nnr),
+		freeEntry("zen", "y-free", 300000, nnr),
+	)
+	rc, out, errOut := runModels(t, "--pick", "free", "--cwd", t.TempDir())
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errOut)
+	}
+	lines := strings.Split(out, "\n")
+	if !strings.HasPrefix(lines[0], "launch without --provider: zen: --model free → opencode/y-free (") || !strings.HasSuffix(lines[0], "(free.prefer #2)") ||
+		lines[1] != "launch without --provider: free.prefer skipped #1 openrouter/vendor/x:free (not in catalogue)" {
+		t.Fatalf("--pick output:\n%s", out)
+	}
+	_, out, _ = runModels(t, "--pick", "free", "--provider", "zen")
+	if !strings.Contains(out, "zen: --model free → opencode/y-free (") || !strings.Contains(out, "(free.prefer #2)") {
+		t.Fatalf("--provider zen:\n%s", out)
+	}
+}

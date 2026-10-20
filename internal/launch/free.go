@@ -201,6 +201,26 @@ type freeRequest struct {
 	now           time.Time
 }
 
+// preferEntry is one parsed free.prefer entry; n is its 1-based position.
+type preferEntry struct {
+	n        int
+	provider string
+	id       string
+	label    string
+}
+
+// preferEntries is the config's free.prefer in order. The config already
+// refused a malformed entry at load, so a missing "/" cannot happen here.
+func preferEntries(cfg *config.Config) []preferEntry {
+	raw, _ := cfg.Prefer()
+	out := make([]preferEntry, 0, len(raw))
+	for i, e := range raw {
+		prov, id, _ := strings.Cut(e, "/")
+		out = append(out, preferEntry{n: i + 1, provider: prov, id: id, label: e})
+	}
+	return out
+}
+
 // freePick is what the resolver chose, and everything it counted on the way.
 type freePick struct {
 	entry      catalog.Entry
@@ -209,13 +229,65 @@ type freePick struct {
 	counts     freeCounts
 	strict     bool // only no-train-no-retain qualified
 	source     catalog.Source
+	// preferN is the 1-based position in free.prefer of the entry that chose
+	// entry, 0 when the ranking did; skips are the earlier entries that did
+	// not qualify, one reason each (preferSkip).
+	preferN int
+	skips   []preferSkip
+}
+
+// preferSkip is one free.prefer entry the pick passed over.
+type preferSkip struct {
+	n      int
+	label  string // as written in the config: <provider>/<id>
+	reason string
+}
+
+// skipLine is the second stderr line of a launch, and of `models --pick`: the
+// free.prefer entries tried before the pick that were unavailable. "" when
+// none were.
+func (f freePick) skipLine() string {
+	if len(f.skips) == 0 {
+		return ""
+	}
+	parts := make([]string, len(f.skips))
+	for i, s := range f.skips {
+		parts[i] = fmt.Sprintf("#%d %s (%s)", s.n, s.label, s.reason)
+	}
+	return "outsource: free.prefer skipped " + strings.Join(parts, "; ")
 }
 
 // line is the one stderr line a launch prints for its pick, and the first
 // line of `models --pick`.
 func (f freePick) line(now time.Time) string {
-	return fmt.Sprintf("outsource: --model free → %s (%s, %d ctx; %d candidates; catalogue %s %s)",
-		f.model, orDefault(f.entry.Policy, catalog.PolicyUnknown), f.entry.Context, len(f.candidates), f.source.From, ageCell(f.source, now))
+	via := ""
+	if f.preferN > 0 {
+		via = fmt.Sprintf(" (free.prefer #%d)", f.preferN)
+	}
+	return fmt.Sprintf("outsource: --model free → %s (%s, %d ctx; %d candidates; catalogue %s %s)%s",
+		f.model, orDefault(f.entry.Policy, catalog.PolicyUnknown), f.entry.Context, len(f.candidates), f.source.From, ageCell(f.source, now), via)
+}
+
+// dropReason is how a skipped free.prefer entry names the filter that dropped
+// it.
+func dropReason(f freeFilter) string {
+	switch f {
+	case dropNotFree:
+		return "not free"
+	case dropRouter:
+		return "a router"
+	case dropNoTools:
+		return "no tools"
+	case dropExpired:
+		return "listing expired"
+	case dropWithdrawn:
+		return "withdrawn"
+	case dropSmallContext:
+		return fmt.Sprintf("under %d ctx", minFreeContext)
+	case dropMapped:
+		return "answered by another model"
+	}
+	return "unknown"
 }
 
 // resolveFree is `--model free`: the one resolver the launcher and `outsource
@@ -255,6 +327,9 @@ func resolveFree(req freeRequest) (freePick, string) {
 		return freePick{}, "--model free cannot pick: " + src.Err.Error()
 	}
 	pick := freePick{strict: !allow, source: src}
+	// Why each listed id that did not qualify did not, for free.prefer's skip
+	// line.
+	dropped := map[string]string{}
 	for _, e := range entries {
 		if e.Provider != p.name {
 			continue
@@ -262,22 +337,118 @@ func resolveFree(req freeRequest) (freePick, string) {
 		pick.counts.listed++
 		if f := freeDrop(p, e, today); f != keepFree {
 			pick.counts.count(f)
+			dropped[e.ID] = dropReason(f)
 			continue
 		}
 		if !allow && e.Policy != catalog.PolicyNoTrainNoRetain {
 			pick.counts.policy++
+			dropped[e.ID] = "data policy " + orDefault(e.Policy, catalog.PolicyUnknown)
 			continue
 		}
 		pick.candidates = append(pick.candidates, e)
+	}
+	// free.prefer: this provider's entries in order. The first one among the
+	// candidates wins; an entry that did not pass the filters is skipped, never
+	// picked because it is preferred.
+	preferred := ""
+	for _, pe := range preferEntries(req.cfg) {
+		if pe.provider != p.name {
+			continue
+		}
+		hit := -1
+		for i, c := range pick.candidates {
+			if c.ID == pe.id {
+				hit = i
+				break
+			}
+		}
+		if hit >= 0 {
+			preferred = pick.candidates[hit].ID
+			pick.preferN = pe.n
+			break
+		}
+		reason := "not in catalogue"
+		if r, ok := dropped[pe.id]; ok {
+			reason = "filtered: " + r
+		}
+		pick.skips = append(pick.skips, preferSkip{n: pe.n, label: pe.label, reason: reason})
 	}
 	if len(pick.candidates) == 0 {
 		return pick, fmt.Sprintf("--model free: no candidate on %s — %s", p.name, pick.counts.String(pick.strict))
 	}
 	cfgDefault, _ := req.cfg.DefaultModel(p.name)
 	rankFree(p, pick.candidates, cfgDefault)
+	if preferred != "" {
+		// Moved to the front, the rest keeping their rank order.
+		for i, c := range pick.candidates {
+			if c.ID == preferred {
+				copy(pick.candidates[1:i+1], pick.candidates[:i])
+				pick.candidates[0] = c
+				break
+			}
+		}
+	}
 	pick.entry = pick.candidates[0]
 	pick.model = harnessFormID(p, req.harness, pick.entry.ID)
 	return pick, ""
+}
+
+// resolveFreeAuto is `--model free` with no provider named: free.prefer walked
+// in order across providers, the first available entry winning. Each provider
+// the list names is resolved on its own (resolveFree applies its entries); the
+// entry with the lowest position wins, and runs under that provider's default
+// harness, or under harnessFlag when it was given — a provider that harness
+// does not drive, or the config disabled, is skipped. found is false when no
+// entry is available; the caller then resolves as it always did. The skips on
+// the result are every earlier entry of any provider that was unavailable.
+func resolveFreeAuto(req freeRequest, harnessFlag string) (p provider, pick freePick, found bool) {
+	entries := preferEntries(req.cfg)
+	tried := map[string]bool{}
+	var all []preferSkip
+	for _, pe := range entries {
+		if tried[pe.provider] {
+			continue
+		}
+		tried[pe.provider] = true
+		cand, ok := findProvider(pe.provider)
+		unfit := ""
+		if !ok || !isCatalogue(cand.name) {
+			unfit = "provider has no catalogue"
+		} else if on, set := req.cfg.Enabled(cand.name); set && !on {
+			unfit = "provider disabled"
+		} else if harnessFlag != "" && pairingRefusal(harnessFlag, cand.name) != "" {
+			unfit = "harness " + harnessFlag + " does not drive it"
+		}
+		if unfit != "" {
+			for _, o := range entries {
+				if o.provider == pe.provider {
+					all = append(all, preferSkip{n: o.n, label: o.label, reason: unfit})
+				}
+			}
+			continue
+		}
+		r := req
+		r.p, r.harness = cand, defaultHarness(cand.name, harnessFlag)
+		got, refusal := resolveFree(r)
+		all = append(all, got.skips...)
+		if refusal != "" || got.preferN == 0 {
+			continue
+		}
+		if !found || got.preferN < pick.preferN {
+			p, pick, found = cand, got, true
+		}
+	}
+	if !found {
+		return provider{}, freePick{}, false
+	}
+	pick.skips = pick.skips[:0:0]
+	for _, s := range all {
+		if s.n < pick.preferN {
+			pick.skips = append(pick.skips, s)
+		}
+	}
+	sort.Slice(pick.skips, func(i, j int) bool { return pick.skips[i].n < pick.skips[j].n })
+	return p, pick, true
 }
 
 // rankFree orders the candidates, best first: the config's
@@ -567,6 +738,11 @@ func detachArgs(args []string, modelIdx int, o opts) []string {
 		} else {
 			out = append(out, "--model", o.model)
 		}
+	}
+	if o.providerPicked {
+		// The child has no free.prefer walk of its own: it runs the provider
+		// the parent's pick chose.
+		out = append(out, "--provider", o.providerName)
 	}
 	if o.selector != "" || o.catalogueContext > 0 {
 		out = append(out, catalogueHandoffFlag, handoffValue(o.selector, o.catalogueContext))

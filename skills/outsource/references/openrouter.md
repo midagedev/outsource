@@ -128,7 +128,17 @@ printed. A candidate must be:
    or the launch passes `--allow-free-training`, which also admit `trains`,
    `retains` and `unknown`.
 
-Among the candidates, your config's `providers.openrouter.defaultModel`
+Your config's `free.prefer` — a list of `"<provider>/<bare id>"`, e.g.
+`["openrouter/minimax/minimax-m3.1-flash:free", "zen/deepseek-v4.1-flash-free"]`
+— is tried first: the first entry that is among the candidates wins, and an
+entry that is absent or was filtered is skipped, never picked. With no
+`--provider` the list is walked across providers and the launch runs under the
+winner's provider and default harness (`--harness` skips a provider it does
+not drive); with none available the launch is what it was. The pick line ends
+`(free.prefer #N)` and a second line names the skipped entries. `outsource
+models --pick free` previews it.
+
+Otherwise, among the candidates, your config's `providers.openrouter.defaultModel`
 wins if it qualifies; then ids this launcher has a model row for; then the
 largest context. One stderr line names the pick, its policy and context,
 and how fresh the catalogue was:

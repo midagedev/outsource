@@ -116,6 +116,10 @@ type opts struct {
 	// selector is "free" when --model free chose o.model — the sentinel's
 	// model_selector= — and "" otherwise.
 	selector string
+	// providerGiven is true when --provider or OUTSOURCE_PROVIDER named the
+	// provider; false lets `--model free` choose it from free.prefer
+	// (providerPicked records that it did, for the --detach child's argv).
+	providerGiven, providerPicked bool
 	// catalogueContext is the catalogue's listed context for the id this round
 	// runs, 0 when there is none (free.go); compactCap is the user config's
 	// context.autoCompactWindow. Both feed contextEnv on the claude-code
@@ -140,6 +144,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		harness:      os.Getenv("OUTSOURCE_HARNESS"),
 		providerName: envOr("OUTSOURCE_PROVIDER", "zai"),
 	}
+	o.providerGiven = os.Getenv("OUTSOURCE_PROVIDER") != ""
 	// modelIdx is where the last --model value sits in args, so the --detach
 	// parent can hand its child the id --model free picked (detachArgs).
 	modelIdx := -1
@@ -169,6 +174,7 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 			o.harness, ok = need()
 		case "--provider":
 			o.providerName, ok = need()
+			o.providerGiven = true
 		case "--config-dir":
 			o.configDir, ok = need()
 		case "--label":
@@ -263,6 +269,18 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "outsource: refusing to launch — %v (`outsource config path` names the file; fix it or move it aside)\n", err)
 		telemetry.Note("why", "user config does not parse")
 		return ExitUsage
+	}
+	// --model free with no provider named: free.prefer chooses the provider
+	// too (resolveFreeAuto), before every check below reads p. The pick is kept
+	// and used at the free switch, so the skip line covers all providers. No
+	// available entry leaves p as it was.
+	var autoPick *freePick
+	if o.model == freeSelector && !o.providerGiven && o.session == "" && os.Getenv(detachedEnvKey) != "1" {
+		if ap, pick, found := resolveFreeAuto(freeRequest{harness: o.harness, cwd: o.cwd, cfg: userCfg,
+			allowTraining: o.allowFreeTraining, now: time.Now()}, o.harness); found {
+			p, autoPick = ap, &pick
+			o.providerName, o.providerPicked = ap.name, true
+		}
 	}
 	if on, set := userCfg.Enabled(p.name); set && !on {
 		fmt.Fprintln(stderr, providerDisabledRefusal("outsource", p.name, userCfg.Path))
@@ -359,8 +377,14 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "outsource: this --detach child got --model free without its parent's pick (%s); only the launching process resolves --model free — relaunch it\n", catalogueHandoffFlag)
 		return ExitUsage
 	case !detachedChild && o.model == freeSelector:
-		pick, refusal := resolveFree(freeRequest{p: p, harness: o.harness, cwd: o.cwd, cfg: userCfg,
-			allowTraining: o.allowFreeTraining, now: time.Now()})
+		var pick freePick
+		var refusal string
+		if autoPick != nil {
+			pick = *autoPick
+		} else {
+			pick, refusal = resolveFree(freeRequest{p: p, harness: o.harness, cwd: o.cwd, cfg: userCfg,
+				allowTraining: o.allowFreeTraining, now: time.Now()})
+		}
 		if refusal != "" {
 			fmt.Fprintln(stderr, refusal)
 			telemetry.Note("why", "--model free: nothing to pick")
@@ -368,6 +392,9 @@ func OutsourceMain(args []string, stdout, stderr io.Writer) int {
 		}
 		o.model, o.selector, o.catalogueContext = pick.model, freeSelector, pick.entry.Context
 		fmt.Fprintln(stderr, pick.line(time.Now()))
+		if sk := pick.skipLine(); sk != "" {
+			fmt.Fprintln(stderr, sk)
+		}
 	}
 	// A provider whose only routed model was withdrawn has no default to fall
 	// back on, and the empty string would become a malformed id inside the

@@ -46,7 +46,9 @@ ${XDG_CACHE_HOME:-~/.cache}/outsource/catalog.
   --pick free   print what a launch's --model free would run on each
                 catalogue (or only --provider P's), on that provider's
                 default harness — the launcher's own resolver, with every
-                filter's count and the candidates in rank order
+                filter's count and the candidates in rank order; the user
+                config's free.prefer entries are tried first (with no
+                --provider, a first line says which provider a launch takes)
   --cwd D       with --pick: the round's cwd, checked against the user
                 config's free.denyPaths (default: this directory)
   --allow-free-training
@@ -195,11 +197,20 @@ func modelsPick(provs []string, cwd string, allowTraining, refresh bool, stdout,
 			return ExitUsage
 		}
 	}
-	if len(provs) == 0 {
-		provs = catalog.Providers()
-	}
 	picked := false
 	now := time.Now()
+	if len(provs) == 0 {
+		// What a launch with no --provider runs: free.prefer's first available
+		// entry, if any (resolveFreeAuto). The per-catalogue picks follow.
+		if ap, got, found := resolveFreeAuto(freeRequest{cwd: cwd, cfg: cfg, allowTraining: allowTraining, refresh: refresh, now: now}, ""); found {
+			picked = true
+			fmt.Fprintf(stdout, "launch without --provider: %s: %s\n", ap.name, strings.TrimPrefix(got.line(now), "outsource: "))
+			if sk := got.skipLine(); sk != "" {
+				fmt.Fprintf(stdout, "launch without --provider: %s\n", strings.TrimPrefix(sk, "outsource: "))
+			}
+		}
+		provs = catalog.Providers()
+	}
 	for _, name := range provs {
 		p, _ := findProvider(name)
 		got, refusal := resolveFree(freeRequest{p: p, harness: defaultHarness(name, ""), cwd: cwd, cfg: cfg,
@@ -214,6 +225,9 @@ func modelsPick(provs []string, cwd string, allowTraining, refresh bool, stdout,
 			ids = append(ids, e.ID)
 		}
 		fmt.Fprintf(stdout, "%s: %s\n", name, strings.TrimPrefix(got.line(now), "outsource: "))
+		if sk := got.skipLine(); sk != "" {
+			fmt.Fprintf(stdout, "%s: %s\n", name, strings.TrimPrefix(sk, "outsource: "))
+		}
 		fmt.Fprintf(stdout, "%s: %s\n", name, got.counts.String(got.strict))
 		fmt.Fprintf(stdout, "%s: candidates in rank order: %s\n", name, strings.Join(ids, ", "))
 	}
