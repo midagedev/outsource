@@ -418,3 +418,24 @@ func TestSentinelCarriesTheHarnessError(t *testing.T) {
 		t.Fatalf("an unset reason must not render a line; got:\n%s", clean)
 	}
 }
+
+// `opencode export` piped loses its tail (measured 2026-10-20, opencode
+// 1.19.3: a 1.2 MB export read through a pipe came back as 64 KiB or
+// 128 KiB). The fake below does what the real CLI did: whole JSON into a
+// regular file, a cut prefix into a pipe.
+//
+// FAIL-first: read the export with cmd.Output() (a pipe) and the verdict is
+// "absent" from "unparseable export" instead of "ok".
+func TestAssertOpencodeIdentityReadsExportThroughAFile(t *testing.T) {
+	dir := t.TempDir()
+	full := `{"info":{"model":{"id":"minimax/minimax-m3.1-flash:free","providerID":"openrouter"}},"messages":[{"info":{"role":"assistant","modelID":"minimax/minimax-m3.1-flash:free","providerID":"openrouter"}}]}`
+	script := "#!/bin/sh\nif [ -p /dev/stdout ]; then printf '%s' '" + full[:40] + "'; else printf '%s' '" + full + "'; fi\n"
+	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	actual, src, verdict := assertOpencodeIdentity("ses_x", "openrouter", "openrouter/minimax/minimax-m3.1-flash:free", "", os.Environ())
+	if verdict != "ok" || actual != "minimax/minimax-m3.1-flash:free" {
+		t.Fatalf("actual=%q source=%q verdict=%q, want ok", actual, src, verdict)
+	}
+}

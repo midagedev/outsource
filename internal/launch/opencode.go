@@ -532,11 +532,26 @@ func bytesIndexBrace(b []byte) int {
 	return -1
 }
 
+// assertOpencodeIdentity hands `opencode export` a regular file for stdout,
+// never a pipe. Measured 2026-10-20 (opencode 1.19.3, a 1.2 MB export):
+// piped, the process exits before the pipe drains and the reader gets 64 KiB
+// or 128 KiB, cut mid-JSON — the round that did its work then failed exit 70
+// as "unparseable export"; redirected to a file, 5 of 5 reads were whole.
 func assertOpencodeIdentity(sid, qualifier, requested, wantDir string, env []string) (actual, source, verdict string) {
+	f, err := os.CreateTemp("", "outsource-opencode-export-*.json")
+	if err != nil {
+		return "", "opencode export failed", "absent"
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
 	cmd := exec.Command("opencode", "export", sid)
 	cmd.Env = env
 	cmd.Stdin = nil
-	out, err := cmd.Output()
+	cmd.Stdout = f
+	if cmd.Run() != nil {
+		return "", "opencode export failed", "absent"
+	}
+	out, err := os.ReadFile(f.Name())
 	if err != nil {
 		return "", "opencode export failed", "absent"
 	}
