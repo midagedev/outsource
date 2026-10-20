@@ -202,7 +202,9 @@ a wrong runner cwd, a wrong manifest path) each cost part of a round. The
 delegate catches them, but only after it has started. A brace set
 (`src/{a,b}.rs`) is checked per expansion. A path that only a peer round's
 branch has goes under `Absent-ok: <path>`, or in a "Do not touch:" list.
-Both are exempt from the missing check only.
+Both are exempt from the missing check only. A spec kept in a scratch dir
+outside the repo needs neither for its outputs: a missing absolute path
+under the spec's own directory is counted as one, not reported.
 
 Then invoke the backend exactly as its reference describes. **Do not launch
 either wrapper foreground under a harness-tracked background task with no
