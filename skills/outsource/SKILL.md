@@ -83,7 +83,12 @@ assertion, no quota gate. Not for spec-able delegation rounds.
 
 Selection rules:
 
-- **Default to GLM-5.3.** Route `--model glm-5.3-flash` for mechanical and
+- **The user's choice comes first.** When the user overlay
+  (`references/local-overlay.md`), the config's per-provider
+  `defaultModel`, or the user's own instructions name a default backend or
+  an order of backends, follow it; the text below is the fallback for a
+  user who named none.
+- **Absent that, default to GLM-5.3.** Route `--model glm-5.3-flash` for mechanical and
   fan-out rounds when 5.3 quota is the constraint, or when the round must
   open its own captures. Reach for grok when pixels must be generated
   (image/video) or a web tool the GLM harness lacks; agy for a separate
