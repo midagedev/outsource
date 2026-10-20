@@ -51,6 +51,10 @@ mistook itself for the lead, wrote no code, and spawned an agent of its own
 - **Never weaken an assertion to make a gate green.** Re-tuning a threshold
   needs three things together: an attribution comment, a justified
   derivation, and FAIL-first evidence that the old value actually failed.
+- **Never pipe a gate's output into `tail` or `head`.** The cut hides the
+  FAIL lines above it. Write the output to a file and grep its summary
+  (`… > /tmp/gate.out 2>&1; echo rc=$?; grep -E 'FAIL|passed' /tmp/gate.out`).
+  `outsource audit` flags the pipe as `pipe-tail`.
 - **Never invent user-facing copy.** Every string a user sees must come from
   the code or the spec; quote it with `file:line` in your report.
 
