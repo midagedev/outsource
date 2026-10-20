@@ -129,6 +129,7 @@ func cmdList(f filter, stdout io.Writer) int {
 					fmt.Fprintf(stdout, "         no output for %s — check %s before doing anything to it (socket traffic not measurable on this platform)\n",
 						human.Secs(idle), logOr("the harness log"))
 				}
+				printDescendants(stdout, r)
 			}
 		}
 	}

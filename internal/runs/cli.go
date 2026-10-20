@@ -514,6 +514,10 @@ type jsonRecord struct {
 	ElapsedSeconds          *int64 `json:"elapsedSeconds"`
 	IdleSeconds             *int64 `json:"idleSeconds"`
 	Stalled                 bool   `json:"stalled"`
+	// Present only for a running round idle past StallSeconds: the leaves
+	// under the harness child, so the panel can tell a long tool call from a
+	// hung harness. Omitted otherwise.
+	Descendants []Descendant `json:"descendants,omitempty"`
 	// The lead's voice and the stop lever, empty strings (null for the pid)
 	// when absent. leadToken is what the panel prefixes a note with; it is a
 	// credential, which is why the record holding it is 0600.
@@ -570,6 +574,9 @@ func cmdJSON(f filter, stdout io.Writer) int {
 		if idle, ok := r.Idle(now); ok {
 			v := idle
 			j.IdleSeconds = &v
+			if r.State() == Running && idle >= StallSeconds() {
+				j.Descendants, _, _ = idleDescendants(idleRoot(r))
+			}
 		}
 		j.LeadSocket, j.LeadToken, j.ChildPid = r.LeadSocket, r.LeadToken, numOrNull(r.ChildPid)
 		j.StopRequested, j.StopBy, j.StopReason = r.StopRequested, r.StopBy, r.StopReason
