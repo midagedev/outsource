@@ -20,6 +20,14 @@ at exit 64.
 
 ## The key
 
+The round sends this key alone. An `ANTHROPIC_API_KEY` in the launching
+shell is dropped from the round's environment: when it rode along, the CLI
+sent it as a second credential and OpenRouter answered 400 "your request's
+provider.only preference permits only: anthropic" for a non-Anthropic id
+(measured 2026-10-20, CLI 2.1.304, `minimax/minimax-m3.1-flash:free`). A
+`:free` id runs on the claude-code harness; that error was the inherited
+key, not the harness.
+
 The claude-code harness resolves the key through `bin/credential.sh`, which
 tries, in order:
 
