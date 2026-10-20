@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.22.1 — 2026-10-20 — the dispatcher no longer hangs on an empty cache
+
+- **A killed fetcher no longer wedges every caller.** Sessions on 0.21.1,
+  0.21.2 and 0.22.0 were alive at once, and the cache kept two versions. Each
+  build pruned another version, whose next call rebuilt it and pruned back.
+  A status-line call killed mid-build left its lock, and every
+  `bin/outsource` call then waited silently for 120 s (measured 2026-10-20).
+  The lock holder now writes its pid. A waiter breaks the lock at once when
+  that pid is gone, and says on stderr whom it waits for. The winner removes
+  the lock on INT/TERM/HUP.
+- **The cache keeps every version used in the last 7 days**, beside the
+  manifest's version and the most recent other one.
+- **The fetch is bounded.** curl has a 15 s connect timeout and a 300 s
+  ceiling; wget has a 15 s timeout and 2 tries. An unreachable host ends in
+  the named exit-69 block after 15 s. The go-build path sets
+  `GOTOOLCHAIN=local GOPROXY=off`, so it never reaches the network.
+
 ## 0.22.0 — 2026-10-20 — free rounds stop failing on the identity check and the provider error
 
 - **An opencode round no longer fails exit 70 on a long session.** The
