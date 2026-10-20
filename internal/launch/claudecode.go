@@ -144,7 +144,14 @@ func (r *round) runClaudeCode() int {
 	} else {
 		cmd.Stderr = r.stderr
 	}
-	env := append(os.Environ(),
+	// The round authenticates with ANTHROPIC_AUTH_TOKEN alone. An
+	// ANTHROPIC_API_KEY inherited from the lead's shell (a real sk-ant key)
+	// rides along as a second credential: measured 2026-10-20 (CLI 2.1.304,
+	// OpenRouter, minimax/minimax-m3.1-flash:free), with it set the request
+	// came back 400 "your request's provider.only preference permits only:
+	// anthropic" before any tool call, and with it unset the same launch ran.
+	// It is also the user's Anthropic key leaving for a third-party endpoint.
+	env := append(environWithout("ANTHROPIC_API_KEY"),
 		"ANTHROPIC_BASE_URL="+base,
 		"ANTHROPIC_AUTH_TOKEN="+key,
 		"ANTHROPIC_MODEL="+r.o.model,

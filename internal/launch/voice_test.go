@@ -301,6 +301,31 @@ func TestHarnessChildDoesNotInheritTheLeadInbox(t *testing.T) {
 	}
 }
 
+// An Anthropic key in the lead's shell must not reach the round: the CLI
+// sends it beside ANTHROPIC_AUTH_TOKEN, and OpenRouter answered that request
+// with 400 "provider.only preference permits only: anthropic" (2026-10-20).
+//
+// FAIL-first: build the child env from os.Environ() unfiltered and the dump
+// carries ANTHROPIC_API_KEY=sk-ant-lead-own-key.
+func TestHarnessChildDoesNotInheritAnthropicAPIKey(t *testing.T) {
+	g := newVoiceRig(t, fakeDump, "/tmp/x.sock")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-lead-own-key")
+	var out, errb bytes.Buffer
+	OutsourceMain(g.args("voice-apikey"), &out, &errb)
+	b, err := os.ReadFile(g.envOut)
+	if err != nil {
+		t.Fatalf("the fake never dumped its env: %v; stderr: %s", err, errb.String())
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, "ANTHROPIC_API_KEY=") {
+			t.Fatalf("the harness child inherited the lead's Anthropic key: %s", l)
+		}
+	}
+	if !strings.Contains(string(b), "ANTHROPIC_AUTH_TOKEN=test-key-not-a-real-credential") {
+		t.Fatalf("the round's own token went missing from the child env")
+	}
+}
+
 // The token lives in the registry record (owner-only) and in `runs json`,
 // where the panel reads it — and never in the sentinel, which is 0644 and
 // outlives the record.
