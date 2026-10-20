@@ -54,7 +54,8 @@ const usageLine = "usage: spec-lint [--root <dir>] [--quiet] <spec.md> [<spec.md
 // marker nobody can find from the tool is the 2026-08-27 failure again: the
 // exemption existed, and the spec paid ten findings for not knowing it.
 const helpMarkers = "  markers: `Create: <path>` (new: must not exist yet) · `Absent-ok: <path>` (may be absent here: " +
-	"a peer's new file) · a line saying do not touch / off-limits / read-only for you / not yours fences its paths, " +
+	"a peer's new file) · a missing path inside the spec's own directory, when that directory is outside " +
+	"--root and its repo, is taken as an output the round writes · a line saying do not touch / off-limits / read-only for you / not yours fences its paths, " +
 	"and the list under it when it ends in `:`, as absent-ok · `{a,b}` sets expand"
 
 func usage(w io.Writer) {
@@ -137,6 +138,7 @@ parse:
 		total.missing += s.missing
 		total.already += s.already
 		total.absentOK += s.absentOK
+		total.scratch += s.scratch
 		total.unchecked += s.unchecked
 	}
 	// Counts are strings because telemetry.Note is a map[string]string — the
@@ -146,6 +148,7 @@ parse:
 	telemetry.Note("missing", strconv.Itoa(total.missing))
 	telemetry.Note("already-exists", strconv.Itoa(total.already))
 	telemetry.Note("absent-ok", strconv.Itoa(total.absentOK))
+	telemetry.Note("scratch-output", strconv.Itoa(total.scratch))
 	telemetry.Note("unchecked", strconv.Itoa(total.unchecked))
 	// The to-be-created exemption only fires for paths the spec declares in
 	// the marker language creationLines knows ("Create: <path>", a
@@ -170,7 +173,8 @@ parse:
 		fmt.Fprintln(stdout, "spec-lint: hint — if any are files that may be ABSENT here (a peer round's new files "+
 			"you fence off), declare them `Absent-ok: <path>` (or `Absent-ok:` opening a list); a line saying "+
 			"do not touch / off-limits / read-only for you / not yours does it for its own paths, and for the "+
-			"list under it when it ends in `:`, up to a blank line or heading.")
+			"list under it when it ends in `:`, up to a blank line or heading. A spec kept outside --root and its repo "+
+			"(a scratch dir) needs neither for outputs: a missing path under the spec's own directory is taken as one.")
 	}
 	if total.findings > 0 {
 		return ExitFindings
@@ -183,10 +187,65 @@ parse:
 // suppression; missing vs already-exists split the findings that those two
 // checks produce (line-out-of-range is a finding in neither bucket).
 // absentOK counts the missing findings an Absent-ok declaration or a fence
-// suppressed, and unchecked the brace sets too large to expand (findings).
+// suppressed, scratch the missing ones taken as outputs in a scratch spec
+// dir, and unchecked the brace sets too large to expand (findings).
 type lintStats struct {
 	findings, exempt, missing, already int
-	absentOK, unchecked                int
+	absentOK, unchecked, scratch       int
+}
+
+// realPath resolves symlinks of the longest existing prefix of p and appends
+// the rest, so a path that does not exist yet still compares across the
+// macOS /tmp -> /private/tmp alias.
+func realPath(p string) string {
+	rest := ""
+	for d := p; ; d = filepath.Dir(d) {
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			return filepath.Join(r, rest)
+		}
+		if filepath.Dir(d) == d {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(d), rest)
+	}
+}
+
+// under reports whether p is dir or lies below it.
+func under(p, dir string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// scratchDir returns the spec's own directory (symlinks resolved) when it is
+// a scratch dir, that is outside --root and root's git toplevel, else "". A
+// spec kept in the repo keeps full strictness: a typo there must be caught.
+func scratchDir(spec, root string) string {
+	dir := realPath(parentDir(spec))
+	for _, r := range []string{root, toplevel(root)} {
+		if r != "" && under(dir, realPath(pyAbs(r))) {
+			return ""
+		}
+	}
+	return dir
+}
+
+// scratchOutput reports whether a missing resolved path is taken as an
+// output: below the scratch spec dir and not below --root or its toplevel
+// (a spec dir that merely contains the repo must not exempt repo typos).
+func scratchOutput(resolved, scratch, root string) bool {
+	if scratch == "" {
+		return false
+	}
+	p := realPath(resolved)
+	if !under(p, scratch) {
+		return false
+	}
+	for _, r := range []string{root, toplevel(root)} {
+		if r != "" && under(p, realPath(pyAbs(r))) {
+			return false
+		}
+	}
+	return true
 }
 
 // lintSpec lints one spec and prints its findings and its ok line. The
@@ -250,6 +309,12 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 		}
 	}
 
+	// Measured 2026-10-20 (mwoyeo): a spec at /tmp/rr-generic/spec.md naming
+	// its outputs (/tmp/rr-generic/h2-before.txt) drew a missing finding per
+	// output. In a scratch dir the spec's own directory is where the round
+	// writes; counted below, not silent.
+	scratch := scratchDir(spec, root)
+
 	var st lintStats
 	seen := map[lineTok]bool{}
 	for _, r := range refs {
@@ -289,6 +354,12 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 				st.absentOK++
 				continue
 			}
+			if strings.HasPrefix(r.path, "/") && scratchOutput(resolved, scratch, root) {
+				// Absolute only: a relative claim is repo-relative, and a
+				// ../ that lands beside the spec is a wrong premise.
+				st.scratch++
+				continue
+			}
 			fmt.Fprintf(stdout, "%s:%d: missing: %s (resolved: %s%s)\n",
 				spec, r.lineno, r.tok, resolved, r.via())
 			st.findings++
@@ -313,6 +384,9 @@ func lintSpec(spec, root string, quiet bool, stdout io.Writer) (lintStats, error
 		}
 		if st.absentOK > 0 {
 			note += fmt.Sprintf(" (%d absent-ok)", st.absentOK)
+		}
+		if st.scratch > 0 {
+			note += fmt.Sprintf(" (%d in the spec's scratch dir taken as outputs)", st.scratch)
 		}
 		fmt.Fprintf(stdout, "%s: ok%s\n", spec, note)
 	}

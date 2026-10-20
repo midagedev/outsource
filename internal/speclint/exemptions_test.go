@@ -383,3 +383,91 @@ func lineWith(out string, subs ...string) bool {
 	}
 	return false
 }
+
+// Scratch-dir exemption (2026-10-20, mwoyeo): a spec at /tmp/rr-generic/
+// naming the outputs its round writes beside it drew a missing finding per
+// output. A spec kept in the repo must keep its strictness, so each
+// exemption below sits beside the case that must still be reported.
+func TestScratchDirOutputs(t *testing.T) {
+	// scratchCase is a spec in its own temp dir, with a separate root.
+	scratchCase := func(t *testing.T) (specDir, root string) {
+		t.Helper()
+		specDir = t.TempDir()
+		root = filepath.Join(t.TempDir(), "root")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return specDir, root
+	}
+	lint := func(t *testing.T, specDir, root, body string) (string, int) {
+		t.Helper()
+		spec := filepath.Join(specDir, "spec.md")
+		if err := os.WriteFile(spec, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		code := Main([]string{"--root", root, spec}, &out, &out)
+		return out.String(), code
+	}
+
+	// FAIL-first: drop the scratchOutput check in lintSpec and these two
+	// report missing.
+	t.Run("output in the spec dir", func(t *testing.T) {
+		specDir, root := scratchCase(t)
+		out, code := lint(t, specDir, root, "Write `"+filepath.Join(specDir, "out.txt")+"`.\n")
+		if code != ExitClean || !strings.Contains(out, "(1 in the spec's scratch dir taken as outputs)") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+	t.Run("output below the spec dir", func(t *testing.T) {
+		specDir, root := scratchCase(t)
+		out, code := lint(t, specDir, root, "Write `"+filepath.Join(specDir, "sub", "out.txt")+"`.\n")
+		if code != ExitClean || strings.Contains(out, "missing") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+	// FAIL-first: make scratchDir ignore root and this spec is exempted.
+	t.Run("spec inside the root keeps strictness", func(t *testing.T) {
+		_, root := scratchCase(t)
+		if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out, code := lint(t, root, root, "Read `"+filepath.Join(root, "missing.txt")+"`.\n")
+		if code != ExitFindings || !strings.Contains(out, "missing:") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+	// FAIL-first: drop the under(p, scratch) test and this path is exempted.
+	t.Run("path outside the spec dir is still missing", func(t *testing.T) {
+		specDir, root := scratchCase(t)
+		out, code := lint(t, specDir, root, "Read `/elsewhere/missing.txt`.\n")
+		if code != ExitFindings || !strings.Contains(out, "missing:") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+	// A spec dir that contains the repo must not exempt typos inside it.
+	t.Run("root below the spec dir is still checked", func(t *testing.T) {
+		specDir := t.TempDir()
+		root := filepath.Join(specDir, "root")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out, code := lint(t, specDir, root, "Read `"+filepath.Join(root, "typo.go")+"`.\n")
+		if code != ExitFindings || !strings.Contains(out, "missing:") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+	// FAIL-first: compare without realPath and the symlinked dir is not
+	// recognised as the spec's own.
+	t.Run("symlinked spec dir", func(t *testing.T) {
+		real, root := scratchCase(t)
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(real, link); err != nil {
+			t.Fatal(err)
+		}
+		out, code := lint(t, link, root, "Write `"+filepath.Join(real, "out.txt")+"`.\n")
+		if code != ExitClean || !strings.Contains(out, "scratch dir") {
+			t.Fatalf("code=%d out=%q", code, out)
+		}
+	})
+}
