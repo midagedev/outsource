@@ -19,7 +19,8 @@
 //	  },
 //	  "free": {
 //	    "allowTraining": false,
-//	    "denyPaths": ["~/work/**"]
+//	    "denyPaths": ["~/work/**"],
+//	    "prefer": ["openrouter/minimax/minimax-m3.1-flash:free", "zen/deepseek-v4.1-flash-free"]
 //	  },
 //	  "context": {
 //	    "autoCompactWindow": 600000
@@ -41,6 +42,10 @@
 //     the catalogue lists as free, and any named id on a catalogue provider
 //     while the catalogue cannot answer (it cannot tell whether that id is
 //     free).
+//   - free.prefer (an array of "<provider>/<bare id>" strings, in order) — the
+//     ids `--model free` tries first; the provider is the text before the first
+//     `/`, and an entry that is not in the catalogue or fails the filters is
+//     skipped, never picked.
 //   - context.autoCompactWindow — a positive whole number of tokens, absent =
 //     DefaultAutoCompactWindow. The launcher sets the claude-code harness's
 //     CLAUDE_CODE_AUTO_COMPACT_WINDOW to it when it is below the round's
@@ -117,7 +122,7 @@ func ResolvePath() (path, source string) {
 // The known fields, in the order a write lays them out.
 var (
 	providerFields = []string{"defaultModel", "enabled"}
-	freeFields     = []string{"allowTraining", "denyPaths"}
+	freeFields     = []string{"allowTraining", "denyPaths", "prefer"}
 	contextFields  = []string{"autoCompactWindow"}
 )
 
@@ -262,6 +267,10 @@ func checkField(field string, raw json.RawMessage) string {
 		if _, msg := denyPathsValue(raw); msg != "" {
 			return msg
 		}
+	case "prefer":
+		if _, msg := preferValue(raw); msg != "" {
+			return msg
+		}
 	case "autoCompactWindow":
 		if _, ok := positiveInt(raw); !ok {
 			return "a positive whole number of tokens, e.g. 600000"
@@ -330,6 +339,42 @@ func denyPathsValue(raw json.RawMessage) ([]string, string) {
 		}
 	}
 	return v, ""
+}
+
+// preferValue reads free.prefer: an array of "<provider>/<bare id>" strings.
+// The provider is the text before the first `/` and must be one the launcher
+// routes (when the table is injected); the id after it must be non-empty. A
+// null array or element is refused for the same reason as in denyPathsValue.
+func preferValue(raw json.RawMessage) ([]string, string) {
+	const want = "an array of \"<provider>/<bare id>\" strings, e.g. [\"zen/deepseek-v4.1-flash-free\"]"
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || t[0] != '[' {
+		return nil, want
+	}
+	var v []string
+	if err := json.Unmarshal(t, &v); err != nil {
+		return nil, want
+	}
+	for _, e := range v {
+		prov, id, ok := strings.Cut(e, "/")
+		if !ok || prov == "" || id == "" {
+			return nil, fmt.Sprintf("%s (%q has no provider or no id)", want, e)
+		}
+		if KnownProviders != nil && !contains(KnownProviders(), prov) {
+			return nil, fmt.Sprintf("%s (%q names unknown provider %q; known: %s)", want, e, prov, strings.Join(KnownProviders(), " "))
+		}
+	}
+	return v, ""
+}
+
+// Prefer answers free.prefer, the entries as written, in order.
+func (c *Config) Prefer() (entries []string, present bool) {
+	raw, ok := c.free["prefer"]
+	if !ok {
+		return nil, false
+	}
+	v, _ := preferValue(raw)
+	return v, true
 }
 
 // Enabled answers providers.<name>.enabled. Absent means enabled: present is

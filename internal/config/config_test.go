@@ -384,6 +384,9 @@ func TestSetRefusals(t *testing.T) {
 		{[]string{"set", "free.denyPaths", `{"a": 1}`}, "free.denyPaths takes an array of glob strings"},
 		{[]string{"set", "free.denyPaths", `["~/ok", ""]`}, "empty or null entry"},
 		{[]string{"set", "free.denyPaths", `["a["]`}, "not a well-formed glob"},
+		{[]string{"set", "free.prefer", "zen/x"}, "free.prefer takes an array of"},
+		{[]string{"set", "free.prefer", `["nope/x"]`}, "unknown provider \"nope\""},
+		{[]string{"set", "free.prefer", `["zen/"]`}, "no provider or no id"},
 		{[]string{"set", "providers.nope.enabled", "false"}, "unknown provider \"nope\" in providers.nope.enabled — known providers: zai openrouter zen muse"},
 		{[]string{"set", "providers.zai.color", "red"}, "unknown key \"providers.zai.color\" — valid keys: " + keyShapes},
 		{[]string{"set", "zai.enabled", "false"}, "unknown key"},
@@ -470,12 +473,13 @@ func TestGetListUnset(t *testing.T) {
 	// unset ones as (unset) / null. FAIL-first: dropping contextFields from
 	// allKeys makes this listing lack the line and the count read 10.
 	out, _ := mustRC(t, ExitOK, "list")
+	// 2026-10-20: free.prefer joined freeFields, so the listing gains its line.
 	wantList := "# " + path + "\n" +
 		"providers.zai.defaultModel = (unset)\nproviders.zai.enabled = (unset)\n" +
 		"providers.openrouter.defaultModel = (unset)\nproviders.openrouter.enabled = (unset)\n" +
 		"providers.zen.defaultModel = (unset)\nproviders.zen.enabled = (unset)\n" +
 		"providers.muse.defaultModel = (unset)\nproviders.muse.enabled = false\n" +
-		"free.allowTraining = (unset)\n" + `free.denyPaths = ["~/work/**","/srv/<&>"]` + "\n" +
+		"free.allowTraining = (unset)\n" + `free.denyPaths = ["~/work/**","/srv/<&>"]` + "\n" + "free.prefer = (unset)\n" +
 		"context.autoCompactWindow = (unset)\n"
 	if out != wantList {
 		t.Fatalf("list:\n%s\nwant:\n%s", out, wantList)
@@ -490,7 +494,8 @@ func TestGetListUnset(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("list --json is not JSON: %v\n%s", err, out)
 	}
-	if doc.Path != path || len(doc.Values) != 11 || doc.Values["providers.muse.enabled"] != false {
+	// 2026-10-20: 12 keys, free.prefer added to the 11.
+	if doc.Path != path || len(doc.Values) != 12 || doc.Values["providers.muse.enabled"] != false {
 		t.Fatalf("list --json: %+v", doc)
 	}
 	if v, ok := doc.Values["providers.zai.enabled"]; !ok || v != nil {
@@ -626,4 +631,33 @@ func TestAutoCompactWindow(t *testing.T) {
 	// context.* needs no provider table, like free.*.
 	KnownProviders, QualifierFor = nil, nil
 	mustRC(t, ExitOK, "set", "context.autoCompactWindow", "200000")
+}
+
+// free.prefer: "<provider>/<id>" strings, the provider known. FAIL-first:
+// without the prefer case in checkField the bad values load clean.
+func TestFreePrefer(t *testing.T) {
+	oldNames := KnownProviders
+	t.Cleanup(func() { KnownProviders = oldNames })
+	KnownProviders = func() []string { return []string{"zai", "openrouter", "zen"} }
+	dir := t.TempDir()
+	load := func(body string) (*Config, error) {
+		p := filepath.Join(dir, "c.json")
+		os.WriteFile(p, []byte(body), 0o644)
+		return loadFile(p)
+	}
+	c, err := load(`{"free": {"prefer": ["openrouter/minimax/minimax-m3.1-flash:free", "zen/deepseek-v4.1-flash-free"]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := c.Prefer(); !ok || len(v) != 2 || v[0] != "openrouter/minimax/minimax-m3.1-flash:free" {
+		t.Fatalf("Prefer() = %v, %v", v, ok)
+	}
+	if u := c.UnknownKeys(KnownProviders()); len(u) != 0 {
+		t.Fatalf("free.prefer flagged unknown: %v", u)
+	}
+	for _, bad := range []string{`"zen/x"`, `null`, `[null]`, `[""]`, `["zen"]`, `["zen/"]`, `["/x"]`, `["nope/x"]`} {
+		if _, err := load(`{"free": {"prefer": ` + bad + `}}`); err == nil || !strings.Contains(err.Error(), "free.prefer must be") {
+			t.Errorf("prefer %s: err = %v", bad, err)
+		}
+	}
 }

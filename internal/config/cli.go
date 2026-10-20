@@ -38,7 +38,7 @@ func (k key) String() string {
 }
 
 // keyShapes is what every bad-key refusal prints.
-const keyShapes = "providers.<provider>.defaultModel | providers.<provider>.enabled | free.allowTraining | free.denyPaths | context.autoCompactWindow"
+const keyShapes = "providers.<provider>.defaultModel | providers.<provider>.enabled | free.allowTraining | free.denyPaths | free.prefer | context.autoCompactWindow"
 
 // parseKey accepts the five key shapes of the format. Whether a provider name
 // is one the launcher routes is a separate question (knownProvider), because
@@ -63,7 +63,8 @@ var usage = fmt.Sprintf(`usage: outsource config <command>
   list [--json]           every known key with its value, then unknown keys (kept)
   get <key> [--json]      one key's value, or (unset)
   set <key> <value>       enabled / allowTraining: true|false; denyPaths: a JSON
-                          array of globs; defaultModel: one bare model id;
+                          array of globs; prefer: a JSON
+                          array of "<provider>/<id>"; defaultModel: one bare model id;
                           autoCompactWindow: a positive whole number of tokens
                           (unset: %d)
   unset <key>             remove a key
@@ -206,6 +207,10 @@ func (c *Config) value(k key) any {
 		if v, ok := c.DenyPaths(); ok {
 			return v
 		}
+	case "prefer":
+		if v, ok := c.Prefer(); ok {
+			return v
+		}
 	case "autoCompactWindow":
 		if v, ok := c.AutoCompactWindow(); ok {
 			return v
@@ -309,6 +314,12 @@ func parseValue(k key, s string) (json.RawMessage, string) {
 		raw = json.RawMessage(s)
 	case "denyPaths":
 		v, msg := denyPathsValue(json.RawMessage(s))
+		if msg != "" {
+			return nil, fmt.Sprintf("%s takes %s, got: %s", k, msg, s)
+		}
+		raw = encode(v)
+	case "prefer":
+		v, msg := preferValue(json.RawMessage(s))
 		if msg != "" {
 			return nil, fmt.Sprintf("%s takes %s, got: %s", k, msg, s)
 		}
