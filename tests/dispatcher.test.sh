@@ -357,7 +357,9 @@ run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
 XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
 if [ "$RC" -eq 0 ] && grep -q "^SKILL=$FX/skills/outsource$" "$TMP/out"; then ok
 else bad "the download path did not verify-and-exec: rc=$RC $(cat "$TMP/out") $(cat "$TMP/err")"; fi
-if grep -q -- "-fsSL -o .* https://github.com/midagedev/outsource/releases/download/v$VER/outsource-darwin-arm64\$" "$CURLLOG"; then ok
+# Re-pinned 2026-10-20: the fetch is bounded (a host the process cannot reach
+# hung the dispatcher with no output), so the bounds are part of the shape.
+if grep -q -- "-fsSL --connect-timeout 15 --max-time 300 -o .* https://github.com/midagedev/outsource/releases/download/v$VER/outsource-darwin-arm64\$" "$CURLLOG"; then ok
 else bad "the download URL is not the default release URL: $(cat "$CURLLOG")"; fi
 if [ -x "$CACHE/outsource/$VER/outsource-darwin-arm64" ]; then ok
 else bad "the verified download did not land executable in the cache"; fi
@@ -379,7 +381,7 @@ WGETBIN="$TMP/wgetbin"; mkdir -p "$WGETBIN"; ln -s "$STOOLS/wget" "$WGETBIN/wget
 : >"$WGETLOG"
 run "PATH=$TOOLBOX:$STUB:$WGETBIN WGET_LOG=$WGETLOG WGET_ASSET=$ASSET \
 XDG_CACHE_HOME=$TMP/cache.d3 STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
-if [ "$RC" -eq 0 ] && grep -q -- "wget .*-qO .* https://github.com/midagedev/outsource/releases/download/v$VER/outsource-darwin-arm64\$" "$WGETLOG"; then ok
+if [ "$RC" -eq 0 ] && grep -q -- "wget -q --timeout=15 --tries=2 -O .* https://github.com/midagedev/outsource/releases/download/v$VER/outsource-darwin-arm64\$" "$WGETLOG"; then ok
 else bad "the wget path failed: rc=$RC $(cat "$WGETLOG") $(cat "$TMP/err")"; fi
 # curl failing is named in the everything-failed block, and leaves no files
 run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET FAIL_CURL=1 \
@@ -466,6 +468,28 @@ run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
 XDG_CACHE_HOME=$TMP STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
 if [ "$RC" -eq 0 ] && [ "$(grep -c . "$CURLLOG")" -eq 1 ] && [ ! -d "$lockdir" ]; then ok
 else bad "a stale lock was not broken: rc=$RC curl=$(cat "$CURLLOG") lock=$([ -d "$lockdir" ] && echo present || echo gone)"; fi
+# a lock whose holder pid is gone (a fetcher killed mid-build, 2026-10-20) is
+# broken at once, not after 5 minutes or a silent 120 s wait.
+# FAIL-first: without the kill -0 check this run waits out the 120 s.
+rm -rf "$TMP/cache.l2"; CACHE="$TMP/cache.l2"; mkdir -p "$CACHE/outsource/$VER"; lockdir="$CACHE/outsource/.fetch-lock"
+mkdir "$lockdir"; sh -c 'echo $$ >"$1"' _ "$lockdir/pid"
+: >"$CURLLOG"
+t0=$(date +%s)
+run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
+XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
+t1=$(date +%s)
+if [ "$RC" -eq 0 ] && [ $((t1 - t0)) -lt 10 ] && [ ! -d "$lockdir" ]; then ok
+else bad "a dead holder's lock was not broken at once: rc=$RC took=$((t1 - t0))s lock=$([ -d "$lockdir" ] && echo present || echo gone)"; fi
+# a live holder is waited for, and the waiter says whom it waits for
+# FAIL-first: without the told line stderr is empty while it waits.
+rm -rf "$TMP/cache.l3"; CACHE="$TMP/cache.l3"; mkdir -p "$CACHE/outsource/$VER"; lockdir="$CACHE/outsource/.fetch-lock"
+mkdir "$lockdir"; sleep 3 & holder=$!; echo "$holder" >"$lockdir/pid"
+( sleep 2; envfake "$CACHE/outsource/$VER/outsource-darwin-arm64"; rm -rf "$lockdir" ) &
+run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
+XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
+wait
+if [ "$RC" -eq 0 ] && grep -q "waiting for pid $holder" "$TMP/err"; then ok
+else bad "a waiter did not name its holder: rc=$RC err=$(cat "$TMP/err")"; fi
 
 # ══ pruning: current + most recent other, nothing older ════════════════════
 CACHE="$TMP/cache.p"; mkdir -p "$CACHE/outsource"
@@ -492,6 +516,20 @@ run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
 XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
 if [ -d "$CACHE/outsource/$VER" ] && [ -d "$CACHE/outsource/9.8.0" ] && [ ! -d "$CACHE/outsource/9.7.0" ]; then ok
 else bad "prune picked the wrong survivors: $(ls "$CACHE")"; fi
+# a version fetched or built in the last 7 days survives a prune: sessions
+# started before an update keep calling it, and deleting it made each version
+# rebuild and prune the other in turn (2026-10-20).
+# FAIL-first: without the -mtime +7 check 9.7.0 is deleted here.
+rm -rf "$CACHE"; mkdir -p "$CACHE/outsource/$VER" "$CACHE/outsource/9.8.0" "$CACHE/outsource/9.7.0"
+envfake "$CACHE/outsource/9.8.0/outsource-darwin-arm64"
+envfake "$CACHE/outsource/9.7.0/outsource-darwin-arm64"
+# 9.8.0 the most recent other (kept by the old rule), 9.7.0 two days old.
+touch -t "$(date -v-2d +%Y%m%d%H%M 2>/dev/null || date -d '2 days ago' +%Y%m%d%H%M)" "$CACHE/outsource/9.7.0"; touch "$CACHE/outsource/9.8.0"
+: >"$CURLLOG"
+run "PATH=$TOOLBOX:$STUB:$STOOLS CURL_LOG=$CURLLOG CURL_ASSET=$ASSET \
+XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"
+if [ -d "$CACHE/outsource/9.8.0" ] && [ -d "$CACHE/outsource/9.7.0" ]; then ok
+else bad "prune deleted a version used this week: $(ls "$CACHE/outsource")"; fi
 # a cache hit does not write to the cache (no prune on the hot path)
 before="$(ls "$CACHE")"
 run "PATH=$TOOLBOX:$STUB XDG_CACHE_HOME=$CACHE STUB_S=Darwin STUB_M=arm64" "$BIN/outsource"

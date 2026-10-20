@@ -37,12 +37,19 @@
 # Concurrency: the panel polls every 5 s, the status line and hooks fire on
 # their own, so several processes can hit an empty cache at once. The fetch
 # (c/d) runs under a mkdir lock in the cache dir; losers wait (bounded) and
-# re-check (b), so a download happens once. A lock left behind by a killed
-# fetcher is stale after 5 minutes and the next taker removes it. The cache
-# is pruned to the manifest's version plus the most recently used older one —
-# a round launched before an update runs its hook from the old version's
-# path (the launcher writes os.Executable() into the hook command), which is
-# why the previous version is never deleted.
+# re-check (b), so a download happens once. The winner writes its pid into
+# the lock; a waiter breaks the lock at once when that pid is gone (a killed
+# fetcher), and a lock with no pid file (an older dispatcher's) after 5
+# minutes. A waiter says once on stderr whom it waits for. The cache keeps the
+# manifest's version, the most recently used older one, and every version
+# fetched or built in the last 7 days — a round launched before an update
+# runs its hook from the old version's path (the launcher writes
+# os.Executable() into the hook command), and sessions started before an
+# update keep calling their own version. Measured 2026-10-20: with 0.21.1,
+# 0.21.2 and 0.22.0 sessions alive and only two versions kept, each build
+# pruned another version, whose next call rebuilt it and pruned back, and a
+# winner killed mid-build left its lock for every caller to wait out
+# silently for 120 s.
 #
 # POSIX sh on purpose: Alpine's busybox sh has no bash. No `readlink -f`
 # either: stock macOS lacked it until 12.3. tests/dispatcher.test.sh pins
@@ -183,19 +190,32 @@ fi
 lock=$cache_base/.fetch-lock
 locked=0
 waited=0
+told=0
 while [ "$locked" -eq 0 ]; do
   if mkdir "$lock" 2>/dev/null; then
     locked=1
+    echo $$ >"$lock/pid"
     break
   fi
   # The winner may have finished between the (b) check and this attempt.
   if [ -n "$cached" ] && [ -f "$cached" ] && [ -x "$cached" ]; then
     break
   fi
-  # Every 5th poll, break a lock a killed fetcher left behind (>5 min old).
+  # A holder that wrote its pid and is gone was killed mid-fetch: take over
+  # now. A lock with no pid file is an older dispatcher's: every 5th poll,
+  # break it once it is over 5 minutes old.
+  holder=$(cat "$lock/pid" 2>/dev/null)
+  if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+    rm -rf "$lock"
+    continue
+  fi
   if [ $((waited % 5)) -eq 0 ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +5 2>/dev/null)" ]; then
     rm -rf "$lock"
     continue
+  fi
+  if [ "$told" -eq 0 ]; then
+    printf '%s\n' "outsource: waiting for ${holder:+pid $holder, }another process building or fetching $name into $verdir (up to 120 s)" >&2
+    told=1
   fi
   if [ "$waited" -ge 120 ]; then
     break
@@ -215,10 +235,13 @@ if [ "$locked" -eq 0 ]; then
   fail_69
 fi
 
-# Won the lock. Re-check (b): a previous winner may have landed it while this
+# Won the lock. A signal now must not leave it behind for every waiter.
+trap 'rm -rf "$lock" "$verdir/.tmp.$name.$$"; exit 130' INT TERM HUP
+
+# Re-check (b): a previous winner may have landed it while this
 # process was competing for the lock.
 if [ -n "$cached" ] && [ -f "$cached" ] && [ -x "$cached" ]; then
-  rmdir "$lock" 2>/dev/null
+  rm -rf "$lock"
   export_skill_dir
   exec "$cached" "$@"
 fi
@@ -241,6 +264,7 @@ prune_cache() {
     case $v in *[!0-9.]* | "" | .*) continue ;; esac
     [ "$v" = "$version" ] && continue
     [ "$keep2" = "$d" ] && continue
+    [ -z "$(find "${d%/}" -maxdepth 0 -mtime +7 2>/dev/null)" ] && continue
     rm -rf "$d"
   done
 }
@@ -254,11 +278,11 @@ if command -v go >/dev/null 2>&1 && [ -d "$src" ]; then
   tmp=$verdir/.tmp.$name.$$
   srcroot=$(cd "$dir/../../.." 2>/dev/null && pwd)
   if [ -n "$srcroot" ] &&
-     (cd "$srcroot" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
+     (cd "$srcroot" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOTOOLCHAIN=local GOPROXY=off \
         go build -trimpath -buildvcs=false -ldflags='-s -w' -o "$tmp" ./cmd/outsource); then
     chmod 755 "$tmp"
     mv -f "$tmp" "$cached"
-    rmdir "$lock" 2>/dev/null
+    rm -rf "$lock"
     prune_cache
     export_skill_dir
     exec "$cached" "$@"
@@ -275,7 +299,7 @@ fi
 #    An os/arch with no manifest line never reaches a download: there would be
 #    nothing to verify the bytes against, and unverified bytes never run.
 if [ -z "$want" ]; then
-  rmdir "$lock" 2>/dev/null
+  rm -rf "$lock"
   printf '%s\n' "outsource: no binary for ${os:-unknown}/${arch:-unknown} at $bin (shipped: darwin-arm64 darwin-amd64 linux-amd64 linux-arm64) and no release asset to fetch for it; build one for this machine with ./build.sh in a checkout of the repo (needs Go)" >&2
   exit 69
 fi
@@ -293,10 +317,10 @@ else
   tmp=$verdir/.tmp.$name.$$
   rm -f "$tmp"
   if [ "$fetcher" = curl ]; then
-    curl -fsSL -o "$tmp" "$url"
+    curl -fsSL --connect-timeout 15 --max-time 300 -o "$tmp" "$url"
     rc=$?
   else
-    wget -qO "$tmp" "$url"
+    wget -q --timeout=15 --tries=2 -O "$tmp" "$url"
     rc=$?
   fi
   if [ "$rc" -ne 0 ] || [ ! -s "$tmp" ]; then
@@ -308,13 +332,13 @@ else
     if [ "$sum_hex" = "$want" ]; then
       chmod 755 "$tmp"
       mv -f "$tmp" "$cached"
-      rmdir "$lock" 2>/dev/null
+      rm -rf "$lock"
       prune_cache
       export_skill_dir
       exec "$cached" "$@"
     fi
     rm -f "$tmp"
-    rmdir "$lock" 2>/dev/null
+    rm -rf "$lock"
     printf '%s\n' \
 "outsource: refusing to run $name from $url:" \
 "  manifest sha256: $want" \
@@ -324,5 +348,5 @@ else
   fi
 fi
 
-rmdir "$lock" 2>/dev/null
+rm -rf "$lock"
 fail_69
