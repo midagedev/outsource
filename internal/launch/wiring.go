@@ -878,7 +878,7 @@ func defaultHarness(providerName, harnessName string) string {
 // (provider, harness) pair rather than to either alone. It returns the model
 // to run and, when it changed it, the one stderr line that says so.
 //
-// The only rewrite: openrouter on claude-code. The 0.20.0 docs taught
+// The first rewrite: openrouter on claude-code. The 0.20.0 docs taught
 // `--provider openrouter --model openrouter/<vendor>/<id>` with no --harness,
 // which was the opencode harness's form; since openrouter defaults to
 // claude-code that command lands there, and ANTHROPIC_MODEL=openrouter/z-ai/…
@@ -889,7 +889,19 @@ func defaultHarness(providerName, harnessName string) string {
 // written; on opencode the qualified form is the required one and stays too.
 // Called right after the harness is resolved, so the registry, the sentinel
 // and the identity assertion all see the normalized id.
+//
+// The second rewrite: zen on opencode, its only harness. A Zen id has no
+// slash of its own (deepseek-v4.1-flash-free), so a bare one cannot be
+// anything but <qualifier>/<id> written short, and refusing it (exit 64, field
+// report 2026-10-20) only made the caller retype the prefix. OpenRouter's
+// bare form on opencode stays refused: openrouter/auto is both a real id and
+// a qualified one, so there the launcher cannot tell which was meant.
 func normalizeModel(p provider, harnessName, model string) (string, string) {
+	if p.name == "zen" && harnessName == "opencode" && model != "" && model != freeSelector && !strings.Contains(model, "/") {
+		q := qualifierOf(p) + "/" + model
+		return q, fmt.Sprintf("outsource: --model %s is a bare Zen id; the opencode harness takes %s, so this round runs --model %s",
+			model, q, q)
+	}
 	if p.name != "openrouter" || harnessName != "claude-code" {
 		return model, ""
 	}

@@ -1069,6 +1069,14 @@ func TestNormalizeModel(t *testing.T) {
 		{"openrouter", "claude-code", "", ""},
 		// On opencode the qualified form is the required one.
 		{"openrouter", "opencode", "openrouter/z-ai/glm-5.3-flash", "openrouter/z-ai/glm-5.3-flash"},
+		// A bare Zen id on its only harness gains the qualifier; the
+		// qualified form and anything with a slash stay as written.
+		{"zen", "opencode", "deepseek-v4.1-flash-free", "opencode/deepseek-v4.1-flash-free"},
+		{"zen", "opencode", "opencode/deepseek-v4.1-flash-free", "opencode/deepseek-v4.1-flash-free"},
+		{"zen", "opencode", "zen/deepseek-v4.1-flash-free", "zen/deepseek-v4.1-flash-free"},
+		{"zen", "opencode", "", ""},
+		// --model free is resolved after this call, into the qualified form.
+		{"zen", "opencode", freeSelector, freeSelector},
 		// Every other provider, on every harness it runs on: untouched.
 		{"zai", "claude-code", "glm-5.3", "glm-5.3"},
 		{"zai", "claude-code", "zai/glm-5.3", "zai/glm-5.3"},
