@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.22.0 — 2026-10-20 — free rounds stop failing on the identity check and the provider error
+
+- **An opencode round no longer fails exit 70 on a long session.** The
+  identity check read `opencode export` through a pipe. opencode 1.19.3
+  exits before a pipe drains, so a 1.2 MB export came back as 64 KiB or
+  128 KiB, cut mid-JSON, and a round that did its work failed as
+  "unparseable export". The export now goes to a file; 5 of 5 reads were
+  whole.
+- **An inherited `ANTHROPIC_API_KEY` no longer reaches a claude-code round.**
+  The round authenticates with `ANTHROPIC_AUTH_TOKEN`. A `sk-ant` key in the
+  launching shell rode along as a second credential, and OpenRouter answered
+  400 "provider.only preference permits only: anthropic" for
+  `minimax/minimax-m3.1-flash:free`. With the key dropped the same launch ran.
+  `:free` ids run on the claude-code harness; the harness was not the cause.
+  The fix also keeps the user's Anthropic key away from z.ai and OpenRouter.
+- **A bare Zen id is accepted.** `--provider zen --model
+  deepseek-v4.1-flash-free` runs as `opencode/deepseek-v4.1-flash-free` with
+  one stderr line, instead of exit 64.
+- **`free.prefer` in the config.** An ordered list of `"<provider>/<bare id>"`.
+  `--model free` tries it first; an entry that is absent or filtered is
+  skipped, never picked. With no `--provider` the walk spans providers and the
+  launch runs under the winner's provider and default harness. The pick line
+  names the entry and the skipped ones; `outsource models --pick free`
+  previews it.
+- **`runs` names what an idle round is running.** opencode writes a tool event
+  only when the call ends, so a long shell call looked like a stall. An idle
+  round now lists up to three live leaves under its harness (pid, command,
+  cpu, elapsed), or says it has no child. `runs json` carries them as
+  `descendants`.
+- **`--help` prints one line per flag** for `outsource-run` and `grok-run`,
+  with its meaning, under headings. A drift test fails when the parser and
+  the table disagree.
+- **spec-lint takes a scratch spec's outputs as outputs.** When the spec's
+  directory is outside `--root` and its repo, a missing absolute path under
+  it is counted in the summary, not reported. A spec kept in the repo stays
+  strict.
+- **Docs.** The spec preamble bans piping a gate's output into `tail`/`head`
+  (`audit` already flags it; a runtime refusal cannot tell a gate from
+  `ls | head`). The skill's backend selection now puts the user's named
+  default first and keeps GLM-5.3 as the fallback.
+
 ## 0.21.2 — 2026-10-19 — Agent-tool subagents are amended through a file, not a mid-turn message
 
 - **The skill tells Agent-tool subagents apart from outsource rounds.** A
