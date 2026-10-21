@@ -249,29 +249,34 @@ func (r *round) runClaudeCode() int {
 // the config dir's.
 //
 // writeSharedSettings holds the half of the hook configuration that is the same
-// for every round: the git guard. It is written to the config dir's settings.json,
-// which concurrent rounds share by default -- and sharing is harmless precisely
-// because nothing here names a particular round.
+// for every round: the git guard and any build guard. It is written to the config
+// dir's settings.json, which concurrent rounds share by default -- and sharing is
+// harmless precisely because nothing here names a particular round.
 //
-// PreToolUse is the git guard. It points at the BINARY rather than the
-// git-guard.sh shim, which is the one place in this port where the
-// compatibility name is deliberately bypassed. The guard fires on every Bash
-// tool call of every round, and the shim costs an extra fork each time --
+// PreToolUse is the git guard, then the build guard. The git guard points at the
+// BINARY rather than the git-guard.sh shim, which is the one place in this port
+// where the compatibility name is deliberately bypassed. The guard fires on every
+// Bash tool call of every round, and the shim costs an extra fork each time --
 // measured 15ms through the shim against 10ms direct. The decision the guard
 // makes is identical either way; the shim execs this same binary.
+//
+// The build guard is the command OUTSOURCE_BUILD_GUARD names, run after the git
+// guard on the same matcher: a machine whose rounds write code and leave the build
+// to another station names its hook there. Unset, a round has the git guard alone.
 func writeSharedSettings(path string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
+	hooks := []any{
+		map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
+	}
+	if guard := os.Getenv("OUTSOURCE_BUILD_GUARD"); guard != "" {
+		hooks = append(hooks, map[string]any{"type": "command", "command": guard, "timeout": 10})
+	}
 	settings := map[string]any{"hooks": map[string]any{
 		"PreToolUse": []any{
-			map[string]any{
-				"matcher": "Bash",
-				"hooks": []any{
-					map[string]any{"type": "command", "command": self + " guard", "timeout": 10},
-				},
-			},
+			map[string]any{"matcher": "Bash", "hooks": hooks},
 		},
 	}}
 	b, err := json.MarshalIndent(settings, "", "  ")

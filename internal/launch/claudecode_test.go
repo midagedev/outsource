@@ -22,6 +22,7 @@ import (
 // tell which was this round's — ten tool calls to guess the newest, and that
 // guess is simply wrong once two rounds share a cwd.
 func TestHookSettingsCarryTheGuardAndTheTrailRecorder(t *testing.T) {
+	t.Setenv("OUTSOURCE_BUILD_GUARD", "/opt/build-guard.sh")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings-1789448829-4242.json")
 	if err := writeHookSettings(path, "1789448829-4242", "/state/outsource/runs"); err != nil {
@@ -57,9 +58,12 @@ func TestHookSettingsCarryTheGuardAndTheTrailRecorder(t *testing.T) {
 	}
 
 	pre := shdoc.Hooks["PreToolUse"]
-	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 ||
+	if len(pre) != 1 || pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 2 ||
 		!strings.HasSuffix(pre[0].Hooks[0].Command, " guard") {
-		t.Fatalf("the git guard must still be the Bash PreToolUse hook:\n%s", sb)
+		t.Fatalf("the git guard must still be the first Bash PreToolUse hook:\n%s", sb)
+	}
+	if got := pre[0].Hooks[1].Command; got != "/opt/build-guard.sh" {
+		t.Fatalf("OUTSOURCE_BUILD_GUARD must be the second Bash PreToolUse hook:\n%s", sb)
 	}
 
 	start := doc.Hooks["SessionStart"]
@@ -271,5 +275,33 @@ func TestSyntheticLinesAreNotAnAnsweringModel(t *testing.T) {
 	b := analyzeRun(logPath, "glm-5.3", home)
 	if b.verdict != "mismatch" || b.actual != "glm-5.3,<synthetic>" {
 		t.Fatalf("an unflagged <synthetic> must still count: got verdict %q actual %q", b.verdict, b.actual)
+	}
+}
+
+// TestNoBuildGuardUnlessNamed: with OUTSOURCE_BUILD_GUARD unset, the git guard is
+// the only Bash PreToolUse hook.
+func TestNoBuildGuardUnlessNamed(t *testing.T) {
+	t.Setenv("OUTSOURCE_BUILD_GUARD", "")
+	shared := filepath.Join(t.TempDir(), "settings.json")
+	if err := writeSharedSettings(shared); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("the shared settings file is not JSON: %v\n%s", err, b)
+	}
+	pre := doc.Hooks["PreToolUse"]
+	if len(pre) != 1 || len(pre[0].Hooks) != 1 || !strings.HasSuffix(pre[0].Hooks[0].Command, " guard") {
+		t.Fatalf("an unset OUTSOURCE_BUILD_GUARD must leave the git guard alone:\n%s", b)
 	}
 }
