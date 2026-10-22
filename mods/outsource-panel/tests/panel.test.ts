@@ -55,7 +55,11 @@ import {
   setupRowsWanted,
   toggleEnabledArgv,
   visibleRows,
+  sectionId,
   sectionText,
+  MISSING_SECTION_HEAD,
+  missingSectionNote,
+  wrapProse,
   toolName,
   truncate,
   wakeText,
@@ -343,6 +347,9 @@ async function boot(
   })
 
   await $.session.start({ cwd: '/tmp/panel-test', surface: 'terminal', isInteractive: true })
+  // A session's first model request renders the system prompt (the panel's
+  // compose hook runs) long before any wake or tool call can happen.
+  await $.prompt.compose(COMPOSE_FACTS)
   await clock.settle()
   return { clock, state }
 }
@@ -1092,7 +1099,7 @@ test('the system section follows the wake toggle', async ($, on) => {
   const { clock } = await boot($, on, [wakeRow()])
   await clock.advance(5000)
   const onSections = (await $.prompt.compose(FACTS)) as any
-  const onSection = onSections.sections.find((s: any) => s.id === 'outsource-panel')
+  const onSection = onSections.sections.find((s: any) => s.id === sectionId(PLUGIN))
   expect(onSection?.scope).toBe('session')
   expect(onSection?.text).toBe(sectionText(true, PLUGIN))
   expect(sectionText(true, PLUGIN).length).toBeLessThanOrEqual(900)
@@ -1100,7 +1107,7 @@ test('the system section follows the wake toggle', async ($, on) => {
 
   await $.command.run({ command: 'rounds', args: 'wake off' })
   const offSections = (await $.prompt.compose(FACTS)) as any
-  const offSection = offSections.sections.find((s: any) => s.id === 'outsource-panel')
+  const offSection = offSections.sections.find((s: any) => s.id === sectionId(PLUGIN))
   expect(offSection?.text).toBe(sectionText(false, PLUGIN))
   expect(sectionText(false, PLUGIN).length).toBeLessThanOrEqual(900)
   expect(sectionText(false, PLUGIN)).toContain('wake is off')
@@ -1251,6 +1258,10 @@ test('wake: a round that finished while wake was off never wakes', async ($, on)
 // module (hooks/hooks.json at the repo root), so one marketplace install brings
 // the skill and the panel; the standalone `outsource-panel` keeps working.
 
+// The ids the standalone copy's section ever had: today's, and the bare one
+// it used before sections were named `<plugin>:<name>`.
+const STANDALONE_SECTION_IDS = ['outsource-panel:panel', 'outsource-panel']
+
 const COMPOSE_FACTS = {
   model: 'glm-5.3',
   promptModel: 'glm-5.3',
@@ -1388,7 +1399,7 @@ test('names follow $.plugin.name: registered tools, tool calls, section', async 
   expect(state.sends).toHaveLength(0)
 
   const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
-  const text = sections.sections.find((s: any) => s.id === 'outsource-panel')?.text ?? ''
+  const text = sections.sections.find((s: any) => s.id === sectionId(PLUGIN))?.text ?? ''
   expect(text).toContain('mcp__' + PLUGIN + '__rounds')
   expect(text).toContain('mcp__' + PLUGIN + '__round_send')
   expect(text).not.toContain('mcp__' + other + '__')
@@ -1489,7 +1500,7 @@ test('pair: a bundled copy admitted after the standalone makes it stand down', {
   const call = (await $.tool.call({ tool: 'mcp__outsource__rounds' })) as any
   expect(call.result).toBe('passed on')
   const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
-  expect(sections.sections.some((s: any) => s.id === 'outsource-panel')).toBe(false)
+  expect(sections.sections.some((s: any) => STANDALONE_SECTION_IDS.includes(s.id))).toBe(false)
   const pane = await $.ui.mount({ plugin: PANEL_NAME, surface: 'terminal', component: 'Pane', props: PANE_PROPS(120, 30), requestId: 'outsource-rounds' })
   expect(await texts(pane)).toEqual([])
   await pane.unmount()
@@ -1541,7 +1552,7 @@ test('panel off: nothing polls, toasts, wakes or draws; the tools answer the off
   await pane.unmount()
 
   const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
-  const section = sections.sections.filter((s: any) => s.id === 'outsource-panel')
+  const section = sections.sections.filter((s: any) => s.id === sectionId(PLUGIN))
   expect(section).toHaveLength(1)
   expect(section[0].text).toBe(offSectionText(PLUGIN))
   expect(section[0].text).toContain('no wake will come')
@@ -1628,7 +1639,7 @@ test('panel off survives a re-register; on/off are subcommand words; wake is its
   expect(state.processCalls).toBe(calls)
   expect((await $.command.run({ command: 'rounds', args: '' })).text).toBe(PANEL_OFF_TEXT)
   const sections = (await $.prompt.compose(COMPOSE_FACTS)) as any
-  expect(sections.sections.find((s: any) => s.id === 'outsource-panel')?.text).toBe(offSectionText(PLUGIN))
+  expect(sections.sections.find((s: any) => s.id === sectionId(PLUGIN))?.text).toBe(offSectionText(PLUGIN))
 
   // The wake switch still answers while the panel is off, and changes only
   // the wake; the panel stays off.
@@ -2546,6 +2557,89 @@ test('setup: a reload that finds the setup pane open loads it', async ($, on) =>
   await $.command.run({ command: 'rounds', args: 'setup' }) // the engine's record says open: this closes it
   expect(state.closes.map((c: any) => c.id)).toEqual(['outsource-setup'])
   await ui.unmount()
+})
+
+// ---- a managed plugin above skips the compose hook ---------------------------
+
+// Measured 2026-10-22 (reported live): "outsource: its prompt.compose hook was
+// skipped. "cc-plugin-sec-default" runs first and sent the event on past it."
+// An organization's managed plugin of the `prepend` tier answers
+// prompt.compose with `next.to(e, 'append')`, which skips every user-tier
+// hook, this panel's included; nothing a user plugin does runs above it. This
+// stand-in does exactly that.
+const SEC_DEFAULT_STANDIN = {
+  name: 'cc-plugin-sec-default',
+  tier: 'prepend' as const,
+  register(on: any) {
+    on('prompt.compose', ($: any, e: any, next: any) => next.to(e, 'append'))
+  },
+}
+
+// 60. With its section skipped, the wake carries it: the wake is the channel
+// no compose hook stands in front of. FAIL-first: before the fallback the
+// wake was the bare transition list, and a lead that saw the panel's tools
+// but no section could not tell that wake replaces wait.sh, or that the
+// prompt is never approval.
+test('compose skipped from above: the section is absent and the wake carries it', { plugins: [SEC_DEFAULT_STANDIN] }, async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  const composed = (await $.prompt.compose(COMPOSE_FACTS)) as any
+  expect(composed.sections.some((s: any) => s.id === sectionId(PLUGIN))).toBe(false)
+  await clock.advance(5000) // poll 1 seeds
+
+  const done = state.rows.find((r) => r.id === 'w1') as any
+  flipDone(done)
+  await clock.advance(5000)
+  expect(state.prompts).toHaveLength(1)
+  const note = missingSectionNote(sectionText(true, PLUGIN))
+  expect(state.prompts[0]).toBe(wakeText([{ row: done, kind: 'done' }], BIN, note))
+  expect(state.prompts[0]).toContain(MISSING_SECTION_HEAD)
+  expect(state.prompts[0]).toContain('never approval')
+  expect(state.prompts[0]).toContain(toolName(PLUGIN, 'round_send'))
+  for (const line of note) expect(displayWidth(line)).toBeLessThanOrEqual(200)
+  // One debug line per load says why, however many wakes follow.
+  const why = state.logs.filter((t) => t.includes('prompt.compose never reached this panel'))
+  expect(why).toHaveLength(1)
+})
+
+// 61. The `rounds` answer carries the section too, after the rows, in the
+// mode it is in now (here wake off: arm wait.sh as usual).
+test('compose skipped from above: the rounds tool appends the section in its current mode', { plugins: [SEC_DEFAULT_STANDIN] }, async ($, on) => {
+  const { clock } = await boot($, on, [wakeRow()])
+  await clock.advance(5000)
+  await $.command.run({ command: 'rounds', args: 'wake off' })
+  const res = (await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any
+  const lines = String(res.result).split('\n')
+  expect(lines[0].startsWith(' ▶  api-fix')).toBe(true)
+  expect(lines.slice(1)).toEqual(['', ...missingSectionNote(sectionText(false, PLUGIN))])
+  expect(res.isError).toBeFalsy()
+})
+
+// 62. A section that reached the prompt is never repeated: the wake and the
+// tool stay exactly as they were.
+test('compose heard: neither the wake nor the tool repeats the section', async ($, on) => {
+  const { clock, state } = await boot($, on, [wakeRow()])
+  await clock.advance(5000)
+  const res = (await $.tool.call({ tool: toolName(PLUGIN, 'rounds') })) as any
+  expect(String(res.result)).not.toContain(MISSING_SECTION_HEAD)
+  const done = state.rows.find((r) => r.id === 'w1') as any
+  flipDone(done)
+  await clock.advance(5000)
+  expect(state.prompts).toEqual([wakeText([{ row: done, kind: 'done' }], BIN)])
+})
+
+// 63. The section's id is `<plugin>:panel`, the shape the engine reads as a
+// plugin's own; a bare id is the engine's.
+test('sectionId is <plugin>:panel', () => {
+  expect(sectionId('outsource')).toBe('outsource:panel')
+  expect(sectionId('outsource-panel')).toBe('outsource-panel:panel')
+  expect(() => (sectionId as any)()).toThrow()
+})
+
+test('wrapProse wraps by width and never cuts a word', () => {
+  expect(wrapProse('aa bb cc', 5)).toEqual(['aa bb', 'cc'])
+  expect(wrapProse('  aa   bb ', 80)).toEqual(['aa bb'])
+  expect(wrapProse('x '.repeat(3) + 'y'.repeat(12), 10)).toEqual(['x x x', 'y'.repeat(12)])
+  expect(wrapProse('', 10)).toEqual([])
 })
 
 // Last, on purpose: every `$.ui.log` line any test above produced went to the

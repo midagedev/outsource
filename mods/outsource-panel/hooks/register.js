@@ -37,6 +37,7 @@ import {
   isOwn,
   leadMessage,
   logText,
+  missingSectionNote,
   offSectionText,
   pairVerdict,
   parseConfigList,
@@ -46,6 +47,7 @@ import {
   roundsToolLine,
   rowColor,
   rowLine,
+  sectionId,
   sectionText,
   setupRowsWanted,
   stripStamp,
@@ -104,6 +106,8 @@ let catchupArmed = true // the first good poll runs the resume catch-up
 let wakePending = false // a wake submit has not settled yet
 let wakeBuffer = [] // transitions found while a submit was outstanding (already recorded)
 let retryQueue = [] // { id, kind } a refused submit un-recorded, for the next poll
+let composeHeard = false // this load's prompt.compose hook has run at least once
+let missingLogged = false // the skipped-section line went to the debug log this load
 // The setup pane. It has no timer: it loads on open, after every write, and
 // on a reload that finds it open.
 let setupOpen = false
@@ -298,8 +302,9 @@ export const register = (on) => {
     if (standingDown || e.tool !== toolName($.plugin.name, 'rounds')) return next(e)
     if (!enabled) return { result: PANEL_OFF_TEXT, isError: true }
     if (!binOk) return { result: 'outsource binary not found: ' + binTried.join(' · '), isError: true }
-    if (visible.length === 0) return { result: 'no rounds' }
-    return { result: visible.map((row) => roundsToolLine(row, sessionId)).join('\n') }
+    const lines = visible.length === 0 ? ['no rounds'] : visible.map((row) => roundsToolLine(row, sessionId))
+    if (sectionMissing($)) lines.push('', ...missingSectionNote(sectionText(wakeOn, $.plugin.name)))
+    return { result: lines.join('\n') }
   })
 
   on('tool.call', { tool: ['mcp__outsource__round_send', 'mcp__outsource-panel__round_send'] }, async ($, e, next) => {
@@ -314,13 +319,21 @@ export const register = (on) => {
   // One session-scoped section stating only what this mod makes true. It
   // changes only when the wake toggle or the panel switch changes, so a
   // cached composition stays valid (and each toggle invalidates it).
+  //
+  // A managed plugin of the `prepend` tier can continue past this hook with
+  // `next.to(e, 'append')`; the engine then prints "<plugin>: its
+  // prompt.compose hook was skipped. <that plugin> runs first and sent the
+  // event on past it." No user-tier plugin can run above it, so this hook
+  // records that it ran, and the wake and the `rounds` answer carry the
+  // section when it never did (sectionMissing).
   on('prompt.compose', ($, e, next) => {
     if (standingDown) return next(e)
+    composeHeard = true
     return next(e).then((base) => ({
       sections: [
         ...base.sections,
         {
-          id: 'outsource-panel',
+          id: sectionId($.plugin.name),
           text: enabled ? sectionText(wakeOn, $.plugin.name) : offSectionText($.plugin.name),
           scope: 'session',
         },
@@ -636,6 +649,23 @@ async function wakeCommand($, rest) {
   $.ui.invalidate('prompt.section')
   log($, 'wake ' + (wakeOn ? 'on' : 'off'))
   return (wakeOn ? 'wake is on — round transitions wake the lead model' : 'wake is off — toasts only') + offNote
+}
+
+// ---- the system section's fallback -------------------------------------------
+
+// Whether the system section never reached the model this load. Asked only
+// where a model request has already happened — the model called `rounds`, or
+// a round it launched changed state — so a system prompt was rendered and a
+// compose hook that never ran was skipped by a plugin above. Right after a
+// hot reload the hook may only not have run yet; that guess costs one
+// repeated section, never a missing one.
+function sectionMissing($) {
+  if (composeHeard) return false
+  if (!missingLogged) {
+    missingLogged = true
+    log($, 'prompt.compose never reached this panel (a plugin above skipped it) — the wake and the rounds tool carry the section')
+  }
+  return true
 }
 
 // ---- the debug log -------------------------------------------------------------
@@ -1064,7 +1094,9 @@ function sendWake($, fresh) {
     'waking the lead model — ' +
       fresh.map((t) => (t.row.label ?? t.row.id) + ' → ' + t.kind).join(', '),
   )
-  void Promise.resolve($.prompt.submit({ text: wakeText(fresh, bin) }))
+  // A wake is only sent with wake on, so the note is the wake-on section.
+  const note = sectionMissing($) ? missingSectionNote(sectionText(true, $.plugin.name)) : null
+  void Promise.resolve($.prompt.submit({ text: wakeText(fresh, bin, note) }))
     .catch((err) => {
       // The prompt did not enter: it was not delivered. Un-record these so a
       // later poll can offer them again, and queue the retry.

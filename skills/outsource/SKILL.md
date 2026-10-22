@@ -451,7 +451,12 @@ lead model when its own change state:
   are registered;
 - with the panel loaded you do not need `wait.sh` for rounds launched from
   this session — the wake replaces the waiter (`wait.sh` is for sessions
-  without the panel).
+  without the panel). "Loaded" means the system prompt carries the
+  `Outsource panel:` section, not only that the tools are listed: an
+  organization's managed plugin can skip the panel's section, and then the
+  tools exist with no section. In that case call the `rounds` tool — its
+  answer ends with the section, under "Outsource panel note" — and follow
+  what it says; until you have, arm the waiter as before.
 
 "Own" means launched from this session id. A fresh session therefore sees
 every earlier round as foreign (⇄), and so does a session after `/clear`.
