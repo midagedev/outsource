@@ -437,7 +437,7 @@ export const WAKE_MAX_COLUMNS = 200
 // wake spells are runnable as written (the `outsource` command is not on
 // PATH; measured 2026-10-06). Never the trail path, the messaging socket,
 // an activity line or any tail output: those are written by the round.
-export function wakeText(transitions, bin) {
+export function wakeText(transitions, bin, note = null) {
   if (typeof bin !== 'string' || bin === '') {
     // A missing bin is a programming error (register.js owns the path), not
     // a wake that quietly spells broken commands.
@@ -458,7 +458,40 @@ export function wakeText(transitions, bin) {
   // running, so a stall-only wake has nothing to review yet.
   const review = transitions.find((t) => t.kind !== 'stalled')
   if (review !== undefined) lines.push(...reviewBlock(review, bin))
+  if (note !== null) lines.push(...note)
   return lines.join('\n')
+}
+
+// What the panel says when its system section did not reach the model: a
+// plugin of a tier above (an organization's managed `prepend` plugin) can
+// continue prompt.compose past every user plugin with `next.to`, and no
+// user plugin can run above it. The wake and the `rounds` answer are the
+// channels such a plugin does not skip, so they carry the section instead:
+// one prose header, then the section itself, wrapped to the wake's budget.
+export const MISSING_SECTION_HEAD =
+  "Outsource panel note — this session's system prompt does not carry the panel's section " +
+  '(a plugin above it skipped the hook), so here it is:'
+
+export function missingSectionNote(sectionLine) {
+  return [truncate(MISSING_SECTION_HEAD, WAKE_MAX_COLUMNS), ...wrapProse(sectionLine, WAKE_MAX_COLUMNS)]
+}
+
+// Greedy word wrap by display width; a single word wider than `w` stands
+// alone, whole (a tool name or a path is never cut).
+export function wrapProse(text, w) {
+  const out = []
+  let line = ''
+  for (const word of String(text).split(/\s+/)) {
+    if (word === '') continue
+    if (line === '') line = word
+    else if (displayWidth(line) + 1 + displayWidth(word) <= w) line += ' ' + word
+    else {
+      out.push(line)
+      line = word
+    }
+  }
+  if (line !== '') out.push(line)
+  return out
 }
 
 // The review routine as commands a model can copy verbatim, one per line:
@@ -532,8 +565,18 @@ export function roundsToolLine(row, ownerSession) {
   )
 }
 
+// The system-prompt section's id: `<plugin>:<name>` is how the engine tells
+// a plugin's section from its own (a bare id is the engine's), and a hook
+// above finds it by that id to keep, move or drop it.
+export function sectionId(pluginName) {
+  if (typeof pluginName !== 'string' || pluginName === '') {
+    throw new Error('sectionId: pluginName — $.plugin.name — is required')
+  }
+  return pluginName + ':panel'
+}
+
 // The system-prompt section the panel appends while loaded (id
-// 'outsource-panel'). Only facts this mod makes true, and it changes only
+// sectionId(<plugin>)). Only facts this mod makes true, and it changes only
 // when the wake toggle changes, so the engine can cache it. The tool names
 // carry this copy's plugin name ($.plugin.name): the bundled copy's tools are
 // mcp__outsource__…, the standalone's mcp__outsource-panel__….

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — the panel keeps its contract when a managed plugin skips its section
+
+- **A skipped system section no longer leaves the lead guessing.** An
+  organization's managed plugin (`cc-plugin-sec-default`, reported
+  2026-10-22) answers `prompt.compose` with `next.to(e, 'append')`, which
+  skips every installed plugin's hook; Claude Code prints "outsource: its
+  prompt.compose hook was skipped". No installed plugin can run above a
+  managed one, so the panel now records whether its compose hook ran. When it
+  never did, each wake and each `rounds` answer end with the section itself
+  under "Outsource panel note — this session's system prompt does not carry
+  the panel's section", and the debug log says so once per load. The lead
+  that saw the tools but no section used to read the wake without "never
+  approval" and could not tell wake from `wait.sh`.
+- **The section's id is `<plugin>:panel`** (`outsource:panel`,
+  `outsource-panel:panel`), the shape the engine reads as a plugin's own; it
+  was the bare `outsource-panel`, which reads as an engine section.
+- **SKILL.md**: the panel counts as loaded when the system prompt carries its
+  section, not when its tools are listed; otherwise call `rounds` first.
+
 ## 0.22.1 — 2026-10-20 — the dispatcher no longer hangs on an empty cache
 
 - **A killed fetcher no longer wedges every caller.** Sessions on 0.21.1,
