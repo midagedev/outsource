@@ -97,7 +97,9 @@ func (r *round) runOpencode() int {
 	cmd.Env = opencodeEnv(ocHome, r.o.cwd)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	keep := keepLog(logPath)
 	rc := r.runChild(cmd, logf, errf)
+	restoreLog(logPath, keep, r.stderr)
 	r.sid = firstSessionID(logPath)
 	if r.timedOut {
 		r.timedOutNote()

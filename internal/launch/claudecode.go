@@ -177,7 +177,9 @@ func (r *round) runClaudeCode() int {
 	// Its own process group, so the watchdog can signal the whole tree.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	keep := keepLog(logPath)
 	rc := r.runChild(cmd, logf, errf)
+	restoreLog(logPath, keep, r.stderr)
 	if r.timedOut {
 		// A killed round has a truncated log, so the model-identity assertion would
 		// fail on it and report a mismatch that never happened. The ceiling is the

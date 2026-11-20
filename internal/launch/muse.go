@@ -90,7 +90,9 @@ func (r *round) runMuse() int {
 	cmd.Env = gitshim.PrependPath(nestedEnv(os.Environ()), binDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	keep := keepLog(logPath)
 	rc := r.runChild(cmd, logf, errf)
+	restoreLog(logPath, keep, r.stderr)
 	r.sid = museSessionID(logPath)
 	if r.timedOut {
 		r.timedOutNote()

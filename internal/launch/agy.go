@@ -103,7 +103,9 @@ func (r *round) runAgy() int {
 	cmd.Env = nestedEnv(os.Environ())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	keep := keepLog(logPath)
 	rc := r.runChild(cmd, logf, errf)
+	restoreLog(logPath, keep, r.stderr)
 	st := parseAgyStream(logPath)
 	r.sid = st.conversationID
 	if r.timedOut {
