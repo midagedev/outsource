@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.22.2 — 2026-11-21 — a round that removes its own log no longer fails a finished round
+
+- **A removed log is put back.** A round ran its scratch cleanup as its last
+  step, and that cleanup removed `round.log` itself (measured 2026-11-21).
+  The launcher then read no session, no model evidence and no done marker
+  from the path, and failed a finished round with exit 70. The launcher now
+  keeps a second handle on the log before the child starts. When the path is
+  gone at the end, it writes the log back from that handle and says so on
+  stderr. A path the round wrote anew is left alone.
+- **`OUTSOURCE_BUILD_GUARD` adds a second Bash PreToolUse hook** to
+  claude-code rounds. A machine whose rounds write code and leave the build to
+  a station names its hook there; unset, a round keeps the git guard alone.
+
 ## 0.22.1 — 2026-10-20 — the dispatcher no longer hangs on an empty cache
 
 - **A killed fetcher no longer wedges every caller.** Sessions on 0.21.1,
