@@ -3,7 +3,7 @@ name: outsource
 description: >
   Outsource implementation, investigation/research, numeric harnesses and
   vision-verdict work to third-party model CLIs running as headless
-  sub-agents — GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
+  sub-agents — GLM-5.4, GLM-5.3 and glm-5.3-flash (z.ai coding plan, run through
   headless Claude Code or the crush CLI), the grok CLI (grok-4.7),
   gemini-3.8-flash-high (agy CLI, Google plan), muse-spark-1.3-contributor
   (Muse Code CLI), OpenCode Zen's free step-5-preview-free (opencode CLI),
@@ -12,7 +12,7 @@ description: >
   session stays orchestration-only. Use when the user asks to run work via
   grok / glm / crush / opencode / openrouter / zen / agy / muse, to save
   tokens, or invokes /outsource.
-  Pick the backend by task: the default glm-5.3 cannot read images, so
+  Pick the backend by task: the default glm-5.4 is not probed for images, so
   vision rounds go to agy, glm-5.3-flash, grok, muse, or a Claude agent.
 ---
 
@@ -43,7 +43,8 @@ included; the three tables in `internal/launch/wiring.go` are the source.
 
 | Model | Provider · harness | Use it for | Hard limits |
 |---|---|---|---|
-| **glm-5.3** — the default | zai · claude-code (default) or crush (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | **blind** (`--model glm-5.3-flash` sees); style/look/UI-interaction authoring measured weaker — route those elsewhere |
+| **glm-5.4** — the default since 2026-11-23 | zai · claude-code (default) or crush (`references/glm.md`) | **every spec-able round**, as glm-5.3 before it. Endpoint answers it verbatim; 1M-token prompt measured accepted | **not probed for pixels**: a pixel verdict on it is refused (exit 65) — vision goes elsewhere |
+| **glm-5.3** | zai · claude-code (default) or crush (`references/glm.md`) | **every spec-able round**: implementation, mechanical edits, gate authoring, code investigation, reports. Strong disclosure and premise-correction | **blind** (`--model glm-5.3-flash` sees); style/look/UI-interaction authoring measured weaker — route those elsewhere |
 | **glm-5.3-flash** | zai · claude-code or crush | mechanical and fan-out rounds when 5.3 quota is the constraint (3× the quota), and capture self-verification | sees shape and colour family (`#1E50DC` read as `#2244DD`); slower than 5.3 on every benched task |
 | **gemini-3.8-flash-high** — Google plan | agy · agy (`references/agy.md`) | spec-able rounds on a separate quota pool, and the **best measured vision** of the set (its predecessor 3.7 named a solid `#1E50DC` PNG's hex exactly; 3.8, routed since 2026-09-05, not yet re-measured) | exit 0 ≠ success — the launcher reads the result event's `status` |
 | **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · opencode (`references/opencode.md`) | a process family at no cost and with no login: 1M context | **borrowed** — the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Sees shape and colour family (`#1E50DC` read as `#3A5BF0`), and once answered a glyph probe without opening the image |
@@ -88,7 +89,7 @@ Selection rules:
   `defaultModel`, or the user's own instructions name a default backend or
   an order of backends, follow it; the text below is the fallback for a
   user who named none.
-- **Absent that, default to GLM-5.3.** Route `--model glm-5.3-flash` for mechanical and
+- **Absent that, default to GLM-5.4** (glm-5.3 by name still works). Route `--model glm-5.3-flash` for mechanical and
   fan-out rounds when 5.3 quota is the constraint, or when the round must
   open its own captures. Reach for grok when pixels must be generated
   (image/video) or a web tool the GLM harness lacks; agy for a separate

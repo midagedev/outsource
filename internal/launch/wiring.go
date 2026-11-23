@@ -126,7 +126,8 @@ var providerTable = []provider{
 	{
 		name:           "zai",
 		url:            "https://api.z.ai/api/anthropic",
-		defaultModel:   "glm-5.3",
+		// glm-5.4 since 2026-11-23, the owner's pin on its release day.
+		defaultModel:   "glm-5.4",
 		defaultHarness: "claude-code",
 		modelEnv:       "GLM_DELEGATE_MODEL",
 		// zai is the one provider whose ids were probed individually, so the
@@ -137,7 +138,9 @@ var providerTable = []provider{
 		// 1310720, the exact figure behind z.ai's "1M-token context window"
 		// for GLM-5.3 and GLM-5.3-Flash (their model page), and what the CLI
 		// reports verbatim once told. Measured to work: 243868 input tokens
-		// accepted where 200000 had refused.
+		// accepted where 200000 had refused. glm-5.4 measured 2026-11-23: a
+		// 1000020-token prompt answered, a ~1.4M one refused (code 1261,
+		// "prompt is too long"), so the same window holds for it.
 		contextWindow: 1310720,
 	},
 	{
@@ -439,6 +442,15 @@ type model struct {
 // rows here on purpose — it is a catalogue, the caller names the id per
 // round, and its provider row's unlistedVision carries the deferral.
 var modelTable = []model{
+	{
+		provider: "zai",
+		id:       "glm-5.4",
+		// The default since 2026-11-23. Measured that day: the endpoint
+		// answered a glm-5.4 request naming glm-5.4, and refused glm-5.4-flash
+		// (code 1211, unknown model). No pixel probe yet, so a pixel verdict
+		// on it is refused, as for every unmeasured zai id.
+		vision: visionUnmeasured,
+	},
 	{
 		provider: "zai",
 		id:       "glm-5.3",

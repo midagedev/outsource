@@ -42,7 +42,7 @@ dir="$CLAUDE_CONFIG_DIR/projects/-fake-cwd"
 mkdir -p "$dir"
 tr="$dir/$sid.jsonl"
 printf '%s\n' '{"type":"user","message":{"role":"user","content":"input"}}' >> "$tr"
-printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T06:29:58.000Z","message":{"model":"glm-5.3","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}' >> "$tr"
+printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T06:29:58.000Z","message":{"model":"glm-5.4","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}' >> "$tr"
 outcome="$(sed -n "${n}p" "$FAKE_CC_SCRIPT")"
 case "$outcome" in
   429*)
@@ -52,7 +52,7 @@ case "$outcome" in
     printf '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"session_id":"%s","result":"%s","usage":{"output_tokens":1}}\n' "$sid" "$text"
     exit 1 ;;
   *)
-    printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T08:25:02.000Z","message":{"model":"glm-5.3","content":[{"type":"text","text":"Report: done."}]}}' >> "$tr"
+    printf '%s\n' '{"type":"assistant","timestamp":"2026-10-06T08:25:02.000Z","message":{"model":"glm-5.4","content":[{"type":"text","text":"Report: done."}]}}' >> "$tr"
     printf '{"type":"result","subtype":"success","session_id":"%s","result":"Report: done.\\n\\nDONE-QR","usage":{"output_tokens":1}}\n' "$sid"
     exit 0 ;;
 esac
@@ -416,7 +416,7 @@ func TestResumeOnResetWaitsAndResumesTheSameSession(t *testing.T) {
 	s := g.sentinel()
 	mustContain(t, "sentinel", s,
 		"rc=0\n", "resumed_after_reset=1\n", "quota_exhausted=0\n",
-		"done_marker=found (DONE-QR)", "model_actual=glm-5.3\n", "tool_calls=2\n")
+		"done_marker=found (DONE-QR)", "model_actual=glm-5.4\n", "tool_calls=2\n")
 	mustNotContain(t, "sentinel", s, "wrapper_signal=", "reset_zone_suspect=")
 	mustContain(t, "stdout", out, "SESSION 11111111-2222-4333-8444-555555555555")
 	if strings.Count(out, "SESSION ") != 1 {

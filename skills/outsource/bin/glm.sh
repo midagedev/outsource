@@ -6,7 +6,7 @@
 # Claude Code CLI you already use, with you at the keyboard. No spec, no
 # done-marker, no sentinel, no round record.
 #
-#   glm.sh                       an interactive session on glm-5.3
+#   glm.sh                       an interactive session on glm-5.4
 #   glm.sh --resume              every claude flag passes straight through
 #   GLM_MODEL=glm-5.3-flash glm.sh   the model with eyes (see glm.md)
 #
@@ -68,7 +68,7 @@ fi
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-model="${GLM_MODEL:-glm-5.3}"
+model="${GLM_MODEL:-glm-5.4}"
 
 # glm-5.2 is refused, and today the reason is worse than it was. Measured
 # twice on 2026-08-27, its reply named a DIFFERENT model than the request —
@@ -83,7 +83,7 @@ if [ "$model" = "glm-5.2" ]; then
   echo "glm.sh: refusing glm-5.2 — its reply used to name a different model (measured twice," >&2
   echo "        2026-08-27); since 2026-09-20 z.ai echoes whatever id it is given, so what" >&2
   echo "        actually answers glm-5.2 can no longer be checked at all." >&2
-  echo "        Use glm-5.3, or glm-5.3-flash when you need the model to see pixels." >&2
+  echo "        Use glm-5.4, or glm-5.3-flash when you need the model to see pixels." >&2
   exit 64
 fi
 

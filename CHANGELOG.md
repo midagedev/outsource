@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.22.3 — 2026-11-23 — zai defaults to glm-5.4
+
+- **The zai default is glm-5.4.** z.ai released it on 2026-11-23 and the
+  owner pinned GLM rounds to it. Measured that day on the Anthropic
+  endpoint: a glm-5.4 request is answered naming glm-5.4, `glm-5.4-flash` is
+  refused (1211, unknown model), a 1000020-token prompt is answered and a
+  ~1.4M one refused (1261), so the provider's 1310720 window holds. It has
+  its own model row with no pixel probe, so the vision guard refuses an
+  image verdict on it. glm-5.3 and glm-5.3-flash stay routable by name.
+  `glm.sh` opens on glm-5.4 too.
+
 ## 0.22.2 — 2026-11-21 — a round that removes its own log no longer fails a finished round
 
 - **A removed log is put back.** A round ran its scratch cleanup as its last

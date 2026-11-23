@@ -116,7 +116,7 @@ if [ "$rc" -ne 0 ]; then
 elif [ ! -f "$rec" ]; then
   bad "a plain launch never reached claude"
 else
-  want=glm-5.3
+  want=glm-5.4
   for v in ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL \
            ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_SMALL_FAST_MODEL CLAUDE_CODE_SUBAGENT_MODEL; do
     got="$(field "$rec" "$v")"

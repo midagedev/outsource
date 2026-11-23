@@ -14,7 +14,8 @@ A round is three choices, and they are separate. The **model** does the work. Th
 
 | Model | Provider · harness | Use it for | Watch out |
 |---|---|---|---|
-| **GLM-5.3** — the default | zai · headless Claude Code (`claude -p`, default) or the `crush` CLI, on the [z.ai coding plan](https://z.ai/subscribe) | every spec-able round: implementation, gate authoring, code investigation | **blind** — it cannot read images; does not flag a contract it cannot satisfy |
+| **GLM-5.4** — the default since 2026-11-23 | zai · headless Claude Code (`claude -p`, default) or the `crush` CLI, on the [z.ai coding plan](https://z.ai/subscribe) | every spec-able round, as GLM-5.3 before it | not probed for pixels yet — the vision guard refuses an image verdict on it |
+| **GLM-5.3** | zai · headless Claude Code (`claude -p`, default) or the `crush` CLI, on the [z.ai coding plan](https://z.ai/subscribe) | every spec-able round: implementation, gate authoring, code investigation | **blind** — it cannot read images; does not flag a contract it cannot satisfy |
 | **glm-5.3-flash** — same plan, 3× the quota | zai · the same two | mechanical edits and large fan-out when 5.3 quota is the constraint, plus capture self-verification — **it sees pixels** (read a solid `#1E50DC` back as `#2244DD`, ~5% per channel) | measured slower than 5.3 on every benched task — its value is quota and eyes, not speed |
 | **gemini-3.8-flash-high** — Google plan | agy · the `agy` CLI (Antigravity) | spec-able rounds on a **separate quota pool**. Its predecessor 3.7 was the fastest arm benched (2–3× on two of three tasks) and the **best measured vision** (named a solid `#1E50DC` PNG's hex exactly); 3.8 is not re-measured yet | exit 0 ≠ success — the launcher reads the result event's `status` |
 | **step-5-preview-free** — OpenCode Zen, free for a limited time | zen · the `opencode` CLI | a process family at **no cost and no login**, with a 1M context. Reads shape and colour family (`7` and `L` right; `#1E50DC` read as `#3A5BF0`) | **borrowed**: the free window ends when OpenCode ends it (announced as one week on 2026-10-09). Once answered a glyph probe without opening the image — a verdict counts only if the log shows the `read` call |
@@ -676,8 +677,8 @@ Everything downstream derives from those three — the `--harness` validation, t
 
 ```
 PROVIDER     HARNESS        DEFAULT MODEL                NOTES
-zai          claude-code    glm-5.3                      default harness; seeds from $GLM_DELEGATE_MODEL
-zai          crush          glm-5.3                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
+zai          claude-code    glm-5.4                      default harness; seeds from $GLM_DELEGATE_MODEL
+zai          crush          glm-5.4                      --model form zai/<id>; seeds from $GLM_DELEGATE_MODEL
 xai          claude-code    grok-4.6                     default harness
 xai          crush          grok-4.6                     --model form xai/<id>
 openrouter   claude-code    (--model required)           default harness
@@ -688,7 +689,8 @@ agy          agy            gemini-3.8-flash-high        default harness
 
 MODELS (measured per id; ids not listed fall back to the provider)
 PROVIDER     MODEL                          VISION         CONTEXT    NOTES
-zai          glm-5.3                        blind          1310720    default
+zai          glm-5.4                        unmeasured     1310720    default
+zai          glm-5.3                        blind          1310720
 zai          glm-5.3-flash                  colour-family  1310720
 zai          glm-5.2                        unmeasured     1310720    refused at launch: answered by glm-5.3
 zai          (other ids)                    guard refuses  1310720

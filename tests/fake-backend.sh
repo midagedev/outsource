@@ -58,7 +58,7 @@ if [ -n "${FAKE_PROVIDER_CANARY:-}" ]; then
   : > "$FAKE_PROVIDER_CANARY"
 fi
 cat >/dev/null
-printf '%s\n' '{"session_id":"sess-identity","usage":{"input_tokens":1},"total_cost_usd":0,"modelUsage":{"glm-5.3":{"inputTokens":1}}}'
+printf '%s\n' '{"session_id":"sess-identity","usage":{"input_tokens":1},"total_cost_usd":0,"modelUsage":{"glm-5.4":{"inputTokens":1}}}'
 exit 0
 FAKE
 chmod +x "$TMP/bin/claude"

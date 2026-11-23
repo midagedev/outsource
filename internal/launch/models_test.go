@@ -226,18 +226,18 @@ func TestModelTableAgrees(t *testing.T) {
 			"xai/grok-4.6 is declared twice"},
 		// Clause 3: every non-empty defaultModel has a model row.
 		{"default without a row", mutate(func(m *model) {
-			if m.provider == "zai" && m.id == "glm-5.3" {
-				m.id = "glm-5.3-b"
+			if m.provider == "zai" && m.id == "glm-5.4" {
+				m.id = "glm-5.4-b"
 			}
-		}), "defaults to glm-5.3, which has no modelTable row"},
+		}), "defaults to glm-5.4, which has no modelTable row"},
 		{"muse default without a row", mutate(func(m *model) {
 			if m.provider == "muse" {
 				m.id = "muse-spark-1.4-contributor"
 			}
 		}), "defaults to muse-spark-1.3-contributor, which has no modelTable row"},
 		// Clause 4: no default is a row with answeredBy set.
-		{"default is a silent mapping", withRow("zai", "glm-5.3", func(m *model) { m.answeredBy = "glm-4.6" }),
-			"default glm-5.3 is a silent mapping"},
+		{"default is a silent mapping", withRow("zai", "glm-5.4", func(m *model) { m.answeredBy = "glm-4.6" }),
+			"default glm-5.4 is a silent mapping"},
 		{"agy default refused", withRow("agy", "gemini-3.8-flash-high", func(m *model) { m.answeredBy = "gemini-3.9" }),
 			"is a silent mapping"},
 		// Clause 5: an answeredBy target is not itself mapped (no chains).

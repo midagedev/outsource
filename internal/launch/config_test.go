@@ -121,7 +121,7 @@ func TestUserConfigDisabledProviderRefusedBeforeTheRegistry(t *testing.T) {
 // precedence is --model, then the provider's model env var, then the config,
 // then the table. Read from a real (fake-crush) round's sentinel and registry
 // record. FAIL-first: without `p.defaultModel = m` the config row reads
-// model_requested=zai/glm-5.3 and model=glm-5.3.
+// model_requested=zai/glm-5.4 and model=glm-5.4.
 func TestUserConfigDefaultModelReachesEveryReader(t *testing.T) {
 	_, _, spec := slotEnvRig(t)
 	dir := filepath.Dir(spec)
@@ -134,7 +134,7 @@ func TestUserConfigDefaultModelReachesEveryReader(t *testing.T) {
 		{"config default", `{"providers": {"zai": {"defaultModel": "glm-4.6"}}}`, "", "", "zai/glm-4.6", "glm-4.6"},
 		{"--model beats the config", `{"providers": {"zai": {"defaultModel": "glm-4.6"}}}`, "", "zai/glm-5.3-flash", "zai/glm-5.3-flash", "zai/glm-5.3-flash"},
 		{"GLM_DELEGATE_MODEL beats the config", `{"providers": {"zai": {"defaultModel": "glm-4.6"}}}`, "zai/glm-5.3-flash", "", "zai/glm-5.3-flash", "zai/glm-5.3-flash"},
-		{"no config: the table", `{}`, "", "", "zai/glm-5.3", "glm-5.3"},
+		{"no config: the table", `{}`, "", "", "zai/glm-5.4", "glm-5.4"},
 	}
 	for i, c := range cases {
 		userConfig(t, c.config)
@@ -350,7 +350,7 @@ func TestListWiringNamesTheUserConfig(t *testing.T) {
 		t.Fatalf("no config: --list-wiring must be the bare matrix; got the extra:\n%s", strings.TrimPrefix(got, bare))
 	}
 	// A config that restates the table changes nothing.
-	userConfig(t, `{"providers": {"zai": {"enabled": true, "defaultModel": "glm-5.3"}}}`)
+	userConfig(t, `{"providers": {"zai": {"enabled": true, "defaultModel": "glm-5.4"}}}`)
 	if got := wiring(); got != bare {
 		t.Fatalf("a no-op config printed:\n%s", strings.TrimPrefix(got, bare))
 	}
